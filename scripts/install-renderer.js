@@ -1,0 +1,15 @@
+import {mkdirSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
+import {resolve,dirname,join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+const pkgPath=join(root,'package.json'),pkg=JSON.parse(readFileSync(pkgPath,'utf8'));
+const version=pkg.dependencies?.['playwright-core']||'latest';
+const response=await fetch('https://registry.npmjs.org/playwright-core/'+version);if(!response.ok)throw new Error('Could not resolve playwright-core from npm.');
+const metadata=await response.json();const archive=Buffer.from(await(await fetch(metadata.dist.tarball)).arrayBuffer());
+const digest='sha512-'+createHash('sha512').update(archive).digest('base64');if(digest!==metadata.dist.integrity)throw new Error('npm archive integrity check failed.');
+const target=join(root,'node_modules','playwright-core'),scratch=join(root,'node_modules','.scout-renderer.tgz');mkdirSync(target,{recursive:true});writeFileSync(scratch,archive);
+execFileSync('tar',['-xzf',scratch,'-C',target,'--strip-components','1']);rmSync(scratch);
+pkg.dependencies={...pkg.dependencies,'playwright-core':metadata.version};writeFileSync(pkgPath,JSON.stringify(pkg,null,2)+'\n');
+console.log(`Installed playwright-core ${metadata.version} (verified npm SHA-512). Uses an existing Edge/Chromium executable; no browser downloaded.`);
