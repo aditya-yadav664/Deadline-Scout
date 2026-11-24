@@ -161,3 +161,25 @@ test('transient email failures retry within the idempotency window; stale sends 
  let d=f.store.list('local-demo','delivery').find(d=>d.channel==='email');assert.equal(d.status,'retry');d.nextTry=0;f.store.put('local-demo','delivery',d.id,d);await f.engine.deliver('local-demo');assert.equal(calls,2);assert.equal(f.store.get('local-demo','delivery',d.id).status,'demo');
  d.status='sending';d.firstAttempt=Date.now()-16*60000;d.nextTry=0;f.store.put('local-demo','delivery',d.id,d);await f.engine.deliver('local-demo');assert.equal(calls,2);assert.equal(f.store.get('local-demo','delivery',d.id).status,'needs_review');
 });
+
+test('same-day events save without confirmation and repeated submission is idempotent',async t=>{
+ const f=await fixture(t),url='https://example.com/schedule';
+ const event=name=>({kind:'event',date:'2027-06-12',quote:name+' event date June 12, 2027',sourceUrl:url});
+ const body={title:'Two sessions',url,milestones:[event('Workshop'),event('Showcase'),event('Workshop')]};
+ const first=await f.request('/api/tracks','POST',body);
+ assert.equal(first.status,201);assert.equal(first.data.milestones.length,2);
+ const again=await f.request('/api/tracks','POST',body);
+ assert.equal(again.data.id,first.data.id);assert.equal((await f.request('/api/tracks')).data.length,1);
+});
+
+test('transient DNS failure retries shortly and a successful retry clears it',async t=>{
+ let failing=true;
+ const f=await fixture(t,{readPage:async url=>{if(failing)throw new Error('getaddrinfo ENOTFOUND example.com');return {milestones:extract('Registration closes November 28, 2026',url)};}});
+ const url='https://example.com/registration';
+ const record=(await f.request('/api/tracks','POST',{url,milestones:extract('Registration closes November 28, 2026',url)})).data;
+ const failed=(await f.request(`/api/tracks/${record.id}/check`,'POST',{})).data;
+ assert.equal(failed.status,'check_failed');assert.ok(failed.nextCheck-Date.now()<=60000);
+ failing=false;
+ const recovered=(await f.request(`/api/tracks/${record.id}/check`,'POST',{})).data;
+ assert.equal(recovered.status,'watching');assert.deepEqual(recovered.errors,[]);
+});

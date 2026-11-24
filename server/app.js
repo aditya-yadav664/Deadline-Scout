@@ -1,3 +1,4 @@
+import {dedupeMilestones,milestoneKey} from '../extension/shared/milestone-selection.js';
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
@@ -31,7 +32,7 @@ export function createApp(options={}) {
   const oauthFetch=options.oauthFetch||fetch;
   const liveAuth=!!(env.SUPABASE_URL&&env.SUPABASE_PUBLISHABLE_KEY);
   const loopback=['localhost','127.0.0.1','::1'].includes(host);
-  if(!loopback&&(!liveAuth||!env.TOKEN_ENCRYPTION_KEY||!env.EXTENSION_IDS))throw new Error('Remote hosting requires Supabase auth, TOKEN_ENCRYPTION_KEY, and EXTENSION_IDS.');
+  if(!loopback&&(!liveAuth||!env.TOKEN_ENCRYPTION_KEY))throw new Error('Remote hosting requires Supabase auth and TOKEN_ENCRYPTION_KEY.');
   if(!loopback&&!base.startsWith('https://'))throw new Error('Remote hosting requires an HTTPS APP_URL.');
   const extensionIds=(env.EXTENSION_IDS||'').split(',').map(s=>s.trim()).filter(Boolean);
   function allowedOrigin(origin) {return origin===new URL(base).origin||/^chrome-extension:\/\/[a-p]{32}$/.test(origin||'')&&(extensionIds.length?extensionIds.includes(origin.slice(19)):loopback);}
@@ -98,7 +99,7 @@ export function createApp(options={}) {
         const flow=u.searchParams.get('flow'),state=store.get('_system','oauth',hash(flow||''));if(!state||state.expires<Date.now())throw fail('Sign-in expired. Start again.');
         const callback=base+'/auth/callback?flow='+encodeURIComponent(flow);
         const url=new URL(env.SUPABASE_URL+'/auth/v1/authorize');
-        url.search=new URLSearchParams({provider:'google',redirect_to:callback,scopes:'openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.settings.readonly https://www.googleapis.com/auth/tasks',code_challenge:sha256url(secrets.open(state.verifier)),code_challenge_method:'s256',access_type:'offline',prompt:'consent'});
+        url.search=new URLSearchParams({provider:'google',redirect_to:callback,scopes:'openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.settings.readonly https://www.googleapis.com/auth/tasks',code_challenge:sha256url(secrets.open(state.verifier)),code_challenge_method:'s256',access_type:'offline',prompt:'select_account consent'});
         return redirect(url.href,`dd_oauth=${hash(flow)}; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=600${base.startsWith('https:')?'; Secure':''}`);
       }
       if(path==='/auth/callback'){
@@ -160,8 +161,10 @@ export function createApp(options={}) {
           if(b.plan&&!validDate(b.plan))throw fail('Invalid planned date.');
           const sources=[...new Set([url,...(b.sources||[]).map(s=>safeUrl(s).href)])];
           if(sources.length>5||sources.some(s=>new URL(s).origin!==new URL(url).origin))throw fail('Use at most five same-site sources.');
-          const milestones=b.milestones.map(m=>{if(!Object.hasOwn(labels,m.kind))throw fail('Invalid milestone kind.');validateMilestone(m);if(m.time)instant(m);if(!m.confirmed)throw fail('Confirm each selected date interpretation.');return {id:randomUUID(),kind:m.kind,label:labels[m.kind],date:m.date,time:m.time||null,zone:m.time?m.zone:null,quote:String(m.quote||'').slice(0,2000),sourceUrl:m.sourceUrl&&safeUrl(m.sourceUrl).origin===new URL(url).origin?safeUrl(m.sourceUrl).href:url,manual:!!m.manual,uncertain:false,reasons:[],confirmed:true,confirmedRaw:m.raw||null,confirmedDetectedTime:m.detected?m.detected.time:m.time||null,confirmedDetectedZone:m.detected?m.detected.zone:m.zone||null,confirmedQuote:m.model?m.quote:null};});
-          if(new Set(milestones.map(m=>m.kind)).size!==milestones.length)throw fail('Track one date per milestone type. Resolve duplicate candidates before saving.');
+          const milestones=dedupeMilestones(b.milestones).map(m=>{if(!Object.hasOwn(labels,m.kind))throw fail('Invalid milestone kind.');validateMilestone(m);if(m.time)instant(m);return {id:randomUUID(),kind:m.kind,label:labels[m.kind],date:m.date,time:m.time||null,zone:m.time?m.zone:null,quote:String(m.quote||'').slice(0,2000),sourceUrl:m.sourceUrl&&safeUrl(m.sourceUrl).origin===new URL(url).origin?safeUrl(m.sourceUrl).href:url,manual:!!m.manual,uncertain:false,reasons:[],confirmed:true,confirmedRaw:m.raw||null,confirmedDetectedTime:m.detected?m.detected.time:m.time||null,confirmedDetectedZone:m.detected?m.detected.zone:m.zone||null,confirmedQuote:m.model?m.quote:null};});
+          const signature=ms=>ms.map(milestoneKey).sort().join("\n");
+          const existing=store.list(owner,'track').find(t=>t.url===url&&t.title===String(b.title||'Registration').slice(0,200)&&signature(t.milestones)===signature(milestones)&&t.plan===(b.plan||null));
+          if(existing)return send(enrich(owner,existing));
           const t={id:randomUUID(),title:String(b.title||'Registration').slice(0,200),url,sources,milestones,plan:b.plan||null,intervalMinutes:60,nextCheck:Date.now()+3600000,createdAt:new Date().toISOString(),status:milestones.every(m=>m.manual)?'manual':'watching',autoGoogle:false,errors:[],conflicts:[],uncertain:[]};
           return send(enrich(owner,store.put(owner,'track',t.id,t)),201);
         }

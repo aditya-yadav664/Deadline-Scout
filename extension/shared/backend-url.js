@@ -7,3 +7,5 @@ export function backendOrigin(value,fallback=LOCAL_BACKEND){
   }catch{}
   return fallback;
 }
+
+export const HOSTED_BACKEND='https://deadline-scout.vercel.app';

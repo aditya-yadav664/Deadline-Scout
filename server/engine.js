@@ -1,3 +1,4 @@
+import {repairMixedSnapshot} from '../extension/shared/milestone-selection.js';
 import { randomUUID } from 'node:crypto';
 import { compare } from '../extension/shared/compare.js';
 import { scheduleKey } from '../extension/shared/dates.js';
@@ -14,7 +15,8 @@ export class Engine {
       for(const url of t.sources){try{observations.push(await this.readPage(url));}catch(e){errors.push({url,message:e.message});}}
       const now=new Date().toISOString();t.lastAttempt=now;t.nextCheck=Date.now()+t.intervalMinutes*60000;t.errors=errors;
       // Do not adopt a one-sided change if an approved source could not be read.
-      if(errors.length){t.status='check_failed';this.store.put(owner,'track',id,t);return t;}
+      if(errors.length){if(errors.some(e=>/ENOTFOUND|EAI_AGAIN|ETIMEOUT|timed out|ECONNRESET|busy|HTTP (?:429|50[234])/i.test(e.message)))t.nextCheck=Date.now()+60000;t.status='check_failed';this.store.put(owner,'track',id,t);return t;}
+      repairMixedSnapshot(t,observations);
       const result=compare(t,observations);
       Object.assign(t,result,{lastSuccessfulCheck:now,status:result.conflicts.length?'conflict':result.uncertain.length?'needs_review':result.missing.length?'date_missing':result.changes.length?'changed':t.milestones.every(m=>m.manual)?'manual':'watching'});
       const changes=result.changes.map(c=>({...c,id:randomUUID(),trackId:id,title:t.title,at:now}));delete t.changes;

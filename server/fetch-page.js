@@ -8,10 +8,14 @@ export async function fetchPublicPage(value, redirects=0, mode='page') {
   if(redirects>4) throw new Error('Too many redirects.');
   if(url.port && !['80','443'].includes(url.port)) throw new Error('Only public web ports 80 and 443 are allowed.');
   const hostname=url.hostname.replace(/^\[|\]$/g,'');
-  const addresses=await lookup(hostname,{all:true});
+  let addresses;
+  for(let attempt=0;attempt<3;attempt++){
+    try{addresses=await lookup(hostname,{all:true});break;}
+    catch(error){if(!['ENOTFOUND','EAI_AGAIN','ETIMEOUT'].includes(error.code)||attempt===2)throw error;await new Promise(resolve=>setTimeout(resolve,250*(attempt+1)));}
+  }
   if(!addresses.length || addresses.some(a=>!publicAddress(a.address))) throw new Error('Blocked URL: private, local, and reserved destinations are not allowed.');
   // Pin the validated DNS result; do not resolve again at connection time.
-  const chosen=addresses[0];
+  const chosen=addresses.find(a=>a.family===4)||addresses[0];
   const result=await new Promise((resolve,reject)=>{
     const req=(url.protocol==='https:'?https:http).get(url,{
       headers:{'User-Agent':'DeadlineScout/1.1 (user-requested schedule monitor)','Accept':mode==='json'?'application/json':'text/html,application/xhtml+xml,text/plain,*/*','Cache-Control':'no-cache','Pragma':'no-cache'},

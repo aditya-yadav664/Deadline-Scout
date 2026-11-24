@@ -1,3 +1,4 @@
+import {dedupeMilestones} from './milestone-selection.js';
 import { findDates, findTimes, DEFAULT_TIMEZONE } from './dates.js';
 export const labels={registration_closes:'Registration closes',registration_opens:'Registration opens',payment:'Payment deadline',documents:'Document submission',event:'Event date',event_end:'Event ends',doors_open:'Doors open',submissions:'Submission deadline',results:'Results announced'};
 export function identifyKind(text) {
@@ -14,7 +15,7 @@ export function identifyKind(text) {
 }
 export function extract(text, sourceUrl, referenceYear) {
   const results=[];
-  const lines=text.replace(/\r/g,'').split(/\n+|[;|]\s*|(?<=[!?])\s+|(?<=\.)\s+(?=[A-Z])|,\s*(?=(?:registration|applications?|payment|documents?|event|hackathon)\b)/i).map(s=>s.replace(/\s+/g,' ').trim()).filter(Boolean);
+  const lines=text.replace(/\r/g,'').replace(/\s*(?=doors?\s+open)/gi,'\n').split(/\n+|[;|]\s*|(?<=[!?])\s+|(?<=\.)\s+(?=[A-Z])|,\s*(?=(?:registration|applications?|payment|documents?|event|hackathon)\b)/i).map(s=>s.replace(/\s+/g,' ').trim()).filter(Boolean);
   let heading=null;const timeRows=[];
   for(const line of lines) {
     let quote=line,kind=identifyKind(line);
@@ -29,16 +30,16 @@ export function extract(text, sourceUrl, referenceYear) {
     const candidates=explicitUpdate?[dates.at(-1)]:dates;
     for(const d of candidates) results.push({kind,label:labels[kind],...d,quote,sourceUrl,explicitUpdate,previousDates:explicitUpdate?dates.slice(0,-1).map(d=>d.date):[],uncertain:!!d.reasons.length});
   }
-  const event=results.find(m=>m.kind==='event');
+  const foundEvent=results.find(m=>m.kind==='event');const event=foundEvent?{...foundEvent}:null;
   if(event)for(const row of timeRows){
     const times=findTimes(row.quote);const zone=times.find(t=>t.zone)?.zone||DEFAULT_TIMEZONE;
     for(const [i,t] of times.entries()){
       const kind=row.kind==='doors_open'?'doors_open':i===0?'event':'event_end';
       const m={...event,kind,label:labels[kind],time:t.time,zone:t.zone||zone,raw:`${event.raw}|${row.quote}`,quote:event.quote+'\n'+row.quote,contextual:true};
-      if(kind==='event'){Object.assign(event,m);}else results.push(m);
+      if(kind==='event'){Object.assign(foundEvent,m);}else results.push(m);
     }
   }
-  return results;
+  return dedupeMilestones(results);
 }
 export function decode(text) {
   return text.replace(/&(?:#(x[0-9a-f]+|\d+)|([a-z]+));/gi,(m,num,name)=>num?String.fromCodePoint(Math.min(0x10ffff,num[0].toLowerCase()==='x'?parseInt(num.slice(1),16):Number(num))):({amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' ',ndash:'–',mdash:'—'}[name]||m));
@@ -64,5 +65,5 @@ export function readHtml(html,url) {
     Object.values(v).forEach(x=>Array.isArray(x)?x.forEach(walk):walk(x));
   }
   json.forEach(walk);
-  return {title,text,links:[...new Map(links.map(l=>[l.url,l])).values()].slice(0,12),milestones:[...structured,...extract(text,url)]};
+  return {title,text,links:[...new Map(links.map(l=>[l.url,l])).values()].slice(0,12),milestones:dedupeMilestones([...structured,...extract(text,url)])};
 }

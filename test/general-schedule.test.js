@@ -34,3 +34,9 @@ test('browser renderer refuses private-network data requests instead of claiming
  const html='<main>'+schedule.replace(/\n/g,'<br>')+'</main><script>fetch("http://127.0.0.1/private-data").catch(()=>{})</script>';
  await assert.rejects(renderPublicPage(url,html),/incomplete.*private/i);
 });
+
+test('combined event time and doors line keeps separate clock meanings',()=>{
+ const result=extract(schedule.replace('UTC\nDoors','UTC Doors'),url);
+ const by=Object.fromEntries(result.map(m=>[m.kind,m]));
+ assert.equal(result.length,4);assert.equal(by.event.time,'10:30');assert.equal(by.event_end.time,'13:00');assert.equal(by.doors_open.time,'10:00');
+});

@@ -2,7 +2,7 @@ import {existsSync} from 'node:fs';
 import http from 'node:http';
 import {safeUrl} from './security.js';
 import {fetchPublicPage} from './fetch-page.js';
-import {readHtml} from '../extension/shared/extract.js';
+import {readHtml,extract} from '../extension/shared/extract.js';
 function browserPath(env){return [env.BROWSER_EXECUTABLE,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Microsoft/Edge/Application/msedge.exe','/usr/bin/chromium','/usr/bin/chromium-browser'].find(p=>p&&existsSync(p));}
 export async function rendererAvailable(env=process.env){try{await import('playwright-core');return !!browserPath(env);}catch{return false;}}
 let occupied=false;
@@ -41,6 +41,9 @@ export async function renderPublicPage(url,initialHtml,env=process.env,resourceR
       for(let i=0;i<20;i++){await new Promise(r=>setTimeout(r,300));const text=document.body?.innerText||'';stable=text===previous?stable+1:0;previous=text;if(text.length>150&&stable>=4)break;}
     });
     const html=await page.content(),result=readHtml(html,page.url());
+    const visibleText=await page.evaluate(()=>document.body?.innerText||'');
+    result.text=visibleText;result.milestones=extract(visibleText,page.url());
+    if(!result.milestones.length)result.milestones=readHtml(html,page.url()).milestones;
     if(failures.length)throw new Error('Browser source read incomplete: '+failures[0]);
     if(!result.milestones.length&&result.text.length<100)throw new Error('Browser could not read the schedule. The source may require sign-in or unsupported network access.');
     return {...result,url:page.url(),rendered:true,readability:'readable',notice:'Live page read in an isolated browser. Dates are re-extracted on each backend check.'};

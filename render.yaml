@@ -1,0 +1,44 @@
+# Creates a paid service only when this Blueprint is explicitly deployed.
+services:
+  - type: web
+    name: deadline-scout
+    runtime: docker
+    repo: https://github.com/aditya-yadav664/Deadline-Scout
+    branch: main
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    disk:
+      name: scout-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATA_DIR
+        value: /data
+      - key: ENABLE_DEMO
+        value: "false"
+      - key: NODE_ENV
+        value: production
+      - key: APP_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: EXTENSION_IDS
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: EMAIL_PROVIDER
+        value: brevo
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        sync: false

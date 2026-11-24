@@ -1,10 +1,18 @@
+import {evidenceIdentity} from './milestone-selection.js';
 import { scheduleKey, impact } from './dates.js';
 export const observationKey = candidates => candidates.map(m=>`${m.sourceUrl}|${scheduleKey(m)}`).sort().join('\n');
 export function compare(track, observations) {
   const changes=[], conflicts=[], missing=[], uncertain=[];
   const milestones=track.milestones.map(old=>{
     if(old.manual) return old;
-    const all=observations.flatMap(o=>o.milestones).filter(m=>m.kind===old.kind).map(m=>{
+    let candidates=observations.flatMap(o=>o.milestones).filter(m=>m.kind===old.kind);
+    if(track.milestones.filter(m=>m.kind===old.kind&&!m.manual).length>1){
+      const identity=evidenceIdentity(old);
+      const matched=candidates.filter(m=>identity&&evidenceIdentity(m)===identity);
+      if(matched.length)candidates=matched;
+      else {missing.push(old.kind);return old;}
+    }
+    const all=candidates.map(m=>{
       const sameClock=m.time===(old.confirmedDetectedTime??null)&&m.zone===(old.confirmedDetectedZone??null);
       if((m.raw && m.raw===old.confirmedRaw && sameClock)||(m.model&&m.quote===old.confirmedQuote&&m.date===old.date&&m.time===old.time)) return {...m,date:old.date,time:old.time,zone:old.zone,uncertain:false,reasons:[]};
       return m;

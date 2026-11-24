@@ -2,7 +2,7 @@ import {api,storage,settings,isExtension,connectGoogle} from './api.js';
 import {extract,labels} from './shared/extract.js';
 import {compare} from './shared/compare.js';
 import {pretty,validateMilestone,instant,scheduleKey,DEFAULT_TIMEZONE} from './shared/dates.js';
-import {selectMilestone} from './shared/milestone-selection.js';
+import {selectMilestone,dedupeMilestones,milestoneKey,mergeCapturedMilestones} from './shared/milestone-selection.js';
 const $=s=>document.querySelector(s);
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeLink=value=>{try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)?esc(u.href):'#';}catch{return '#';}};
@@ -12,7 +12,7 @@ function trackingStatus(message,signIn=false){$('#tracking-status').hidden=!mess
 async function run(button,fn){if(button?.disabled)return;try{if(button)button.disabled=true;await fn();}catch(e){toast(e.message);}finally{if(button)button.disabled=false;}}
 function formatDate(date){if(!date)return 'No date';try{return new Intl.DateTimeFormat('en',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}).format(new Date(date+'T12:00:00Z'));}catch{return date;}}
 function relative(value){if(!value)return 'Not checked yet';const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(value))/60000));return minutes===0?'Just now':minutes<60?`${minutes} min ago`:minutes<1440?`${Math.floor(minutes/60)} hr ago`:new Date(value).toLocaleDateString();}
-function showView(name){view=name;for(const v of ['watchlist','timeline','settings'])$('#'+v+'-view').hidden=v!==name;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.view===name));}
+function showView(name){if(name==='settings'){openProfileSettings();return;}view=name;for(const v of ['watchlist','timeline'])$('#'+v+'-view').hidden=v!==name;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.view===name));}
 async function refresh(){
   localTracks=await storage.get('localTracks')||[];
   try{
@@ -30,6 +30,7 @@ const statusLabels={watching:['Watching',''],changed:['Date updated','warn'],con
 function render(){
   const all=[...tracks,...localTracks.map(t=>({...t,local:true}))];
   $('#connection-label').textContent=connected?(config.auth==='local'?'Local backend · monitoring ready':me.email?'Connected · '+me.email:'Sign in to start monitoring'):'Backend offline · local mode';
+  $('#profile-email').textContent=me.email||'Not signed in';$('#profile-status').textContent=me.email?(me.googleConnected?'Google Calendar & Tasks connected':'Google account signed in'):'Sign in to connect your Google account.';$('#profile-avatar').textContent=me.email?me.email[0].toUpperCase():'○';$('#profile-signin').hidden=!!me.email;$('#profile-switch').hidden=!me.email;$('#sign-out').hidden=!me.email;
   $('#track-count').textContent=all.length;$('#change-count').textContent=changes.length;
   const reviews=all.filter(t=>['conflict','needs_review','check_failed','date_missing'].includes(t.status)).length;$('#review-count').textContent=reviews?`${reviews} need${reviews===1?'s':''} attention`:all.length?'All in view':'';
   $('#tracks').innerHTML=all.length?all.map(renderTrack).join(''):'<div class="empty"><div class="empty-symbol">◷</div><h3>A clear view starts here.</h3><p>Open a registration page or paste its link above. We’ll help you find the dates worth watching.</p></div>';
@@ -78,7 +79,7 @@ async function inspect(url,captured){
     if(captured?.milestones?.length)page={...captured,notice:'Dates captured from the visible page. This site requires JavaScript, so these are manual reminders; the backend cannot automatically recheck its rendered schedule.'};
   }
   trackingStatus(page.notice||(!me.email&&config.auth==='supabase'?'Preview ready. Sign in for backend monitoring, or save this registration locally.':''),!me.email&&config.auth==='supabase');
-  draft={url,title:page.title,links:page.links||[],sources:[url],milestones:(page.milestones||extract(page.text,url)).map(m=>({...m,detected:{time:m.time??null,zone:m.zone??null},manual:!monitoring&&connected,confirmed:false})),monitoring};
+  draft={url,title:page.title,links:page.links||[],sources:[url],milestones:dedupeMilestones(page.milestones||extract(page.text,url)).map(m=>({...m,detected:{time:m.time??null,zone:m.zone??null},manual:!monitoring&&connected,confirmed:false})),monitoring};
   if(!draft.milestones.length){const message=page.notice||'No reliable deadline found. Enter a date manually, or select its sentence using the browser extension.';trackingStatus(message,!me.email&&config.auth==='supabase');draft.milestones=[manualMilestone(url)];}
   draft.catalog=structuredClone(draft.milestones);
   renderDraft();
@@ -91,11 +92,11 @@ function renderEvidenceChoices(m){
 function manualMilestone(url){return {kind:'registration_closes',label:labels.registration_closes,date:'',time:null,zone:null,quote:'',sourceUrl:url,manual:true,reasons:['Manual reminder: source is not checked automatically.'],confirmed:false};}
 function renderDraft(){
   const box=$('#draft');box.hidden=false;
-  box.innerHTML=`<section class="draft"><div class="card-heading"><h2>Choose what to track</h2><button id="cancel-draft" class="text-button">Cancel</button></div><p class="draft-intro">Confirm the dates and their source before saving.${!draft.monitoring?' Backend monitoring is unavailable. Local entries can be rechecked manually while your browser is open; manual reminders are never rechecked.':''}</p><label for="draft-title">Registration name</label><input id="draft-title" value="${esc(draft.title)}">${draft.milestones.map((m,i)=>`<div class="candidate" data-candidate="${i}"><label class="candidate-heading"><input type="checkbox" data-field="selected" ${m.selected===false?'':'checked'}> Track this milestone</label><label>Milestone<select data-field="kind">${Object.entries(labels).map(([k,v])=>`<option value="${k}" ${m.kind===k?'selected':''}>${v}</option>`).join('')}</select></label>${renderEvidenceChoices(m)}<blockquote>${esc(m.quote||'Enter a source sentence below.')}</blockquote><label>Source sentence<input data-field="quote" value="${esc(m.quote)}"></label><a class="muted" href="${safeLink(m.sourceUrl)}" target="_blank" rel="noreferrer">View source</a><div class="date-grid"><label>Date<input data-field="date" type="date" value="${esc(m.date)}"></label><label>Time (optional)<input data-field="time" type="time" value="${esc(m.time||'')}"></label><label class="zone-field">Timezone (default: IST / UTC+05:30)<input data-field="zone" value="${esc(m.zone||'')}" placeholder="Asia/Kolkata or UTC+05:30"></label></div>${m.reasons?.length?`<p class="hint">${esc(m.reasons.join(' '))}</p>`:''}<label class="candidate-heading"><input type="checkbox" data-field="manual" ${m.manual?'checked':''}> Manual reminder only</label><label class="candidate-heading"><input type="checkbox" data-field="confirmed" ${m.confirmed?'checked':''}> I confirm this date and interpretation</label></div>`).join('')}<button id="add-manual" class="text-button">Add another milestone</button>${draft.links.length?`<div class="review"><h4>Suggested supporting sources</h4><p>Only pages you approve will be checked.</p>${draft.links.filter(l=>!draft.sources.includes(l.url)).map(l=>`<button class="text-button" data-add-source="${esc(l.url)}">Add ${esc(l.label||new URL(l.url).pathname)}</button><br>`).join('')}</div>`:''}<p class="muted">${draft.sources.length} approved source${draft.sources.length===1?'':'s'}</p><label for="planned-date">I plan to register on (optional)</label><input id="planned-date" type="date" value="${esc(draft.plan||'')}"><button id="save-draft" class="button primary full">Save registration</button></section>`;
+  box.innerHTML=`<section class="draft"><div class="card-heading"><h2>Choose what to track</h2><button id="cancel-draft" class="text-button">Cancel</button></div><p class="draft-intro">Confirm the dates and their source before saving.${!draft.monitoring?' Backend monitoring is unavailable. Local entries can be rechecked manually while your browser is open; manual reminders are never rechecked.':''}</p><label for="draft-title">Registration name</label><input id="draft-title" value="${esc(draft.title)}">${draft.milestones.map((m,i)=>`<div class="candidate" data-candidate="${i}"><label class="candidate-heading"><input type="checkbox" data-field="selected" ${m.selected===false?'':'checked'}> Track this milestone</label><label>Milestone<select data-field="kind">${Object.entries(labels).map(([k,v])=>`<option value="${k}" ${m.kind===k?'selected':''}>${v}</option>`).join('')}</select></label>${renderEvidenceChoices(m)}<blockquote>${esc(m.quote||'Enter a source sentence below.')}</blockquote><label>Source sentence<input data-field="quote" value="${esc(m.quote)}"></label><a class="muted" href="${safeLink(m.sourceUrl)}" target="_blank" rel="noreferrer">View source</a><div class="date-grid"><label>Date<input data-field="date" type="date" value="${esc(m.date)}"></label><label>Time (optional)<input data-field="time" type="time" value="${esc(m.time||'')}"></label><label class="zone-field">Timezone (default: IST / UTC+05:30)<input data-field="zone" value="${esc(m.zone||'')}" placeholder="Asia/Kolkata or UTC+05:30"></label></div>${m.reasons?.length?`<p class="hint">${esc(m.reasons.join(' '))}</p>`:''}<label class="candidate-heading"><input type="checkbox" data-field="manual" ${m.manual?'checked':''}> Manual reminder only</label></div>`).join('')}<button id="add-manual" class="text-button">Add another milestone</button>${draft.links.length?`<div class="review"><h4>Suggested supporting sources</h4><p>Only pages you approve will be checked.</p>${draft.links.filter(l=>!draft.sources.includes(l.url)).map(l=>`<button class="text-button" data-add-source="${esc(l.url)}">Add ${esc(l.label||new URL(l.url).pathname)}</button><br>`).join('')}</div>`:''}<p class="muted">${draft.sources.length} approved source${draft.sources.length===1?'':'s'}</p><label for="planned-date">I plan to register on (optional)</label><input id="planned-date" type="date" value="${esc(draft.plan||'')}"><button id="save-draft" class="button primary full">Save registration</button></section>`;
   $('#cancel-draft').onclick=async()=>{draft=null;box.hidden=true;await storage.set('pendingReview',null);};
   $('#add-manual').onclick=()=>{readDraft();draft.milestones.push(manualMilestone(draft.url));renderDraft();};
   box.querySelectorAll('[data-add-source]').forEach(button=>button.onclick=()=>run(button,async()=>{
-    readDraft();if(!connected)throw new Error('Start the backend to add a monitored supporting source.');const page=await api('/api/inspect','POST',{url:button.dataset.addSource});draft.sources.push(button.dataset.addSource);const added=page.milestones.map(m=>({...m,detected:{time:m.time??null,zone:m.zone??null},confirmed:false}));draft.milestones.push(...added);draft.catalog.push(...structuredClone(added));renderDraft();toast('Supporting source added. Select one date per milestone type.');
+    readDraft();if(!connected)throw new Error('Start the backend to add a monitored supporting source.');const page=await api('/api/inspect','POST',{url:button.dataset.addSource});draft.sources.push(button.dataset.addSource);const added=page.milestones.map(m=>({...m,detected:{time:m.time??null,zone:m.zone??null},confirmed:false}));draft.milestones=dedupeMilestones([...draft.milestones,...added]);draft.catalog.push(...structuredClone(added));renderDraft();toast('Supporting source added. Repeated copies are filtered; distinct milestones can share a date.');
   }));
   $('#save-draft').onclick=e=>run(e.currentTarget,saveDraft);
   box.querySelectorAll('[data-candidate]').forEach(node=>{
@@ -120,15 +121,14 @@ function renderDraft(){
 }
 function readDraft(){
   draft.title=$('#draft-title').value;draft.plan=$('#planned-date').value;
-  $('#draft').querySelectorAll('[data-candidate]').forEach(node=>{const m=draft.milestones[+node.dataset.candidate];for(const field of ['selected','kind','quote','date','time','zone','manual','confirmed']){const input=node.querySelector(`[data-field="${field}"]`);m[field]=input.type==='checkbox'?input.checked:input.value;}m.label=labels[m.kind];});
+  $('#draft').querySelectorAll('[data-candidate]').forEach(node=>{const m=draft.milestones[+node.dataset.candidate];for(const field of ['selected','kind','quote','date','time','zone','manual']){const input=node.querySelector(`[data-field="${field}"]`);m[field]=input.type==='checkbox'?input.checked:input.value;}m.label=labels[m.kind];});
 }
 async function saveDraft(){
-  readDraft();const selected=draft.milestones.filter(m=>m.selected!==false);if(!selected.length)throw new Error('Select at least one milestone.');
-  if(new Set(selected.map(m=>m.kind)).size!==selected.length)throw new Error('Choose one date per milestone type. Uncheck duplicate candidates.');
-  for(const m of selected){validateMilestone(m);if(m.time)instant(m);if(!m.confirmed)throw new Error('Confirm each selected date interpretation before saving.');}
-  const payload={...draft,milestones:selected.map(m=>({...m,uncertain:false,reasons:[]}))};
+  readDraft();const selected=dedupeMilestones(draft.milestones.filter(m=>m.selected!==false));if(!selected.length)throw new Error('Select at least one milestone.');
+  for(const m of selected){validateMilestone(m);if(m.time)instant(m);}
+  const payload={...draft,milestones:selected.map(m=>({...m,confirmed:true,uncertain:false,reasons:[]}))};
   if(connected&&await storage.get('token')){await api('/api/tracks','POST',payload);toast('Registration saved. Your backend will watch the approved sources.');}
-  else{localTracks.push({...payload,id:crypto.randomUUID(),milestones:payload.milestones.map(m=>({...m,id:crypto.randomUUID()})),status:selected.every(m=>m.manual)?'manual':'watching',local:true,intervalMinutes:60,errors:[]});await storage.set('localTracks',localTracks);toast('Saved locally. Recheck manually while your browser is open, or sync to the backend later.');}
+  else{const signature=ms=>ms.map(milestoneKey).sort().join("\n");const exists=localTracks.some(t=>t.url===payload.url&&t.title===payload.title&&signature(t.milestones)===signature(payload.milestones)&&t.plan===(payload.plan||null));if(!exists)localTracks.push({...payload,id:crypto.randomUUID(),milestones:payload.milestones.map(m=>({...m,id:crypto.randomUUID()})),status:selected.every(m=>m.manual)?'manual':'watching',local:true,intervalMinutes:60,errors:[]});await storage.set('localTracks',localTracks);toast('Saved locally. Recheck manually while your browser is open, or sync to the backend later.');}
   await storage.set('pendingReview',null);draft=null;$('#draft').hidden=true;await refresh();
   showView('watchlist');$('#watchlist-view').scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -192,7 +192,11 @@ $('#tracks').onclick=e=>{
   });
 };
 document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{showView(button.dataset.view);if(view==='settings'&&connected)renderOutbox().catch(()=>{});});
-$('#settings-shortcut').onclick=()=>{showView('settings');if(connected)renderOutbox().catch(()=>{});};
+function openProfileSettings(){const popover=$('#profile-popover');if(!popover.matches(':popover-open'))popover.showPopover();$('#settings-view').hidden=false;$('#profile-settings').setAttribute('aria-expanded','true');if(connected)renderOutbox().catch(()=>{});}
+$('#profile-settings').onclick=()=>{const expanded=$('#settings-view').hidden;$('#settings-view').hidden=!expanded;$('#profile-settings').setAttribute('aria-expanded',String(expanded));if(expanded&&connected)renderOutbox().catch(()=>{});};
+$('#profile-signin').onclick=e=>run(e.currentTarget,signIn);
+async function signOut(){try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];me={};await storage.set('cachedTracks',[]);render();}}
+$('#profile-switch').onclick=e=>run(e.currentTarget,async()=>{await signOut();await signIn();});
 async function signIn(){if(draft){readDraft();await storage.set('pendingReview',draft);}await connectGoogle();await refresh();}
 $('#tracking-signin').onclick=e=>run(e.currentTarget,signIn);
 async function inspectPastedLink(){
@@ -228,16 +232,12 @@ $('#save-backend').onclick=e=>run(e.currentTarget,async()=>{
 });
 $('#apply-demo').onclick=e=>run(e.currentTarget,async()=>{await api('/api/demo','POST',{mode:$('#demo-mode').value});toast('Fictional source updated. Use Check now on your demo registration.');});
 $('#refresh-outbox').onclick=e=>run(e.currentTarget,renderOutbox);
-$('#sign-out').onclick=e=>run(e.currentTarget,async()=>{await api('/api/logout','POST',{});await storage.set('token',null);tracks=[];me={};await storage.set('cachedTracks',[]);render();toast('Signed out.');});
+$('#sign-out').onclick=e=>run(e.currentTarget,async()=>{await signOut();toast('Signed out.');});
 async function openCapturedReview(token){
   const captured=await api('/api/captures/'+encodeURIComponent(token));
   history.replaceState(null,'',location.pathname);
   let serverPage=null;try{serverPage=await api('/api/inspect','POST',{url:captured.url});}catch{/* Captured evidence remains useful as a manual reminder. */}
-  const fromBrowser=captured.milestones.map(m=>{
-    const match=serverPage?.milestones.find(s=>s.kind===m.kind&&scheduleKey(s)===scheduleKey(m));
-    return {...m,...(match||{}),manual:!match,confirmed:false,detected:{time:m.time,zone:m.zone}};
-  });
-  const all=[...fromBrowser,...(serverPage?.milestones||[]).filter(s=>!fromBrowser.some(m=>m.kind===s.kind&&scheduleKey(m)===scheduleKey(s)))];
+  const all=mergeCapturedMilestones(captured.milestones,serverPage?.milestones).map(m=>({...m,confirmed:false,detected:{time:m.time??null,zone:m.zone??null}}));
   draft={url:captured.url,title:captured.title,sources:[captured.url],links:captured.links||[],monitoring:!!serverPage?.milestones.length,milestones:all.length?all:[manualMilestone(captured.url)]};
   draft.catalog=structuredClone(draft.milestones);renderDraft();
   trackingStatus('Page scan received from the extension. Backend-readable dates can be monitored; browser-only dates are labelled manual reminders.');

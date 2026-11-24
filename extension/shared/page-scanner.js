@@ -1,3 +1,4 @@
+import {dedupeMilestones} from './milestone-selection.js';
 import {extract,readHtml} from './extract.js';
 // This function is injected into the selected web tab. It has no dependencies
 // on the popup, so Edge can serialize and execute it in an isolated world.
@@ -10,7 +11,7 @@ export function milestonesFromCapture(page){
   const selectedDates=selected?extract(selected,page.url):[];
   const textDates=selectedDates.length?selectedDates:extract(page.text,page.url);
   const structured=selectedDates.length?[]:readHtml((page.schemas||[]).map(s=>`<script type="application/ld+json">${s}</script>`).join(''),page.url).milestones;
-  return [...new Map([...textDates,...structured].map(m=>[`${m.kind}|${m.date}|${m.time||''}|${m.zone||''}|${m.quote}`,m])).values()].slice(0,30);
+  return dedupeMilestones([...textDates,...structured]).slice(0,30);
 }
 export async function scanActivePage(browserApi){
   const [tab]=await browserApi.tabs.query({active:true,currentWindow:true});
