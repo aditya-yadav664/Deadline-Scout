@@ -47,7 +47,7 @@ export class Engine {
       // uncertain request beyond that window, including after a long outage.
       if(d.firstAttempt && Date.now()-d.firstAttempt>14*60000){d.status='needs_review';d.error='Delivery uncertain; automatic retries stopped before Brevo idempotency expired.';this.store.put(owner,'delivery',d.id,d);continue;}
       d.firstAttempt ||= Date.now();d.attempts++;d.status='sending';d.nextTry=Date.now()+30000;this.store.put(owner,'delivery',d.id,d);
-      try {Object.assign(d,await this.email.send({to:d.to,subject:d.subject,text:d.text,id:hash(owner+d.id)}));}
+      try {Object.assign(d,await this.email.send({to:d.to,subject:d.subject,text:d.text,html:d.html,id:hash(owner+d.id)}));}
       catch(e){d.error=e.message;d.status=e.transient&&d.attempts<6?'retry':'failed';d.nextTry=Date.now()+Math.min(120000,15000*2**d.attempts);}
       this.store.put(owner,'delivery',d.id,d);
     }}finally{this.delivering.delete(owner);}

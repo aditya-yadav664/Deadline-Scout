@@ -167,3 +167,7 @@ See [generic extraction and rendered rechecks](docs/GENERIC-MONITORING.md) for t
 ## Account activity controls
 
 Profile → Settings → Email activity initially shows the newest three entries. The floating **Load 5 more** bar appends five entries without collapsing the ones already visible. **Clear account data** permanently clears the signed-in account’s tracked registrations, timeline, notification/email history and internal Google links, plus this browser’s local tracking caches. Profile preferences, sign-in, and Google authorization remain. Existing Calendar events and Tasks are not deleted from Google. No data is cleared until the user clicks the button.
+
+## Email layout
+
+Date-change alerts include a responsive HTML email and a plain-text fallback. Red/green cards show the previous and new dates with their source timezones, followed by the impact, other tracked milestones, source evidence, and a direct event-page link. Page and profile text are escaped, links are restricted to HTTP(S), and the HTML is retained through queued retries. [Open the fictional design preview](docs/email-preview.html). The preview contains sample data and does not send an email. Visual checks cover desktop and phone-width browser rendering; inbox-specific rendering can vary by mail client.

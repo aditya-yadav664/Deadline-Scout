@@ -156,9 +156,9 @@ test('model extraction rejects invented quotes and flags valid evidence for revi
  const result=await modelExtract(text,'https://example.org',{GEMINI_API_KEY:'fake'},fetcher);assert.equal(result.length,1);assert.equal(result[0].uncertain,true);assert.equal(result[0].quote,text);
 });
 test('transient email failures retry within the idempotency window; stale sends require review',async t=>{
- let calls=0;const f=await fixture(t,{email:{mode:'demo',send:async()=>{calls++;if(calls===1){const e=new Error('Temporary network issue');e.transient=true;throw e;}return {status:'demo'};}}}),track=await f.track();
+ const messages=[];let calls=0;const f=await fixture(t,{email:{mode:'demo',send:async message=>{messages.push(message);calls++;if(calls===1){const e=new Error('Temporary network issue');e.transient=true;throw e;}return {status:'demo'};}}}),track=await f.track();
  await f.request('/api/demo','POST',{mode:'changed'});await f.request(`/api/tracks/${track.id}/check`,'POST',{});
- let d=f.store.list('local-demo','delivery').find(d=>d.channel==='email');assert.equal(d.status,'retry');d.nextTry=0;f.store.put('local-demo','delivery',d.id,d);await f.engine.deliver('local-demo');assert.equal(calls,2);assert.equal(f.store.get('local-demo','delivery',d.id).status,'demo');
+ let d=f.store.list('local-demo','delivery').find(d=>d.channel==='email');assert.equal(d.status,'retry');d.nextTry=0;f.store.put('local-demo','delivery',d.id,d);await f.engine.deliver('local-demo');assert.equal(calls,2);assert.match(messages[0].html,/NEW DATE/);assert.equal(messages[0].html,messages[1].html);assert.equal(messages[0].id,messages[1].id);assert.equal(f.store.get('local-demo','delivery',d.id).status,'demo');
  d.status='sending';d.firstAttempt=Date.now()-16*60000;d.nextTry=0;f.store.put('local-demo','delivery',d.id,d);await f.engine.deliver('local-demo');assert.equal(calls,2);assert.equal(f.store.get('local-demo','delivery',d.id).status,'needs_review');
 });
 
