@@ -90,6 +90,10 @@ Automated browser coverage verifies FileList/FormData contents, the site change 
 
 ### Capture collection and runner wakeups (1.9.1)
 
+### Organizer confirmation notices (1.9.2)
+
+After submission, the extension observes the organizer page for an explicit positive confirmation heading plus a receipt/registration identifier. A visible Submit control, failure page or missing identifier does not count as confirmation. A matching receipt on the approved form origin is recorded once against that browser execution. Confirmed drafts queue the existing owner-scoped email/browser notification and immediately attempt email delivery according to the account's email settings. The main dashboard and backup page poll for confirmed background drafts and display a dismissible floating success notice with the draft link and receipt ID. Seen notices are stored per account and receipt. Clicking Submit alone remains Submission requested. Sites without a recognizable confirmation/receipt need organizer verification; they never receive a fabricated success email.
+
 Prepare signup now captures field metadata locally without opening the dashboard. Capture next page appends the next visible answer page; reopening the popup preserves the collection. Recapturing a matching page replaces it. Submit as draft sends the collected pages in one encrypted, expiring handoff, then opens the website for event selection and answer review. Collections are limited to 12 pages from one site. Empty final review pages need no capture. Discard captured pages clears the local collection.
 
 Background jobs now schedule a due-time alarm rather than relying only on the one-minute poll. Claimed tabs receive an explicit start check and a short wake-up for loading races. Initial or transitioning forms receive a brief loading grace period before a schema mismatch pauses the run. Paused/error sessions release the automatic-run slot so an old stalled session does not silently block another job. No uncertain submission is retried.

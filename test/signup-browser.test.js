@@ -60,3 +60,11 @@ test('inactive browser job fills two captured panels, attaches PDF and submits a
  await fillPendingSignup({browser:adapter,storage,tabId:5});await fillPendingSignup({browser:adapter,storage,tabId:5});const result=await fillPendingSignup({browser:adapter,storage,tabId:5});assert.equal(result.execution.attempted,true);
  await page.waitForFunction(()=>window.receipt==='TEST-123');await fillPendingSignup({browser:adapter,storage,tabId:5});assert.equal(submissions,1);assert.equal(draft.steps.length,2);
 });
+
+import {inspectSignupReceipt} from '../extension/shared/signup-receipt.js';
+test('receipt observer requires organizer confirmation and an identifier, not a Submit click', {skip:!executablePath},async t=>{
+ const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());const page=await browser.newPage();
+ await page.route('https://receipt.test/**',route=>route.fulfill({contentType:'text/html',body:'<h1>Registration confirmed</h1><p>Receipt ID: TEST-123</p>'}));await page.goto('https://receipt.test/confirmation?id=TEST-123');assert.equal((await page.evaluate(inspectSignupReceipt)).receiptId,'TEST-123');
+ await page.setContent('<h1>Review registration</h1><p>Receipt ID: TEST-123</p><button type="submit">Submit</button>');assert.equal(await page.evaluate(inspectSignupReceipt),null);
+ await page.setContent('<h1>Registration failed</h1><p>Try again</p>');assert.equal(await page.evaluate(inspectSignupReceipt),null);
+});

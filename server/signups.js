@@ -43,7 +43,13 @@ export class Signups {
   if(!this.store.get(owner,'track',d.trackId)){d.status='Cancelled';this.save(owner,d);return {stop:true,status:d.status};}
   if(b.runId){
    if(d.browserRunId!==b.runId)throw fail('Wrong browser execution.',409);
-   if(!['Browser running','Needs review'].includes(d.status))return {stop:true,status:d.status};
+   if(!['Browser running','Needs review','Submission requested'].includes(d.status))return {stop:true,status:d.status};
+   if(b.result==='confirmed'){
+    let receiptUrl;try{receiptUrl=new URL(b.receipt?.url);}catch{throw fail('Invalid organizer receipt.');}
+    if(receiptUrl.origin!==new URL(d.formUrl).origin||!String(b.receipt?.receiptId||'').match(/^[A-Za-z0-9_-]{4,200}$/)||!b.receipt?.message)throw fail('Invalid organizer receipt.');
+    d.status='Confirmed';d.receipt=String(b.receipt.receiptId);d.receiptUrl=receiptUrl.href;d.notice='Organizer confirmed registration. Receipt: '+d.receipt+'\nReceipt page: '+d.receiptUrl;this.save(owner,d);this.notify(owner,d,d.notice);return {stop:true,status:d.status};
+   }
+   if(b.check&&d.status==='Submission requested')return {allowed:true};
    if(b.check){const track=this.store.get(owner,'track',d.trackId),m=track.milestones.find(m=>m.id===d.milestoneId);if(!m||this.deadlineTime(m)<=Date.now()||track.conflicts?.length||track.missing?.length||track.uncertain?.length||JSON.stringify([m.date,m.time,m.zone])!==JSON.stringify([d.deadline.date,d.deadline.time,d.deadline.zone]))throw fail('The deadline needs review before continuing.',409);return {allowed:true};}
    d.status=b.result==='attempted'?'Submission requested':'Needs review';d.notice=b.result==='attempted'?'The browser requested submission once. Check the organizer for a receipt.':'Browser automation paused: '+String(b.message||'Review the form.').slice(0,500);this.save(owner,d);this.notify(owner,d,d.notice);return {stop:true,status:d.status};
   }

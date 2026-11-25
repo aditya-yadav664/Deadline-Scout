@@ -148,7 +148,7 @@ export function createApp(options={}) {
         if(auth.scope==='browser-alerts'&&!['GET /api/me','GET /api/alerts','POST /api/alerts/ack','POST /api/logout'].includes(req.method+' '+path))throw fail('This session is limited to browser alerts.',403);
         if(auth.scope==='browser-signup'&&(path!=='/api/signup-browser/poll'||req.method!=='POST'))throw fail('This session is limited to the approved signup.',403);
         const bucket=buckets.get(owner)||{count:0,until:Date.now()+60000};if(bucket.until<Date.now()){bucket.count=0;bucket.until=Date.now()+60000;}bucket.count++;buckets.set(owner,bucket);if(bucket.count>180)throw fail('Too many requests. Wait one minute.',429);
-        if(path==='/api/signup-browser/poll'&&req.method==='POST'){if(auth.scope!=='browser-signup')throw fail('Use the scoped signup connection.',403);return send(await signups.browserPoll(owner,auth.signupId,auth.revision,await body(req)));}
+        if(path==='/api/signup-browser/poll'&&req.method==='POST'){if(auth.scope!=='browser-signup')throw fail('Use the scoped signup connection.',403);const b=await body(req),result=await signups.browserPoll(owner,auth.signupId,auth.revision,b);if(b.result==='confirmed')await engine.deliver(owner);return send(result);}
         const browserSession=path.match(/^\/api\/signups\/([\w-]+)\/browser-session$/);
         if(browserSession&&req.method==='POST'){
           const d=signups.read(owner,browserSession[1]);if(d.mode!=='browser-auto'||!['Armed','Waiting for browser'].includes(d.status)||!d.reviewedAll)throw fail('Approve the background signup first.');

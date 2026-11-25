@@ -1,4 +1,5 @@
 import {api,storage,connectGoogle} from './api.js';
+import './shared/signup-success-notices.js';
 import {suggestField,validateFiles,validateAnswer} from './shared/signup.js';
 import {instant} from './shared/dates.js';
 const $=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

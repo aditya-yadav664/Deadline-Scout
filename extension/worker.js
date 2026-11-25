@@ -1,4 +1,5 @@
 import {startSignupSession,pollSignupJobs} from './shared/signup-background.js';
+import {inspectSignupReceipt} from './shared/signup-receipt.js';
 import {fillPendingSignup} from './shared/signup-resume.js';
 import {handleAlertConnection} from './shared/alert-connection.js';
 import {deliverBrowserAlerts} from './shared/browser-alerts.js';
@@ -45,10 +46,16 @@ async function signupRequest(job,body){
  const data=await response.json();if(!response.ok)throw Object.assign(Error(data.error||'Signup connection failed.'),{status:response.status});return data;
 }
 async function runSignupFill(tabId,options={}){
- const pending=await storage.get('signupResume');if(!pending||pending.tabId!==tabId)return {ok:false};
+ const pending=await storage.get('signupResume');if(!pending||pending.tabId!==tabId||pending.expires<Date.now())return {ok:false};
  if(pending.job){try{const check=await signupRequest(pending.job,{runId:pending.job.runId,check:true});if(!check.allowed){await storage.set('signupResume',null);await chrome.storage.session.remove('signupFiles');return {ok:false,error:'This signup is no longer approved.'};}}catch(error){if([401,403,404,409].includes(error.status)){await storage.set('signupResume',null);await chrome.storage.session.remove('signupFiles');}return {ok:false,error:error.message};}}
  try{
+  if(pending.job&&(pending.submissionRequested||pending.dispatching)){
+   const [observed]=await chrome.scripting.executeScript({target:{tabId},func:inspectSignupReceipt});
+   if(observed.result){await signupRequest(pending.job,{runId:pending.job.runId,result:'confirmed',receipt:observed.result});await storage.set('signupResume',null);await chrome.storage.session.remove('signupFiles');return {ok:true,confirmed:true};}
+   await chrome.alarms.create('signup-wakeup',{when:Date.now()+5000});return {ok:true,waiting:true};
+  }
   const result=await fillPendingSignup({browser:chrome,storage,tabId,...options});if(result.waiting)await chrome.alarms.create('signup-wakeup',{when:Date.now()+2000});
+  if(result.execution?.attempted)await chrome.alarms.create('signup-wakeup',{when:Date.now()+2000});
   if(pending.autoSubmit&&(result.execution?.paused||result.error)){const latest=await storage.get('signupResume');if(latest?.tabId===tabId){latest.autoSubmit=false;await storage.set('signupResume',latest);}}
   if(pending.job&&(result.execution?.attempted||result.execution?.paused||result.error))await signupRequest(pending.job,{runId:pending.job.runId,result:result.execution?.attempted?'attempted':'paused',message:result.error||result.execution?.message});
   return result;
@@ -57,6 +64,6 @@ async function runSignupFill(tabId,options={}){
 let signupPolling=false;
 async function backgroundSignups(){
  if(signupPolling)return;signupPolling=true;
- try{const pending=await storage.get('signupResume');if(pending?.autoSubmit&&!pending.submissionRequested&&pending.expires>Date.now())await runSignupFill(pending.tabId).catch(()=>{});
+ try{const pending=await storage.get('signupResume');if(pending?.autoSubmit&&pending.expires>Date.now())await runSignupFill(pending.tabId).catch(()=>{});
  await pollSignupJobs({browser:chrome,storage,request:signupRequest,start:startSignupSession,afterStart:async tabId=>{const tab=await chrome.tabs.get(tabId);if(tab.status==='complete')await runSignupFill(tabId);await chrome.alarms.create('signup-wakeup',{when:Date.now()+2000});}});}finally{signupPolling=false;}
 }

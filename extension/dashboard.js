@@ -1,4 +1,5 @@
 import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
+import './shared/signup-success-notices.js';
 import {api,storage,settings,isExtension,connectGoogle} from './api.js';
 import {extract,labels} from './shared/extract.js';
 import {compare} from './shared/compare.js';

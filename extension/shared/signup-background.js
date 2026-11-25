@@ -12,7 +12,7 @@ export async function startSignupSession({browser,storage,draft,filePayload=[],a
  return {ok:true,needsPermission:!allowed,tabId:tab.id};
 }
 export async function pollSignupJobs({browser,storage,request,start,afterStart}){
- const pending=await storage.get('signupResume');if(pending?.autoSubmit&&!pending.submissionRequested&&pending.expires>Date.now())return;
+ const pending=await storage.get('signupResume');if(pending?.autoSubmit&&pending.expires>Date.now()&&(!pending.submissionRequested||Date.now()-(pending.submittedAt||0)<120000))return;
  const jobs=await storage.get('signupJobs')||[];
  let nextAt=Infinity;for(const job of jobs){
   let result;try{result=await request(job,{});}catch(error){if(![401,403,404,409].includes(error.status))continue;result={stop:true};}
