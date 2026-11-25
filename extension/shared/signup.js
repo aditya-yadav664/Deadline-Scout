@@ -49,10 +49,11 @@ export function captureSignupForm(formIndex=0){
  }
  for(const frame of document.querySelectorAll('iframe'))if(visible(frame))warnings.push('Embedded form: open it directly and capture it separately if you have access.');
  const terms=[...root.querySelectorAll('label,a')].filter(visible).filter(n=>/terms|consent|privacy|agree/i.test(n.innerText)).map(n=>(n.innerText+' '+(n.href||'')).trim()).join('\n').slice(0,8000);
- return {formChoices:forms.map((f,i)=>({index:i,label:(f.getAttribute('aria-label')||f.id||'Form '+(i+1))+' · '+f.querySelectorAll('input,textarea,select').length+' controls'})),url:location.href,title:document.title,fields:fields.slice(0,100),terms,warnings,capturedAt:new Date().toISOString()};
+ return {formIndex,formChoices:forms.map((f,i)=>({index:i,label:(f.getAttribute('aria-label')||f.id||'Form '+(i+1))+' · '+f.querySelectorAll('input,textarea,select').length+' controls'})),url:location.href,title:document.title,fields:fields.slice(0,100),terms,warnings,capturedAt:new Date().toISOString()};
 }
 export function restoreSignupAnswers({step,answers}){
- const controls=[...document.querySelectorAll('input,textarea,select')].filter(el=>!!el.getClientRects().length),report=[];
+ const forms=[...document.forms].filter(f=>!!f.getClientRects().length&&f.querySelector('input,textarea,select')).sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length),root=forms[step.formIndex||0]||document;
+ const controls=[...root.querySelectorAll('input,textarea,select')].filter(el=>!!el.getClientRects().length),report=[];
  for(const field of step.fields){
   if(field.type==='file'){report.push(field.label+': attach the approved file manually.');continue;}
   let matches=controls.filter(el=>field.id?el.id===field.id:field.name?el.name===field.name:(el.labels?.[0]?.innerText||el.getAttribute('aria-label')||el.placeholder||'').trim()===field.label);
