@@ -1,3 +1,4 @@
+// Public connection configuration. Secrets belong only in the backend .env.
 export const LOCAL_BACKEND='http://localhost:4317';
 export function backendOrigin(value,fallback=LOCAL_BACKEND){
   try{

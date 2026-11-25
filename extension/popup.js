@@ -1,5 +1,6 @@
-import {api,settings,storage,isExtension} from './api.js';
+import {api,settings,isExtension} from './api.js';
 import {scanActivePage} from './shared/page-scanner.js';
+import {copiedLinkReviewUrl} from './shared/copied-link.js';
 let capture=null,blockedOrigin=null;
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -20,15 +21,10 @@ $('#allow').onclick=e=>run(e.currentTarget,async()=>{
 });
 $('#review').onclick=e=>run(e.currentTarget,async()=>{if(!capture)return;$('#status').textContent='Opening your date review…';const result=await api('/api/captures','POST',capture);await openWebsite(result.reviewUrl);});
 $('#dashboard').onclick=e=>run(e.currentTarget,()=>dashboard());$('#dashboard-icon').onclick=e=>run(e.currentTarget,()=>dashboard());
-$('#review-url').onclick=e=>run(e.currentTarget,async()=>{
-  let value=$('#url').value.trim();if(!value)throw new Error('Paste a registration URL first.');if(!/^[a-z][a-z0-9+.-]*:/i.test(value))value='https://'+value;
-  const u=new URL(value);if(!['http:','https:'].includes(u.protocol)||u.username||u.password)throw new Error('Use a public HTTP(S) registration URL.');await dashboard('#inspect='+encodeURIComponent(u.href));
+$('#track-copied').onclick=e=>run(e.currentTarget,async()=>{
+  // Request clipboard access only for this explicit action, never on popup open.
+  if(isExtension&&!await chrome.permissions.request({permissions:['clipboardRead']}))throw new Error('Clipboard access was not granted. Open the dashboard to paste your link.');
+  let copied;try{copied=await navigator.clipboard.readText();}catch{throw new Error('Could not read the clipboard. Copy a registration link and try again, or paste it on the dashboard.');}
+  const s=await settings();await openWebsite(copiedLinkReviewUrl(copied,s.backendUrl));
 });
-$('#save-backend').onclick=e=>run(e.currentTarget,async()=>{
-  const u=new URL($('#backend').value);if(u.pathname!=='/'||u.search||u.hash||u.username||u.password||!(u.protocol==='https:'||u.protocol==='http:'&&['localhost','127.0.0.1'].includes(u.hostname)))throw new Error('Use an HTTPS server origin, or localhost for development.');
-  if(!await chrome.permissions.request({origins:[u.origin+'/*']}))throw new Error('Server access was not granted.');await storage.set('settings',{backendUrl:u.origin});await storage.set('token',null);$('#status').textContent='Server address saved.';
-});
-$('#connect').onclick=e=>run(e.currentTarget,async()=>{const r=await chrome.runtime.sendMessage({type:'connect-google'});if(!r?.ok)throw new Error(r?.error||'Sign-in did not complete.');if(await chrome.permissions.request({permissions:['notifications']}))$('#account').textContent='Browser alerts connected.';});
-$('#backend').value=(await settings()).backendUrl;
 try{const [t]=await chrome.tabs.query({active:true,currentWindow:true});$('#page-title').textContent=t?.title||'Open a registration page to scan.';}catch{}
-if(await storage.get('token'))$('#account').textContent='Browser account connected. Notification permission is requested when you connect alerts.';
