@@ -149,6 +149,17 @@ test('automatic sessions create inactive tabs and queued jobs do not steal an ac
 });
 
 import {hash} from '../server/security.js';
+import {collectSignupPage} from '../extension/shared/signup-collection.js';
+test('page collection persists ordered captures and replaces recaptures without mixing sites',()=>{
+ const first={url:'https://example.org/form',stepToken:'one',fields:[{key:'id:name'}]},second={...first,stepToken:'two',fields:[{key:'id:project'}]};
+ let c=collectSignupPage(null,first);c=collectSignupPage(c,second);c=collectSignupPage(c,{...first,title:'Updated'});assert.equal(c.steps.length,2);assert.equal(c.steps[0].title,'Updated');assert.throws(()=>collectSignupPage(c,{...second,url:'https://other.org/form'}),/another site/);assert.throws(()=>collectSignupPage(c,{...second,fields:[]}),/does not need/);
+});
+test('job runner schedules the due-time alarm and immediately starts a claimed tab',async()=>{
+ const state={signupJobs:[{token:'test'}]},storage={get:async k=>state[k],set:async(k,v)=>state[k]=v};let alarm,started;const when=Date.now()+1500;
+ const browser={alarms:{create:async(name,options)=>alarm={name,...options}}};
+ await pollSignupJobs({browser,storage,request:async()=>({waiting:true,backupAt:when}),start:async()=>{}});assert.equal(alarm.name,'signup-wakeup');assert.equal(alarm.when,when);
+ await pollSignupJobs({browser,storage,request:async()=>({draft:{},filePayload:[],runId:'run'}),start:async()=>({tabId:19}),afterStart:async id=>started=id});assert.equal(started,19);
+});
 test('scheduled signup token is bound to one draft and the parent website session',async t=>{
  const app=createApp({env:{HOST:'127.0.0.1',APP_URL:base},store:new Store(':memory:')});await new Promise(r=>app.server.listen(0,'127.0.0.1',r));t.after(()=>app.close());const root='http://127.0.0.1:'+app.server.address().port,web='website-test-token';
  app.store.put('_system','session',hash(web),{owner:'alice',expires:Date.now()+100000});app.store.put('alice','track','track',{id:'track',milestones:[{id:'deadline',date:'2030-09-12',time:'17:00',zone:'Asia/Kolkata'}],conflicts:[],uncertain:[]});

@@ -17,7 +17,7 @@ async function surfaceAlerts(){
     },ack:id=>api('/api/alerts/ack','POST',{id})});
   }catch{/* The durable backend queue is read on the next wakeup. */}finally{busy=false;}
 }
-chrome.alarms.onAlarm.addListener(a=>{if(a.name==='surface-alerts')surfaceAlerts();if(a.name==='signup-jobs')backgroundSignups();});
+chrome.alarms.onAlarm.addListener(a=>{if(a.name==='surface-alerts')surfaceAlerts();if(['signup-jobs','signup-wakeup'].includes(a.name))backgroundSignups();});
 chrome.runtime.onMessage.addListener((message,_sender,respond)=>{
   if(['signup-fill-now','signup-form-changed'].includes(message.type)){(async()=>{const pending=await storage.get('signupResume');if(message.type==='signup-fill-now'&&_sender.url?.startsWith(chrome.runtime.getURL(''))){if(!pending||pending.expires<Date.now())throw Error('Session expired. Start Fill form now from your draft again.');pending.tabId=message.tabId;await storage.set('signupResume',pending);}else if(!pending||pending.tabId!==_sender.tab?.id)throw Error('No active signup session.');return runSignupFill(message.tabId||_sender.tab.id,{force:message.type==='signup-fill-now',preferredIndex:message.type==='signup-fill-now'?message.stepIndex:undefined});})().then(respond).catch(e=>respond({ok:false,error:e.message}));return true;}
   if(message.type==='surface-alerts'){surfaceAlerts().then(()=>respond({ok:true}));return true;}
@@ -48,7 +48,8 @@ async function runSignupFill(tabId,options={}){
  const pending=await storage.get('signupResume');if(!pending||pending.tabId!==tabId)return {ok:false};
  if(pending.job){try{const check=await signupRequest(pending.job,{runId:pending.job.runId,check:true});if(!check.allowed){await storage.set('signupResume',null);await chrome.storage.session.remove('signupFiles');return {ok:false,error:'This signup is no longer approved.'};}}catch(error){if([401,403,404,409].includes(error.status)){await storage.set('signupResume',null);await chrome.storage.session.remove('signupFiles');}return {ok:false,error:error.message};}}
  try{
-  const result=await fillPendingSignup({browser:chrome,storage,tabId,...options});
+  const result=await fillPendingSignup({browser:chrome,storage,tabId,...options});if(result.waiting)await chrome.alarms.create('signup-wakeup',{when:Date.now()+2000});
+  if(pending.autoSubmit&&(result.execution?.paused||result.error)){const latest=await storage.get('signupResume');if(latest?.tabId===tabId){latest.autoSubmit=false;await storage.set('signupResume',latest);}}
   if(pending.job&&(result.execution?.attempted||result.execution?.paused||result.error))await signupRequest(pending.job,{runId:pending.job.runId,result:result.execution?.attempted?'attempted':'paused',message:result.error||result.execution?.message});
   return result;
  }catch(error){if(pending.job)await signupRequest(pending.job,{runId:pending.job.runId,result:'paused',message:'Execution outcome needs review: '+error.message}).catch(()=>{});throw error;}
@@ -57,5 +58,5 @@ let signupPolling=false;
 async function backgroundSignups(){
  if(signupPolling)return;signupPolling=true;
  try{const pending=await storage.get('signupResume');if(pending?.autoSubmit&&!pending.submissionRequested&&pending.expires>Date.now())await runSignupFill(pending.tabId).catch(()=>{});
- await pollSignupJobs({browser:chrome,storage,request:signupRequest,start:startSignupSession});}finally{signupPolling=false;}
+ await pollSignupJobs({browser:chrome,storage,request:signupRequest,start:startSignupSession,afterStart:async tabId=>{const tab=await chrome.tabs.get(tabId);if(tab.status==='complete')await runSignupFill(tabId);await chrome.alarms.create('signup-wakeup',{when:Date.now()+2000});}});}finally{signupPolling=false;}
 }

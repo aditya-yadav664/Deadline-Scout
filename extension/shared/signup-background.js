@@ -8,18 +8,19 @@ export async function startSignupSession({browser,storage,draft,filePayload=[],a
  const files=approvedSessionFiles(draft,filePayload),fileSession=crypto.randomUUID(),expires=Date.now()+30*60000;
  await browser.storage.session.set({signupFiles:{id:fileSession,files,expires}});
  const tab=await browser.tabs.create({url:url.href,active:!autoSubmit});
- await storage.set('signupResume',{draft,fileSession,tabId:tab.id,expires,filled:[],visited:[],autoSubmit,attempted:[],job});
+ await storage.set('signupResume',{draft,fileSession,startedAt:Date.now(),tabId:tab.id,expires,filled:[],visited:[],autoSubmit,attempted:[],job});
  return {ok:true,needsPermission:!allowed,tabId:tab.id};
 }
-export async function pollSignupJobs({browser,storage,request,start}){
+export async function pollSignupJobs({browser,storage,request,start,afterStart}){
  const pending=await storage.get('signupResume');if(pending?.autoSubmit&&!pending.submissionRequested&&pending.expires>Date.now())return;
  const jobs=await storage.get('signupJobs')||[];
- for(const job of jobs){
+ let nextAt=Infinity;for(const job of jobs){
   let result;try{result=await request(job,{});}catch(error){if(![401,403,404,409].includes(error.status))continue;result={stop:true};}
   if(result.stop){await storage.set('signupJobs',(await storage.get('signupJobs')||[]).filter(j=>j.token!==job.token));continue;}
-  if(!result.draft)continue;
-  try{await start({browser,storage,draft:result.draft,filePayload:result.filePayload,autoSubmit:true,job:{...job,runId:result.runId}});}
+  if(!result.draft){if(result.waiting)nextAt=Math.min(nextAt,result.backupAt);continue;}
+  try{const started=await start({browser,storage,draft:result.draft,filePayload:result.filePayload,autoSubmit:true,job:{...job,runId:result.runId}});if(afterStart)await afterStart(started.tabId);}
   catch(error){await request(job,{runId:result.runId,result:'paused',message:error.message}).catch(()=>{});}
   return;
  }
+ if(Number.isFinite(nextAt))await browser.alarms?.create('signup-wakeup',{when:Math.max(Date.now()+1000,nextAt)});
 }

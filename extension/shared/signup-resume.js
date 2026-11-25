@@ -58,6 +58,7 @@ export async function fillPendingSignup({browser,storage,tabId,force=false,prefe
  const captureIndex=pending.draft.steps[preferredIndex]?.formIndex||pending.draft.steps.find(s=>s.url===tab.url)?.formIndex||0;
  const [captured]=await browser.scripting.executeScript({target:{tabId},func:captureSignupForm,args:[captureIndex]});let plan=resumePlan(pending.draft,captured.result,preferredIndex);
  if(plan.error&&pending.autoSubmit&&!captured.result.fields.length){const [all]=await browser.scripting.executeScript({target:{tabId},func:captureSignupForm,args:[captureIndex,true]});plan=finalReviewPlan(pending,captured.result,all.result)||plan;}
+ if(plan.error&&pending.startedAt&&Date.now()-(pending.lastProgressAt||pending.startedAt)<10000)return {ok:true,waiting:true};
  if(plan.error){await browser.scripting.executeScript({target:{tabId},func:showSignupProgress,args:[{message:plan.error}]});return {ok:false,error:plan.error};}
  pending.filled||=[];const key=plan.index+':'+(captured.result.stepToken||'')+':'+plan.signature;
  const alreadyFilled=pending.filled.includes(key);
@@ -70,7 +71,7 @@ export async function fillPendingSignup({browser,storage,tabId,force=false,prefe
   if(attachments.length){const [attached]=await browser.scripting.executeScript({target:{tabId},func:attachSignupPdfs,args:[{step:plan.step,attachments}]});attachmentResult=attached.result;}
  }
  result.result.push(...attachmentResult.report);
- pending.filled=[...new Set([...pending.filled,key])];await storage.set('signupResume',pending);
+ if(!alreadyFilled)pending.lastProgressAt=Date.now();pending.filled=[...new Set([...pending.filled,key])];await storage.set('signupResume',pending);
  if(!plan.warnings.length&&!attachmentResult.blocked&&!result.result.some(line=>/ambiguous or missing/.test(line))){pending.visited=[...new Set([...(pending.visited||[]),plan.index])];await storage.set('signupResume',pending);}
  let execution;
  if(pending.autoSubmit&&!plan.warnings.length&&!attachmentResult.blocked&&!result.result.some(line=>/ambiguous or missing/.test(line))){pending.attempted||=[];if(!pending.attempted.includes(key)&&!pending.submissionRequested){pending.attempted.push(key);pending.dispatching=true;await storage.set('signupResume',pending);const [attempt]=await browser.scripting.executeScript({target:{tabId},func:advanceSignup,args:[{finalStep:plan.review||plan.index===pending.draft.steps.length-1,formIndex:plan.step.formIndex||0}]});execution=attempt.result;pending.dispatching=false;if(execution?.paused){pending.attempted=pending.attempted.filter(k=>k!==key);}if(execution?.attempted)pending.submissionRequested=true;await storage.set('signupResume',pending);}}

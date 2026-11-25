@@ -88,6 +88,12 @@ Automated browser coverage verifies FileList/FormData contents, the site change 
 
 ## Background signup jobs (1.9.0)
 
+### Capture collection and runner wakeups (1.9.1)
+
+Prepare signup now captures field metadata locally without opening the dashboard. Capture next page appends the next visible answer page; reopening the popup preserves the collection. Recapturing a matching page replaces it. Submit as draft sends the collected pages in one encrypted, expiring handoff, then opens the website for event selection and answer review. Collections are limited to 12 pages from one site. Empty final review pages need no capture. Discard captured pages clears the local collection.
+
+Background jobs now schedule a due-time alarm rather than relying only on the one-minute poll. Claimed tabs receive an explicit start check and a short wake-up for loading races. Initial or transitioning forms receive a brief loading grace period before a schema mismatch pauses the run. Paused/error sessions release the automatic-run slot so an old stalled session does not silently block another job. No uncertain submission is retried.
+
 After saving the answer pages and PDFs once, Run background signup now queues an approved run immediately. Alternatively choose Fill and submit in background in Action and Turn on backup to run at the configured backup time. The extension opens an inactive tab, so the organizer website does not take focus and the dashboard may be closed. Edge must remain running with the extension enabled, prior site access granted and any required organizer sign-in still valid. This is browser automation, not cloud execution while the computer is off. The alarm polls once per minute; start before the deadline with enough margin. An overdue closed deadline pauses rather than submitting late.
 
 A narrowly scoped browser-signup token is bound to one owner, draft revision and parent website session. It can only poll/report that approved job. The server atomically claims the job once and returns its approved snapshot/PDFs. Reapproval, edits, cancellation, removing the tracked event or signing out invalidate execution. Multiple queued jobs run sequentially; an active browser session occupies one slot. The website refreshes job status every 15 seconds without overwriting unsaved answers.
