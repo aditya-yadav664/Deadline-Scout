@@ -2,6 +2,7 @@ import {captureSignupForm,restoreSignupAnswers,formSignature} from './signup.js'
 import {attachSignupPdfs} from './signup-files.js';
 export function finalReviewPlan(pending,live,all){
  if(!pending.autoSubmit||live.fields.length||!pending.draft.steps.every((s,i)=>!s.fields.length||pending.visited?.includes(i)))return null;
+ if(all.warnings?.some(w=>/Unfamiliar control|Ambiguous control|Multiple forms/.test(w)))return null;
  const known=pending.draft.steps.flatMap(s=>s.fields),constraints=f=>JSON.stringify([f.key,f.type,!!f.required,f.options||[],f.accept||'',!!f.multiple,f.maxLength||null,f.pattern||'',f.min||'',f.max||'']);
  if(!known.length||known.filter(f=>f.required).some(f=>!all.fields.some(n=>n.key===f.key)))return null;
  if(all.fields.some(f=>!known.some(k=>constraints(f)===constraints(k))))return null;
@@ -16,7 +17,7 @@ export function resumePlan(draft,live,preferredIndex){
  if(!ranked.length||(!ranked[0].matches.length&&!reviewOnly)||ranked[1]?.matches.length===ranked[0].matches.length)return {error:'This page has new or unmatched answer fields. Review those answers; an empty final review page does not need a saved draft.'};
  const {step,index,matches}=ranked[0];if(step.terms!==live.terms)return {error:'Terms changed. Capture this step again for review.'};
  const added=live.fields.filter(f=>f.required&&!step.fields.some(s=>s.key===f.key));
- return {index,step:{...step,fields:matches},answers:step.answers,signature:formSignature(live),warnings:[...added.map(f=>'New required field: '+f.label),...step.fields.filter(f=>!matches.includes(f)).map(f=>f.label+': changed; review manually.')]};
+ return {index,step:{...step,fields:matches},answers:step.answers,signature:formSignature(live),warnings:[...(live.warnings||[]).filter(w=>/Unfamiliar control|Ambiguous control|Multiple forms/.test(w)),...added.map(f=>'New required field: '+f.label),...step.fields.filter(f=>!matches.includes(f)).map(f=>f.label+': changed; review manually.')]};
 }
 export function watchSignupStep(){
  if(window.__scoutSignupWatch)return;window.__scoutSignupWatch=true;let timer;
