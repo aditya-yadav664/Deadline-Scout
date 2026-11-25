@@ -34,6 +34,7 @@ export class Signups {
   this.store.put(owner,'signupFile',id,{...file,sealed:this.secrets.seal({data:bytes.toString('base64')})});return file;
  }
  approvedFiles(owner,d){for(const step of d.steps)for(const f of step.fields.filter(f=>f.type==='file'))for(const ref of step.files?.[f.key]||[]){const file=this.store.get(owner,'signupFile',ref.id);if(!file||file.expires<Date.now()||file.sha256!==ref.sha256||file.version!==ref.version||hash(Buffer.from(this.secrets.open(file.sealed).data,'base64'))!==ref.sha256)throw fail('Approved file missing, expired or replaced. Review '+f.label+'.');}}
+ cancelNotices(owner,id){for(const d of this.store.list(owner,'delivery'))if(d.signupId===id&&['queued','retry','sending'].includes(d.status))this.store.put(owner,'delivery',d.id,{...d,status:'cancelled'});}
  async route(owner,path,method,b){
   if(path==='/api/signup-profile'){
    const existing=this.store.get(owner,'signupProfile','me')||{name:'',phone:'',college:'',links:[]};if(method==='GET')return this.secrets.open(existing.sealed||this.secrets.seal(existing));
@@ -44,7 +45,7 @@ export class Signups {
   if(path==='/api/signups/run'&&method==='POST'){await this.tick(owner);return {ok:true};}
   if(path==='/api/signups'&&method==='GET')return this.list(owner);
   if(path==='/api/signups'&&method==='POST'){
-   const old=b.id?this.read(owner,b.id):null;if(old&&['Confirmed','Already registered'].includes(old.status))throw fail('Completed drafts cannot be edited.');
+   const old=b.id?this.read(owner,b.id):null;if(old&&['Confirmed','Already registered'].includes(old.status))throw fail('Completed drafts cannot be edited.');if(old)this.cancelNotices(owner,old.id);
    if(!this.store.get(owner,'track',b.trackId))throw fail('Select an active tracked page.');
    const steps=(b.steps||[]).slice(0,12).map(s=>({...this.capture(s),answers:Object.fromEntries(Object.entries(s.answers||{}).slice(0,100).map(([k,v])=>[k,String(v).slice(0,10000)])),sources:s.sources||{},sharing:s.sharing||{},files:s.files||{}}));
    if(!steps.length||steps.some(s=>new URL(s.url).origin!==new URL(steps[0].url).origin))throw fail('Capture steps from one form site.');
@@ -52,8 +53,8 @@ export class Signups {
   }
   const match=path.match(/^\/api\/signups\/([\w-]+)(?:\/(arm|cancel|registered))?$/);if(!match)throw fail('Signup route not found.',404);
   const d=this.read(owner,match[1]);if(method==='GET'&&!match[2])return d;if(method!=='POST')throw fail('Method not allowed.',405);
-  if(match[2]==='registered'){d.status='Already registered';d.notice='You marked this signup as already registered. Backup stopped.';return this.save(owner,d);}
-  if(match[2]==='cancel'){d.status='Cancelled';return this.save(owner,d);}
+  if(match[2]==='registered'){this.cancelNotices(owner,d.id);d.status='Already registered';d.notice='You marked this signup as already registered. Backup stopped.';return this.save(owner,d);}
+  if(match[2]==='cancel'){this.cancelNotices(owner,d.id);d.status='Cancelled';return this.save(owner,d);}
   if(match[2]!=='arm')throw fail('Action not found.',404);this.validate(owner,d);
   const track=this.store.get(owner,'track',d.trackId),milestone=track.milestones.find(m=>m.id===b.milestoneId);if(!milestone)throw fail('Choose a tracked deadline.');
   if(track.conflicts?.length||track.uncertain?.length||track.missing?.length)throw fail('Resolve the tracked deadline before arming.');
