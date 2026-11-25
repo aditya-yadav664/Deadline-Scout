@@ -58,3 +58,12 @@ test('distinct custom milestones retain IDs and edited names when one date chang
  const updated=await engine.check('owner',track.id);assert.equal(updated.status,'changed');assert.equal(updated.milestones.length,3);assert.equal(updated.milestones[0].date,'2027-09-15');assert.equal(updated.milestones[0].id,'0');assert.equal(updated.milestones[0].label,'My essay');assert.equal(updated.milestones[1].date,'2027-09-12');assert.equal(store.list('owner','change').length,1);
  }finally{store.close();}
 });
+
+import {nearestUpcomingTrack} from '../extension/shared/milestone-selection.js';
+test('automatic highlight follows upcoming event date, not when a future page was saved',()=>{
+ const december={id:'dec1',title:'December first',createdAt:'2026-01-01',milestones:[{kind:'registration_closes',date:'2026-11-24'},{kind:'event',date:'2026-12-01'}]},later={id:'later',title:'Random future event',createdAt:'2026-11-25',milestones:[{kind:'event',date:'2026-12-27'}]};
+ assert.equal(nearestUpcomingTrack([later,december],'2026-11-25').id,'dec1');
+ assert.equal(nearestUpcomingTrack([december,later],'2026-12-02').id,'later');
+ assert.equal(nearestUpcomingTrack([december],'2027-01-01'),undefined);
+ const invoice={id:'invoice',title:'Invoice',milestones:[{kind:'payment',date:'2026-11-28'}]};assert.equal(nearestUpcomingTrack([later,invoice],'2026-11-25').id,'invoice');
+});

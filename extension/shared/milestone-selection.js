@@ -39,3 +39,9 @@ export function repairMixedSnapshot(track,observations){
  track.milestones.push(...old.filter(m=>!kinds.includes(m.kind)));
  return true;
 }
+
+// Prefer the nearest upcoming event; for non-event pages, use their next milestone.
+export function nearestUpcomingTrack(tracks,today){
+ const candidates=tracks.flatMap(track=>{const events=track.milestones.filter(m=>m.kind==='event'),dates=(events.length?events:track.milestones).filter(m=>m.date>=today).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||''));return dates.length?[{track,date:dates[0].date,time:dates[0].time||''}]:[];});
+ return candidates.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)||a.track.title.localeCompare(b.track.title))[0]?.track;
+}

@@ -51,3 +51,5 @@ The editor now stays in the page with three stages: Choose event → Review answ
 When you capture another form page, choose its existing draft in Continue a signup and click Add to selected draft. The server merges that step atomically; a recapture of the same form preserves answers and avoids a duplicate step. Stale tabs cannot replace newer data. In Your drafts, use the up/down buttons beside each step to save a custom step order. Changing an armed draft’s order disarms it and requires fresh approval.
 
 Browser checks on a disposable local account covered save, arming, opening the form, cancellation, close, reordering across reload, and capturing a third page into the same draft across reload. Installed Edge extension messaging remains a separate manual validation boundary.
+
+Delete draft removes a signup from Your drafts and stops its scheduled backup and queued signup alerts. Undo draft deletion restores it as an unarmed draft, requiring fresh review before it can run. Account data clearing also removes deleted draft records.

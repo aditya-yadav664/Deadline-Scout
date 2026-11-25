@@ -55,3 +55,10 @@ test('next form capture appends atomically, recapture keeps answers, and user or
  await assert.rejects(f.s.route('alice','/api/signups','POST',{...recaptured,reviewedAll:true}),/another tab/);
  assert.equal(f.s.list('alice').length,1);
 });
+
+test('deleting a signup hides it, cancels reminders and prevents execution; undo restores an unarmed draft',async t=>{
+ const f=fixture(t),d=await draft(f);f.s.notify('alice',d,'Test signup notice');due(f,d);
+ await assert.rejects(f.s.route('bob','/api/signups/'+d.id,'DELETE',{}),/not found/);
+ await f.s.route('alice','/api/signups/'+d.id,'DELETE',{});assert.equal(f.s.list('alice').length,0);await f.s.tick();assert.equal(f.store.list('_system','demoSignup').length,0);assert.ok(f.store.list('alice','delivery').every(x=>x.status==='cancelled'));
+ const restored=await f.s.route('alice','/api/signups/'+d.id+'/restore','POST',{});assert.equal(restored.status,'Draft');assert.equal(restored.reviewedAll,false);assert.equal(restored.steps.length,1);
+});

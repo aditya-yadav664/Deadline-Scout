@@ -14,7 +14,7 @@ export class Signups {
  constructor({store,secrets,base}){Object.assign(this,{store,secrets,base});}
  read(owner,id){const r=this.store.get(owner,'signup',id);if(!r)throw fail('Signup draft not found.',404);return {...this.secrets.open(r.sealed),...r,sealed:undefined};}
  save(owner,d){const {sealed,...plain}=d;this.store.put(owner,'signup',d.id,{id:d.id,trackId:d.trackId,status:d.status,backupAt:d.backupAt,sealed:this.secrets.seal(plain)});return d;}
- list(owner){return this.store.list(owner,'signup').map(r=>this.read(owner,r.id));}
+ list(owner){return this.store.list(owner,'signup').filter(r=>r.status!=='Deleted').map(r=>this.read(owner,r.id));}
  schema(){const s=this.store.get('_system','demoOrganizer','schema')||demoSignupSchema();return {...s,fields:this.capture({url:this.base+'/signup-demo.html',fields:s.fields}).fields};}
  capture(input){safeUrl(input.url);const url=new URL(input.url).href;if(!Array.isArray(input.fields)||input.fields.length>100)throw fail('Invalid form capture.');
   const step={url,formIndex:Number.isInteger(input.formIndex)&&input.formIndex>=0&&input.formIndex<100?input.formIndex:0,title:String(input.title||'Signup').slice(0,200),capturedAt:typeof input.capturedAt==='string'&&Number.isFinite(Date.parse(input.capturedAt))?input.capturedAt:new Date().toISOString(),terms:String(input.terms||'').slice(0,8000),warnings:(input.warnings||[]).slice(0,30).map(String),fields:input.fields.map(f=>{
@@ -45,14 +45,16 @@ export class Signups {
   if(path==='/api/signups/run'&&method==='POST'){await this.tick(owner);return {ok:true};}
   if(path==='/api/signups'&&method==='GET')return this.list(owner);
   if(path==='/api/signups'&&method==='POST'){
-   const old=b.id?this.read(owner,b.id):null;if(old&&['Confirmed','Already registered'].includes(old.status))throw fail('Completed drafts cannot be edited.');if(old&&b.revision!==undefined&&b.revision!==(old.revision||0))throw fail('This draft changed in another tab. Reopen it before saving.',409);
+   const old=b.id?this.read(owner,b.id):null;if(old&&['Confirmed','Already registered','Deleted'].includes(old.status))throw fail('Completed drafts cannot be edited.');if(old&&b.revision!==undefined&&b.revision!==(old.revision||0))throw fail('This draft changed in another tab. Reopen it before saving.',409);
    if(!this.store.get(owner,'track',b.trackId))throw fail('Select an active tracked page.');
    const steps=(b.steps||[]).slice(0,12).map(s=>({...this.capture(s),answers:Object.fromEntries(Object.entries(s.answers||{}).slice(0,100).map(([k,v])=>[k,String(v).slice(0,10000)])),sources:s.sources||{},sharing:s.sharing||{},files:s.files||{}}));
    if(!steps.length||steps.some(s=>new URL(s.url).origin!==new URL(steps[0].url).origin))throw fail('Capture steps from one form site.');
    if(old)this.cancelNotices(owner,old.id);const d={...old,revision:(old?.revision||0)+1,id:old?.id||randomUUID(),trackId:b.trackId,title:String(b.title||'Signup').slice(0,200),steps,extensionId:/^[a-p]{32}$/.test(b.extensionId)?b.extensionId:old?.extensionId||null,formUrl:steps[0].url,status:'Draft',mode:'reminder',createdAt:old?.createdAt||new Date().toISOString(),reviewedAll:!!b.reviewedAll};return this.save(owner,d);
   }
-  const match=path.match(/^\/api\/signups\/([\w-]+)(?:\/(arm|cancel|registered|steps|reorder))?$/);if(!match)throw fail('Signup route not found.',404);
-  const d=this.read(owner,match[1]);if(method==='GET'&&!match[2])return d;if(method!=='POST')throw fail('Method not allowed.',405);
+  const match=path.match(/^\/api\/signups\/([\w-]+)(?:\/(arm|cancel|registered|steps|reorder|restore))?$/);if(!match)throw fail('Signup route not found.',404);
+  const d=this.read(owner,match[1]);if(method==='DELETE'&&!match[2]){this.cancelNotices(owner,d.id);d.status='Deleted';d.reviewedAll=false;d.revision=(d.revision||0)+1;return this.save(owner,d);}
+  if(method==='POST'&&match[2]==='restore'){if(d.status!=='Deleted')throw fail('This draft was not deleted.');d.status='Draft';d.reviewedAll=false;d.revision=(d.revision||0)+1;return this.save(owner,d);}
+  if(d.status==='Deleted')throw fail('Draft was deleted.',404);if(method==='GET'&&!match[2])return d;if(method!=='POST')throw fail('Method not allowed.',405);
   if(match[2]==='reorder'){
    if(['Confirmed','Already registered'].includes(d.status))throw fail('Completed signups cannot be reordered.');
    if(b.revision!==(d.revision||0))throw fail('Draft changed in another tab. Refresh before reordering.',409);
