@@ -9,7 +9,7 @@ Built for the **Beyond the Browser** hackathon track. Plain HTML/CSS/JavaScript 
 The project is already built. To try it before creating any accounts, run these exact commands in Windows PowerShell:
 
 ```powershell
-Set-Location -LiteralPath 'C:\Users\adity\Documents\Codex\2026-11-22\give-a-proper-prompt-to-build\outputs\deadline-diff'
+Set-Location -LiteralPath 'C:\Users\adity\Documents\Codex\2026-11-22\give-a-proper-prompt-to-build\outputs\Deadline Scout'
 node --version
 node scripts/install-renderer.js
 Copy-Item -LiteralPath '.env.example' -Destination '.env'
@@ -35,7 +35,7 @@ node --env-file-if-exists=.env server/index.js
 3. Click **Load unpacked** and select:
 
    ```text
-   C:\Users\adity\Documents\Codex\2026-11-22\give-a-proper-prompt-to-build\outputs\deadline-diff\extension
+   C:\Users\adity\Documents\Codex\2026-11-22\give-a-proper-prompt-to-build\outputs\Deadline Scout\extension
    ```
 
 4. Pin **Deadline Scout** in Edge's Extensions menu.
