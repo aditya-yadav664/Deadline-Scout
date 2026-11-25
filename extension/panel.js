@@ -28,7 +28,7 @@ async function refresh(){
     config=await api('/api/config');connected=true;
     if(!await storage.get('token')&&config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);}
     if(await storage.get('token')){
-      try{[tracks,changes,me]=await Promise.all([api('/api/tracks'),api('/api/changes'),api('/api/me')]);}
+      try{({tracks,changes,me}=await api('/api/workspace'));}
       catch(e){if(e.status===401){await storage.set('token',null);tracks=[];me={};if(config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);return refresh();}}else throw e;}
     }else{tracks=[];me={};}
     await storage.set('cachedTracks',tracks);
@@ -37,6 +37,7 @@ async function refresh(){
 }
 const statusLabels={watching:['Watching',''],changed:['Date updated','warn'],conflict:['Sources disagree','warn'],needs_review:['Review date','warn'],check_failed:['Check failed','warn'],date_missing:['Date missing','warn'],manual:['Manual reminder','neutral']};
 function render(){
+  $('#tracks').setAttribute('aria-busy','false');
   const all=[...tracks,...localTracks.map(t=>({...t,local:true}))];
   $('#profile-email').textContent=me.email||'Not signed in';$('#profile-status').textContent=me.email?(me.googleConnected?'Google Calendar & Tasks connected':'Google account signed in'):'Sign in to connect your Google account.';$('#profile-avatar').innerHTML=me.email?esc(me.email[0].toUpperCase()):icon('user');$('#profile-signin').hidden=!!me.email;$('#profile-switch').hidden=!me.email;$('#sign-out').hidden=!me.email;
   $('#track-count').textContent=all.length;$('#change-count').textContent=changes.length;

@@ -183,3 +183,10 @@ test('transient DNS failure retries shortly and a successful retry clears it',as
  const recovered=(await f.request(`/api/tracks/${record.id}/check`,'POST',{})).data;
  assert.equal(recovered.status,'watching');assert.deepEqual(recovered.errors,[]);
 });
+
+test('workspace bootstrap returns one owner snapshot without exposing Google secrets or other owners',async t=>{
+ const f=await fixture(t),track=await f.track();
+ f.store.put('someone-else','track','private',{title:'Other owner private event'});
+ const r=await f.request('/api/workspace');assert.equal(r.status,200);assert.equal(r.data.tracks.length,1);assert.equal(r.data.tracks[0].id,track.id);assert.deepEqual(r.data.changes,[]);assert.equal(r.data.me.local,true);assert.doesNotMatch(JSON.stringify(r.data),/Other owner private event/);
+ assert.equal((await f.request('/api/workspace','GET',undefined,'wrong')).status,401);
+});

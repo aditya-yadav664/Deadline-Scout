@@ -20,6 +20,7 @@ import {saveCapture,consumeCapture} from './captures.js';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const sha256url=s=>createHash('sha256').update(s).digest('base64url');
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
+export function isPublicFilePath(path){const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);return /^(?:panel\.(?:html|css|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link)\.js)$/.test(relative);}
 export function createApp(options={}) {
   const env=options.env||process.env;
   const port=Number(env.PORT||4317),host=env.HOST||'127.0.0.1';
@@ -129,7 +130,7 @@ export function createApp(options={}) {
         const owner=auth.owner;
         const bucket=buckets.get(owner)||{count:0,until:Date.now()+60000};if(bucket.until<Date.now()){bucket.count=0;bucket.until=Date.now()+60000;}bucket.count++;buckets.set(owner,bucket);if(bucket.count>180)throw fail('Too many requests. Wait one minute.',429);
         if(path==='/api/logout'&&req.method==='POST'){store.remove('_system','session',hash(token));return send({ok:true});}
-        if(path==='/api/me'&&req.method==='GET') {const p=profileFor(owner);return send({email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local});}
+        if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {const p=profileFor(owner),me={email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local};return send(path==='/api/me'?me:{me,tracks:store.list(owner,'track').map(t=>enrich(owner,t)),changes:store.list(owner,'change').sort((a,b)=>b.at.localeCompare(a.at))});}
         if(path==='/api/settings'&&req.method==='PATCH') {
           const b=await body(req),p=profileFor(owner);if(b.emailEnabled&&!p.emailVerified&&!(email.mode==='demo'&&p.local))throw fail('Verify the recipient email before enabling alerts.');p.emailEnabled=!!b.emailEnabled;store.put(owner,'profile','me',p);return send({ok:true});
         }
@@ -236,8 +237,9 @@ export function createApp(options={}) {
         res.removeHeader('Content-Security-Policy');res.setHeader('Content-Type','text/html; charset=utf-8');return res.end(demoHtml(path,store.get('_system','demo','state')||{mode:'original'}));
       }
       const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);
-      if(!/^(?:panel\.(?:html|css|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link)\.js)$/.test(relative))throw fail('Page not found.',404);
-      res.setHeader('Content-Type',relative.endsWith('.html')?'text/html; charset=utf-8':relative.endsWith('.css')?'text/css':relative.endsWith('.svg')?'image/svg+xml':relative.endsWith('.png')?'image/png':relative.endsWith('.woff2')?'font/woff2':'text/javascript');res.end(readFileSync(join(root,'extension',relative)));
+      if(!isPublicFilePath(path))throw fail('Page not found.',404);
+      res.setHeader('Content-Type',relative.endsWith('.html')?'text/html; charset=utf-8':relative.endsWith('.css')?'text/css':relative.endsWith('.svg')?'image/svg+xml':relative.endsWith('.png')?'image/png':relative.endsWith('.woff2')?'font/woff2':'text/javascript');const content=readFileSync(join(root,'extension',relative)),etag='\"'+createHash('sha256').update(content).digest('base64url')+'\"';
+      res.setHeader('Cache-Control','public, max-age=0, must-revalidate');res.setHeader('ETag',etag);if(req.headers['if-none-match']===etag){res.statusCode=304;return res.end();}res.end(content);
     }catch(e){if(!res.headersSent)send({error:e.message},e.status||400);else res.end();}
   });
   return {server,store,engine,google,base,host,port,close:()=>new Promise(resolve=>server.close(()=>{store.close();resolve();}))};

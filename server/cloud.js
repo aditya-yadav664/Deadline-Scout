@@ -2,15 +2,18 @@ import {databaseOptions} from './cloud-database.js';
 import http from 'node:http';
 import pg from 'pg';
 import {timingSafeEqual} from 'node:crypto';
-import {createApp} from './app.js';
+import {createApp,isPublicFilePath} from './app.js';
 import {CloudStore} from './cloud-store.js';
-const pool=new pg.Pool({...(process.env.DATABASE_URL?databaseOptions(process.env.DATABASE_URL):{}),max:3,idleTimeoutMillis:10000});
+const pool=new pg.Pool({...(process.env.DATABASE_URL?databaseOptions(process.env.DATABASE_URL):{}),max:3,idleTimeoutMillis:60000});
 const defaultEnv={...process.env,HOST:'0.0.0.0',DATA_DIR:'/tmp/deadline-scout',CLOUD_MODE:'true'};
 function cronAuthorized(value,env){const expected='Bearer '+(env.CRON_SECRET||'');return !!env.CRON_SECRET&&Buffer.byteLength(value||'')===Buffer.byteLength(expected)&&timingSafeEqual(Buffer.from(value),Buffer.from(expected));}
 export function startCloud(options={}){
  const env=options.env||defaultEnv,dbPool=options.pool||pool;
  if(!env.DATABASE_URL||!env.TOKEN_ENCRYPTION_KEY||!env.SUPABASE_URL||!env.SUPABASE_PUBLISHABLE_KEY)throw new Error('Cloud database and authentication environment configuration is incomplete.');
+ const publicApp=createApp({env,store:new CloudStore(null,[])});
  const server=http.createServer(async(req,res)=>{
+ const publicPath=new URL(req.url,env.APP_URL).pathname;
+ if(req.method==='GET'&&(isPublicFilePath(publicPath)||['/api/config','/health'].includes(publicPath)))return publicApp.server.listeners('request')[0](req,res);
  let client;const originalEnd=res.end.bind(res),originalWrite=res.write,originalWriteHead=res.writeHead;let ended=false;const restore=()=>{res.write=originalWrite;res.writeHead=originalWriteHead;res.end=originalEnd;};
  const fail=async(error)=>{if(ended)return;ended=true;restore();await client?.query('ROLLBACK').catch(()=>{});console.error('Cloud request failed:',error.code||error.name);if(!res.headersSent){res.statusCode=503;res.setHeader('Content-Type','application/json');originalEnd(JSON.stringify({error:'Service temporarily unavailable. Retry shortly.'}));}else originalEnd();};
  try{
