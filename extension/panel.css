@@ -68,4 +68,3 @@ body{background:#070c10;color:var(--ink);padding:24px 0;min-width:320px}
 @media(max-width:650px){#draft-dialog{width:calc(100vw - 24px);max-height:92dvh;border-radius:14px}#draft-dialog .draft{padding:0 18px 20px}#draft-dialog .card-heading{padding:18px 0 14px;gap:12px}#draft-review-title{font-size:18px}.draft-intro{font-size:12px}}
 
 body:has(#draft-dialog[open]){overflow:hidden}
-

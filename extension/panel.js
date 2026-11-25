@@ -130,7 +130,7 @@ function renderDraft(){
     };
   });
   box.querySelector('h2').textContent=`${draft.milestones.length} milestone${draft.milestones.length===1?'':'s'} found — review and save`;
-  if(!$('#draft-dialog').open){$('#draft-dialog').append($('#toast'));$('#draft-dialog').showModal();}
+  if(!$('#draft-dialog').open){$('#draft-dialog').append($('#toast'));$('#draft-dialog').showModal();$('#draft-dialog').scrollTop=0;}
 }
 function readDraft(){
   draft.title=$('#draft-title').value;draft.plan=$('#planned-date').value;
