@@ -90,6 +90,8 @@ Automated browser coverage verifies FileList/FormData contents, the site change 
 
 ### Monitoring isolation and autofill callbacks (1.9.3)
 
+The specific live transport was Firestore Listen, which uses POST for reads. Its exact HTTPS Listen/channel endpoint is now supported by the DNS-pinned public fetcher, with a 64 KB request limit and no POST redirects. Firestore Write and other mutation endpoints remain blocked. Known cross-origin telemetry/auth SDK requests may be blocked without invalidating schedule reads; unknown POST dependencies still fail explicitly. Milestone labels remain contextual and unrestricted.
+
 Production diagnosis found the linked signup paused before browser execution because cross-origin non-GET page requests made schedule reads fail. These requests remain blocked; unrelated cross-origin writes no longer invalidate an otherwise readable GET schedule. Same-origin non-GET data dependencies still fail explicitly. The actual live event-random page returned all four milestone dates after this change.
 
 A second localhost SQLite monitor retained independent registrations after removal from the hosted dashboard. Vercel-linked local previews now disable their scheduler and live email delivery unless ALLOW_LOCAL_MONITOR=true is deliberately set. The hosted database remains the monitoring authority. The existing local server was restarted with this policy; no local records were deleted.

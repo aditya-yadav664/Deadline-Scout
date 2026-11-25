@@ -75,3 +75,9 @@ test('cross-origin POST telemetry is blocked without invalidating readable sched
  const dependent='<main>'+schedule.replace(/\n/g,'<br>')+'</main><script>fetch("/schedule",{method:"POST",body:"test"}).catch(()=>{})</script>';
  await assert.rejects(renderPublicPage(url,dependent),/non-GET/);
 });
+
+test('monitor never permits Firestore Write or arbitrary POST endpoints',async()=>{
+ const {fetchPublicPage}=await import('../server/fetch-page.js');
+ await assert.rejects(fetchPublicPage('https://firestore.googleapis.com/google.firestore.v1.Firestore/Write/channel',0,'resource',{method:'POST',body:'test'}),/Only public reads/);
+ await assert.rejects(fetchPublicPage('https://example.org/submit',0,'resource',{method:'POST',body:'test'}),/Only public reads/);
+});

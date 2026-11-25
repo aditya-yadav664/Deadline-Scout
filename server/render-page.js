@@ -21,7 +21,12 @@ export async function renderPublicPage(url,initialHtml,env=process.env,resourceR
     let requests=0,bytes=0;const failures=[];
     await context.route('**/*',async route=>{
       const req=route.request();
-      if(req.method()!=='GET'){if(new URL(req.url()).origin===new URL(url).origin&&['document','script','xhr','fetch'].includes(req.resourceType()))failures.push('This source requires a non-GET request; automatic monitoring is read-only.');return route.abort();}
+      const requestUrl=new URL(req.url()),listen=req.method()==='POST'&&requestUrl.protocol==='https:'&&requestUrl.hostname==='firestore.googleapis.com'&&requestUrl.pathname==='/google.firestore.v1.Firestore/Listen/channel';
+      if(listen){try{const data=await fetchPublicPage(req.url(),0,'resource',{method:'POST',body:req.postData()||'',contentType:req.headers()['content-type']||'application/x-www-form-urlencoded'});return await route.fulfill({status:data.status,headers:{'content-type':data.headers['content-type']||'text/plain','access-control-allow-origin':'*'},body:data.body});}catch(e){failures.push('Read-only Firestore Listen failed: '+e.message);return route.abort();}}
+      if(req.method()!=='GET'){
+        const target=new URL(req.url()),background=target.origin!==new URL(url).origin&&(/(?:^|[.-])(?:telemetry|analytics)(?:[.-]|$)|(?:^|\.)google-analytics\.com$/i.test(target.hostname)||/^(?:firebaseinstallations|identitytoolkit|securetoken)\.googleapis\.com$/i.test(target.hostname));
+        if(!background&&['document','script','xhr','fetch'].includes(req.resourceType()))failures.push('This source requires a non-GET request to '+target.hostname+target.pathname+'; automatic monitoring is read-only.');return route.abort();
+      }
       if(['image','font','media'].includes(req.resourceType()))return route.abort();
       if(++requests>75){failures.push('Rendered page request limit exceeded.');return route.abort();}
       try{
