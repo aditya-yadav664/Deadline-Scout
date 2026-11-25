@@ -1,6 +1,15 @@
 import {dedupeMilestones} from './milestone-selection.js';
 import { findDates, findTimes, DEFAULT_TIMEZONE } from './dates.js';
-export const labels={registration_closes:'Registration closes',registration_opens:'Registration opens',payment:'Payment deadline',documents:'Document submission',event:'Event date',event_end:'Event ends',doors_open:'Doors open',submissions:'Submission deadline',results:'Results announced'};
+export const labels={registration_closes:'Registration closes',registration_opens:'Registration opens',payment:'Payment deadline',documents:'Document submission',event:'Event date',event_end:'Event ends',doors_open:'Doors open',submissions:'Submission deadline',results:'Results announced',custom:'Other milestone'};
+// Prefer the page's own short heading over a fixed event vocabulary.
+export function contextualLabel(text,kind,referenceYear){
+  const date=findDates(text,referenceYear)[0];
+  let context=(date?text.slice(0,date.index):text).trim().replace(/[:·•—–-]+\s*$/,'').replace(/\b(?:is|due|on|at|by|before|scheduled for|scheduled|for|from|until)\s*$/i,'').trim();
+  context=context.replace(/\b(?:is|due|on|at|by|before)\s*$/i,'').trim();
+  context=context.replace(/\b(?:has been |was |is )?(?:moved|extended|brought forward|rescheduled|changed|revised)(?:\s+(?:from|to))?\s*$/i,'').trim().replace(/\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?),?\s*$/i,'').trim();
+  if(context&&context.length<=100&&context.split(/\s+/).length<=12&&!/^(?:copyright|all rights reserved|last updated|updated|published|posted|today|yesterday|in \d+)\b/i.test(context))return context[0].toUpperCase()+context.slice(1);
+  return labels[kind]||labels.custom;
+}
 export function identifyKind(text) {
   if(/doors?\s+open|check.?in\s+(?:opens?|starts?)/i.test(text))return 'doors_open';
   if(/(?:project|paper|abstract|idea|hackathon)\s+submission|submission\s+(?:deadline|closes?|cutoff)|submit\s+(?:project|paper|abstract)/i.test(text))return 'submissions';
@@ -9,7 +18,7 @@ export function identifyKind(text) {
   if(/payment|pay\b|fee deadline/i.test(text)) return 'payment';
   if(/document|transcript|upload|portfolio/i.test(text)) return 'documents';
   if(/(?:registration|applications?|admissions?|sign.?ups?)\s+(?:opens?|begins?|starts?)/i.test(text)) return 'registration_opens';
-  if(/deadline|last\s+(?:date|time|day)\s+(?:to\s+)?(?:register|apply|sign.?up)|last date|closes?|closing|register by|apply by|submit by|registration ends/i.test(text)) return 'registration_closes';
+  if(/(?:registration|applications?|admissions?|sign.?ups?|register|apply)\b.*(?:deadline|last|closes?|closing|ends|by)|(?:deadline|last\s+(?:date|time|day))\b.*(?:register|apply|registration)|register by|apply by/i.test(text)) return 'registration_closes';
   if(/event|hackathon|ceremony|takes place|held on|starts? on/i.test(text)) return 'event';
   return null;
 }
@@ -19,6 +28,10 @@ export function extract(text, sourceUrl, referenceYear) {
   let heading=null;const timeRows=[];
   for(const line of lines) {
     let quote=line,kind=identifyKind(line);
+    const lineDates=findDates(line,referenceYear);
+    if(!kind&&lineDates.length&&contextualLabel(line,'custom',referenceYear)!==labels.custom)kind='custom';
+    if(!kind&&heading&&lineDates.length){kind=heading.kind;quote=heading.text+'\n'+line;}
+    if(!kind&&!lineDates.length&&line.length<=100&&/^[\p{L}][\p{L}\p{N}\s&()/'’:.,-]*:?$/u.test(line)){heading={text:line,kind:'custom'};continue;}
     if(/event\s+time|doors?\s+open/i.test(line)&&findTimes(line).length&&!findDates(line,referenceYear).length){timeRows.push({quote:line,kind:/doors?\s+open/i.test(line)?'doors_open':'event'});heading=null;continue;}
     if(heading&&/event\s+time|doors?\s+open/i.test(heading.text)&&findTimes(line).length&&!findDates(line,referenceYear).length){timeRows.push({quote:heading.text+'\n'+line,kind:heading.kind});heading=null;continue;}
     if(kind&&!findDates(line,referenceYear).length){heading={text:line,kind};continue;}
@@ -28,7 +41,7 @@ export function extract(text, sourceUrl, referenceYear) {
     const explicitUpdate=/\b(?:moved|extended|brought forward|rescheduled|changed|revised|now closes|now ends|new deadline)\b/i.test(quote);
     // "changed from X to Y" should never be interpreted as two milestones.
     const candidates=explicitUpdate?[dates.at(-1)]:dates;
-    for(const d of candidates) results.push({kind,label:labels[kind],...d,quote,sourceUrl,explicitUpdate,previousDates:explicitUpdate?dates.slice(0,-1).map(d=>d.date):[],uncertain:!!d.reasons.length});
+    for(const d of candidates) results.push({kind,label:contextualLabel(quote,kind,referenceYear),sourceLabel:contextualLabel(quote,kind,referenceYear),...d,quote,sourceUrl,explicitUpdate,previousDates:explicitUpdate?dates.slice(0,-1).map(d=>d.date):[],uncertain:!!d.reasons.length});
   }
   const foundEvent=results.find(m=>m.kind==='event');const event=foundEvent?{...foundEvent}:null;
   if(event)for(const row of timeRows){

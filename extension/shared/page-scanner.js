@@ -15,11 +15,11 @@ export function milestonesFromCapture(page){
 }
 export async function scanActivePage(browserApi){
   const [tab]=await browserApi.tabs.query({active:true,currentWindow:true});
-  if(!tab?.id)throw new Error('No active tab found. Open a registration page and click the toolbar icon there.');
+  if(!tab?.id)throw new Error('No active tab found. Open a page with dates and click the toolbar icon there.');
   if(tab.url&&!/^https?:\/\//i.test(tab.url))throw new Error('Open a normal website first. Browser settings, extension pages and local files cannot be scanned.');
   let result;
   try{[result]=await browserApi.scripting.executeScript({target:{tabId:tab.id},func:captureVisiblePage});}
-  catch(error){const e=new Error('Page access is not available. Allow access to this site, or reopen the toolbar popup on the registration page.');e.code='PAGE_ACCESS';e.origin=tab.url?new URL(tab.url).origin:null;throw e;}
+  catch(error){const e=new Error('Page access is not available. Allow access to this site, or reopen the toolbar popup on the page with dates.');e.code='PAGE_ACCESS';e.origin=tab.url?new URL(tab.url).origin:null;throw e;}
   const page=result?.result;
   if(!page||!/^https?:\/\//i.test(page.url))throw new Error('This page could not be read. Reload the page and try again.');
   return {title:page.title,url:page.url,links:page.links||[],milestones:milestonesFromCapture(page),capturedAt:new Date().toISOString()};

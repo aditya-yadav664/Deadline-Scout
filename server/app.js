@@ -49,7 +49,7 @@ export function createApp(options={}) {
     const page=await readRegistrationSource(u.href);
     if(env.GEMINI_API_KEY){
       const assisted=await modelExtract(page.text,u.href,env);
-      page.milestones.push(...assisted.filter(m=>!page.milestones.some(existing=>existing.kind===m.kind&&scheduleKey(existing)===scheduleKey(m))));
+      page.milestones.push(...assisted.filter(m=>!page.milestones.some(existing=>existing.kind===m.kind&&scheduleKey(existing)===scheduleKey(m)&&(m.kind!=='custom'||existing.label===m.label))));
     }
     return page;
   }
@@ -192,7 +192,7 @@ export function createApp(options={}) {
           if(b.plan&&!validDate(b.plan))throw fail('Invalid planned date.');
           const sources=[...new Set([url,...(b.sources||[]).map(s=>safeUrl(s).href)])];
           if(sources.length>5||sources.some(s=>new URL(s).origin!==new URL(url).origin))throw fail('Use at most five same-site sources.');
-          const milestones=dedupeMilestones(b.milestones).map(m=>{if(!Object.hasOwn(labels,m.kind))throw fail('Invalid milestone kind.');validateMilestone(m);if(m.time)instant(m);return {id:randomUUID(),kind:m.kind,label:labels[m.kind],date:m.date,time:m.time||null,zone:m.time?m.zone:null,quote:String(m.quote||'').slice(0,2000),sourceUrl:m.sourceUrl&&safeUrl(m.sourceUrl).origin===new URL(url).origin?safeUrl(m.sourceUrl).href:url,manual:!!m.manual,uncertain:false,reasons:[],confirmed:true,confirmedRaw:m.raw||null,confirmedDetectedTime:m.detected?m.detected.time:m.time||null,confirmedDetectedZone:m.detected?m.detected.zone:m.zone||null,confirmedQuote:m.model?m.quote:null};});
+          const milestones=dedupeMilestones(b.milestones).map(m=>{if(!Object.hasOwn(labels,m.kind))throw fail('Invalid milestone kind.');validateMilestone(m);if(m.time)instant(m);return {id:randomUUID(),kind:m.kind,label:String(m.label||labels[m.kind]).replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,100)||labels[m.kind],sourceLabel:String(m.sourceLabel||m.label||labels[m.kind]).slice(0,100),date:m.date,time:m.time||null,zone:m.time?m.zone:null,quote:String(m.quote||'').slice(0,2000),sourceUrl:m.sourceUrl&&safeUrl(m.sourceUrl).origin===new URL(url).origin?safeUrl(m.sourceUrl).href:url,manual:!!m.manual,uncertain:false,reasons:[],confirmed:true,confirmedRaw:m.raw||null,confirmedDetectedTime:m.detected?m.detected.time:m.time||null,confirmedDetectedZone:m.detected?m.detected.zone:m.zone||null,confirmedQuote:m.model?m.quote:null};});
           const signature=ms=>ms.map(milestoneKey).sort().join("\n");
           const existing=store.list(owner,'track').find(t=>t.url===url&&t.title===String(b.title||'Registration').slice(0,200)&&signature(t.milestones)===signature(milestones)&&t.plan===(b.plan||null));
           if(existing)return send(enrich(owner,existing));
@@ -239,13 +239,13 @@ export function createApp(options={}) {
           if(action==='resolve'&&req.method==='POST'){
             if(engine.locks.has(owner+':'+id))throw fail('Wait for the current operation.');
             const b=await body(req),m=t.milestones.find(m=>m.id===b.milestoneId);if(!m)throw fail('Milestone not found.');
-            const reviewCandidates=[...(t.conflicts||[]),...(t.uncertain||[])].filter(c=>c.kind===m.kind).flatMap(c=>c.candidates);
+            const reviewCandidates=[...(t.conflicts||[]),...(t.uncertain||[])].filter(c=>c.milestoneId?c.milestoneId===m.id:c.kind===m.kind).flatMap(c=>c.candidates);
             const candidate=reviewCandidates.find(c=>c.date===(b.sourceDate||b.date)&&c.sourceUrl===b.sourceUrl);
             if(!candidate||!b.approved)throw fail('Select and approve a source candidate.');
             const chosen={...candidate,date:b.date,time:b.time||null,zone:b.time?b.zone:null};validateMilestone(chosen);if(chosen.time)instant(chosen);
-            const change={id:randomUUID(),trackId:t.id,title:t.title,kind:m.kind,label:m.label,before:{...m},after:{...m,...chosen,uncertain:false,confirmedRaw:chosen.raw||null,confirmedDetectedTime:candidate.time??null,confirmedDetectedZone:candidate.zone??null,confirmedQuote:candidate.model?candidate.quote:null},impact:impact(t.plan,chosen),at:new Date().toISOString()};
-            t.resolutions||={};t.resolutions[m.kind]={observation:observationKey(reviewCandidates),chosen:scheduleKey(chosen),sourceUrl:chosen.sourceUrl};
-            Object.assign(m,change.after);t.conflicts=t.conflicts.filter(c=>c.kind!==m.kind);t.uncertain=t.uncertain.filter(c=>c.kind!==m.kind);t.status=t.conflicts.length?'conflict':t.uncertain.length?'needs_review':'watching';
+            const change={id:randomUUID(),trackId:t.id,title:t.title,kind:m.kind,label:m.label,before:{...m},after:{...m,...chosen,label:m.label,sourceLabel:m.sourceLabel||chosen.label,uncertain:false,confirmedRaw:chosen.raw||null,confirmedDetectedTime:candidate.time??null,confirmedDetectedZone:candidate.zone??null,confirmedQuote:candidate.model?candidate.quote:null},impact:impact(t.plan,chosen),at:new Date().toISOString()};
+            t.resolutions||={};t.resolutions[m.id]={observation:observationKey(reviewCandidates),chosen:scheduleKey(chosen),sourceUrl:chosen.sourceUrl};
+            Object.assign(m,change.after);t.conflicts=t.conflicts.filter(c=>c.milestoneId?c.milestoneId!==m.id:c.kind!==m.kind);t.uncertain=t.uncertain.filter(c=>c.milestoneId?c.milestoneId!==m.id:c.kind!==m.kind);t.status=t.conflicts.length?'conflict':t.uncertain.length?'needs_review':'watching';
             store.transaction(()=>{store.put(owner,'track',id,t);if(scheduleKey(change.before)!==scheduleKey(change.after)){
               store.put(owner,'change',change.id,change);store.put(owner,'delivery',change.id+':browser',{id:change.id+':browser',changeId:change.id,channel:'browser',status:'queued',at:change.at});
               const p=profileFor(owner);if(p.emailEnabled&&(p.emailVerified||email.mode==='demo'&&p.local))store.put(owner,'delivery',change.id+':email',{id:change.id+':email',changeId:change.id,channel:'email',status:'queued',to:p.email,...changeEmail(t,change,p),attempts:0,createdAt:Date.now(),nextTry:Date.now(),at:change.at});

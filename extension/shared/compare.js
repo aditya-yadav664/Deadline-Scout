@@ -6,7 +6,11 @@ export function compare(track, observations) {
   const milestones=track.milestones.map(old=>{
     if(old.manual) return old;
     let candidates=observations.flatMap(o=>o.milestones).filter(m=>m.kind===old.kind);
-    if(track.milestones.filter(m=>m.kind===old.kind&&!m.manual).length>1){
+    if(old.kind==='custom'){
+      const name=String(old.sourceLabel||old.label||'').toLowerCase().trim();
+      candidates=candidates.filter(m=>String(m.sourceLabel||m.label||'').toLowerCase().trim()===name);
+    }
+    if(track.milestones.filter(m=>m.kind===old.kind&&!m.manual).length>1&&(old.kind!=='custom'||candidates.length>1)){
       const identity=evidenceIdentity(old);
       const matched=candidates.filter(m=>identity&&evidenceIdentity(m)===identity);
       if(matched.length)candidates=matched;
@@ -18,18 +22,19 @@ export function compare(track, observations) {
       return m;
     });
     if(!all.length){missing.push(old.kind);return old;}
-    if(all.some(m=>m.uncertain)){uncertain.push({kind:old.kind,candidates:all});return old;}
+    if(all.some(m=>m.uncertain)){uncertain.push({kind:old.kind,milestoneId:old.id,label:old.label,candidates:all});return old;}
     const unique=[...new Map(all.map(m=>[scheduleKey(m),m])).values()];
     let chosen;
+    const resolution=track.resolutions?.[old.id]||track.resolutions?.[old.kind];
     if(unique.length===1) chosen=unique[0];
-    else if(track.resolutions?.[old.kind]?.observation===observationKey(all)) chosen=all.find(m=>scheduleKey(m)===track.resolutions[old.kind].chosen && m.sourceUrl===track.resolutions[old.kind].sourceUrl);
+    else if(resolution?.observation===observationKey(all)) chosen=all.find(m=>scheduleKey(m)===resolution.chosen && m.sourceUrl===resolution.sourceUrl);
     if(!chosen && unique.length>1) {
       const updated=unique.filter(m=>m.explicitUpdate && (!m.previousDates?.length || m.previousDates.includes(old.date) || scheduleKey(m)===scheduleKey(old)));
       if(updated.length===1) chosen=updated[0];
-      else {conflicts.push({kind:old.kind,candidates:unique});return old;}
+      else {conflicts.push({kind:old.kind,milestoneId:old.id,label:old.label,candidates:unique});return old;}
     }
     if(scheduleKey(chosen)!==scheduleKey(old)) changes.push({kind:old.kind,label:old.label,before:old,after:chosen,impact:impact(track.plan,chosen)});
-    return {...old,...chosen,id:old.id,manual:old.manual};
+    return {...old,...chosen,id:old.id,label:old.label,sourceLabel:old.sourceLabel||chosen.label,manual:old.manual};
   });
   return {milestones,changes,conflicts,missing,uncertain};
 }

@@ -329,3 +329,21 @@ test('Google signup verifies email, enables alerts and queues one welcome with r
  await f.request('/api/settings','PATCH',{emailEnabled:false},token);await login();assert.equal(sends,2);assert.equal(f.store.get('new-google-user','profile','me').emailEnabled,false);
  assert.equal(f.store.list('new-google-user','delivery').length,1);
 });
+
+test('contextual milestone names survive extension capture, review save and automatic rechecks',async t=>{
+ const url='https://example.org/coursework';let text='Essay submission: September 12, 2027\nInterview: September 12, 2027';
+ const f=await fixture(t,{readPage:async()=>({url,title:'Coursework',text,milestones:extract(text,url)})});
+ const captured=await f.request('/api/captures','POST',{url,title:'Coursework',milestones:extract(text,url)});assert.equal(captured.status,201);
+ const key=new URL(captured.data.reviewUrl).hash.split('=')[1],review=await f.request('/api/captures/'+key);assert.deepEqual(review.data.milestones.map(m=>m.label),['Essay submission','Interview']);
+ const saved=await f.request('/api/tracks','POST',{url,title:'Coursework',sources:[url],milestones:review.data.milestones.map(m=>({...m,label:m.label==='Essay submission'?'My essay':m.label,confirmed:true}))});assert.equal(saved.status,201);assert.equal(saved.data.milestones[0].label,'My essay');
+ text=text.replace('Essay submission: September 12','Essay submission: September 15');const checked=await f.request('/api/tracks/'+saved.data.id+'/check','POST',{});
+ assert.equal(checked.data.status,'changed');assert.equal(checked.data.milestones.length,2);assert.equal(checked.data.milestones[0].date,'2027-09-15');assert.equal(checked.data.milestones[0].label,'My essay');assert.equal(checked.data.milestones[1].date,'2027-09-12');
+});
+
+test('reviewing one custom milestone does not resolve a different custom milestone',async t=>{
+ const url='https://example.org/tasks';let text='Essay submission: September 12, 2027\nInterview: September 13, 2027';const f=await fixture(t,{readPage:async()=>({url,milestones:extract(text,url)})});
+ const saved=(await f.request('/api/tracks','POST',{url,title:'Tasks',sources:[url],milestones:extract(text,url)})).data;
+ text='Essay submission: September 14, 2027\nEssay submission: September 15, 2027\nInterview: September 16, 2027\nInterview: September 17, 2027';
+ const checked=(await f.request('/api/tracks/'+saved.id+'/check','POST',{})).data;assert.equal(checked.conflicts.length,2);assert.ok(checked.conflicts.every(c=>c.milestoneId));
+ const resolved=await f.request('/api/tracks/'+saved.id+'/resolve','POST',{milestoneId:saved.milestones[0].id,date:'2027-09-14',sourceUrl:url,approved:true});assert.equal(resolved.status,200);assert.equal(resolved.data.conflicts.length,1);assert.equal(resolved.data.conflicts[0].milestoneId,saved.milestones[1].id);assert.equal(resolved.data.milestones[0].label,'Essay submission');
+});

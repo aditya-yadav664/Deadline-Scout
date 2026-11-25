@@ -40,3 +40,21 @@ test('combined event time and doors line keeps separate clock meanings',()=>{
  const by=Object.fromEntries(result.map(m=>[m.kind,m]));
  assert.equal(result.length,4);assert.equal(by.event.time,'10:30');assert.equal(by.event_end.time,'13:00');assert.equal(by.doors_open.time,'10:00');
 });
+
+test('any page can expose contextual milestones without registration vocabulary',()=>{
+ const text='Coursework\nEssay submission: September 12, 2027 at 5:00 PM\nInterview\nSeptember 14, 2027 at 10:00 AM UTC\nInvoice payment due: September 12, 2027\nSubscription renewal: September 20, 2027\nLast updated September 1, 2027\nCopyright 2027';
+ const rows=extract(text,url);assert.equal(rows.length,4);
+ assert.deepEqual(rows.map(m=>m.label),['Essay submission','Interview','Invoice payment','Subscription renewal']);
+ assert.equal(rows[0].zone,'Asia/Kolkata');assert.equal(rows[1].zone,'UTC');
+ assert.equal(rows[0].kind,'custom');assert.equal(rows[2].kind,'payment');
+});
+
+test('distinct custom milestones retain IDs and edited names when one date changes',async()=>{
+ const original='Essay submission: September 12, 2027\nInterview: September 12, 2027\nSubscription renewal: September 20, 2027';
+ const milestones=extract(original,url).map((m,i)=>({...m,id:String(i),manual:false}));milestones[0].label='My essay';
+ const store=new Store(':memory:');try{
+ const track={id:'coursework',title:'My account',url,sources:[url],milestones,intervalMinutes:5};store.put('owner','track',track.id,track);
+ const engine=new Engine({store,readPage:async()=>({milestones:extract(original.replace('Essay submission: September 12','Essay submission moved from September 12, 2027 to September 15'),url)}),email:{mode:'demo'},google:{}});
+ const updated=await engine.check('owner',track.id);assert.equal(updated.status,'changed');assert.equal(updated.milestones.length,3);assert.equal(updated.milestones[0].date,'2027-09-15');assert.equal(updated.milestones[0].id,'0');assert.equal(updated.milestones[0].label,'My essay');assert.equal(updated.milestones[1].date,'2027-09-12');assert.equal(store.list('owner','change').length,1);
+ }finally{store.close();}
+});

@@ -15,8 +15,9 @@ export function evidenceIdentity(m){return String(m.quote||'').toLowerCase().rep
 // A server read is the fresh baseline; an earlier browser scan must not add stale copies.
 export function mergeCapturedMilestones(captured,server){
  if(!server?.length)return dedupeMilestones(captured).map(m=>({...m,manual:true}));
- const kinds=new Set(server.map(m=>m.kind));
- return dedupeMilestones([...server.map(m=>({...m,manual:false})),...captured.filter(m=>!kinds.has(m.kind)).map(m=>({...m,manual:true}))]);
+ const group=m=>m.kind==='custom'?m.kind+':'+String(m.sourceLabel||m.label||'').toLowerCase().trim():m.kind;
+ const kinds=new Set(server.map(group));
+ return dedupeMilestones([...server.map(m=>({...m,manual:false})),...captured.filter(m=>!kinds.has(group(m))).map(m=>({...m,manual:true}))]);
 }
 
 // Narrow repair for the old mixed-snapshot bug, not a general same-kind merge.

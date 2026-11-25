@@ -25,9 +25,9 @@ $('#dashboard').onclick=e=>run(e.currentTarget,()=>dashboard());$('#dashboard-ic
 $('#track-copied').onclick=e=>run(e.currentTarget,async()=>{
   // Request clipboard access only for this explicit action, never on popup open.
   if(isExtension&&!await chrome.permissions.request({permissions:['clipboardRead']}))throw new Error('Clipboard access was not granted. Open the dashboard to paste your link.');
-  let copied;try{copied=await navigator.clipboard.readText();}catch{throw new Error('Could not read the clipboard. Copy a registration link and try again, or paste it on the dashboard.');}
+  let copied;try{copied=await navigator.clipboard.readText();}catch{throw new Error('Could not read the clipboard. Copy a page link and try again, or paste it on the dashboard.');}
   const s=await settings();await openWebsite(copiedLinkReviewUrl(copied,s.backendUrl));
 });
-try{const [t]=await chrome.tabs.query({active:true,currentWindow:true});$('#page-title').textContent=t?.title||'Open a registration page to scan.';}catch{}
+try{const [t]=await chrome.tabs.query({active:true,currentWindow:true});$('#page-title').textContent=t?.title||'Open a page with dates to scan.';}catch{}
 
 $('#setup-alerts').onclick=e=>run(e.currentTarget,async()=>{if(!isExtension)throw new Error('Open the installed Deadline Scout extension to set up background alerts.');await openWebsite(await beginAlertConnection(chrome,storage,async()=>(await settings()).backendUrl));});
