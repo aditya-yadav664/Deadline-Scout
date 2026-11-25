@@ -43,3 +43,11 @@ Private uploads expire after seven days; missing, expired or changed references 
 - Browser QA exercised actual DOM capture on the controlled Scout Lab form, saved suggested/edited answers and a private PDF, armed the demo snapshot, reopened the form and restored text/email/repository fields. The file remained a manual attachment on the form, as intended.
 - The website-only demo shortcut uses the same capture/restore functions as the extension injection. Physical Edge popup-to-website handoff still requires the installed extension to be reloaded and tried in that browser; automated tests and website shortcuts do not establish that physical-browser result.
 - No real organizer submission or real test email was sent during QA. Brevo continues to use the existing email preference and verified Google recipient. Mapping uses local rules; no AI key is needed and no profile values/files are sent to an AI provider.
+
+## Guided editor and step ordering (1.6.1)
+
+The editor now stays in the page with three stages: Choose event → Review answers → Set backup. Continue from Choose event saves an unfinished draft automatically. Optional profile fields and demo controls are collapsed. Closing the editor never deletes saved data or waits for a network request.
+
+When you capture another form page, choose its existing draft in Continue a signup and click Add to selected draft. The server merges that step atomically; a recapture of the same form preserves answers and avoids a duplicate step. Stale tabs cannot replace newer data. In Your drafts, use the up/down buttons beside each step to save a custom step order. Changing an armed draft’s order disarms it and requires fresh approval.
+
+Browser checks on a disposable local account covered save, arming, opening the form, cancellation, close, reordering across reload, and capturing a third page into the same draft across reload. Installed Edge extension messaging remains a separate manual validation boundary.

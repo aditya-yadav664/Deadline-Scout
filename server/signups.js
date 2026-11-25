@@ -45,14 +45,28 @@ export class Signups {
   if(path==='/api/signups/run'&&method==='POST'){await this.tick(owner);return {ok:true};}
   if(path==='/api/signups'&&method==='GET')return this.list(owner);
   if(path==='/api/signups'&&method==='POST'){
-   const old=b.id?this.read(owner,b.id):null;if(old&&['Confirmed','Already registered'].includes(old.status))throw fail('Completed drafts cannot be edited.');if(old)this.cancelNotices(owner,old.id);
+   const old=b.id?this.read(owner,b.id):null;if(old&&['Confirmed','Already registered'].includes(old.status))throw fail('Completed drafts cannot be edited.');if(old&&b.revision!==undefined&&b.revision!==(old.revision||0))throw fail('This draft changed in another tab. Reopen it before saving.',409);
    if(!this.store.get(owner,'track',b.trackId))throw fail('Select an active tracked page.');
    const steps=(b.steps||[]).slice(0,12).map(s=>({...this.capture(s),answers:Object.fromEntries(Object.entries(s.answers||{}).slice(0,100).map(([k,v])=>[k,String(v).slice(0,10000)])),sources:s.sources||{},sharing:s.sharing||{},files:s.files||{}}));
    if(!steps.length||steps.some(s=>new URL(s.url).origin!==new URL(steps[0].url).origin))throw fail('Capture steps from one form site.');
-   const d={id:old?.id||randomUUID(),trackId:b.trackId,title:String(b.title||'Signup').slice(0,200),steps,extensionId:/^[a-p]{32}$/.test(b.extensionId)?b.extensionId:null,formUrl:steps[0].url,status:'Draft',mode:'reminder',createdAt:old?.createdAt||new Date().toISOString(),reviewedAll:!!b.reviewedAll};return this.save(owner,d);
+   if(old)this.cancelNotices(owner,old.id);const d={...old,revision:(old?.revision||0)+1,id:old?.id||randomUUID(),trackId:b.trackId,title:String(b.title||'Signup').slice(0,200),steps,extensionId:/^[a-p]{32}$/.test(b.extensionId)?b.extensionId:old?.extensionId||null,formUrl:steps[0].url,status:'Draft',mode:'reminder',createdAt:old?.createdAt||new Date().toISOString(),reviewedAll:!!b.reviewedAll};return this.save(owner,d);
   }
-  const match=path.match(/^\/api\/signups\/([\w-]+)(?:\/(arm|cancel|registered))?$/);if(!match)throw fail('Signup route not found.',404);
+  const match=path.match(/^\/api\/signups\/([\w-]+)(?:\/(arm|cancel|registered|steps|reorder))?$/);if(!match)throw fail('Signup route not found.',404);
   const d=this.read(owner,match[1]);if(method==='GET'&&!match[2])return d;if(method!=='POST')throw fail('Method not allowed.',405);
+  if(match[2]==='reorder'){
+   if(['Confirmed','Already registered'].includes(d.status))throw fail('Completed signups cannot be reordered.');
+   if(b.revision!==(d.revision||0))throw fail('Draft changed in another tab. Refresh before reordering.',409);
+   const order=b.order;if(!Array.isArray(order)||order.length!==d.steps.length||new Set(order).size!==order.length||order.some(i=>!Number.isInteger(i)||i<0||i>=d.steps.length))throw fail('Provide each step exactly once.');
+   d.steps=order.map(i=>d.steps[i]);d.formUrl=d.steps[0].url;if(d.status!=='Cancelled')d.status='Draft';d.reviewedAll=false;d.revision=(d.revision||0)+1;this.cancelNotices(owner,d.id);return this.save(owner,d);
+  }
+  if(match[2]==='steps'){
+   if(['Confirmed','Already registered','Cancelled'].includes(d.status))throw fail('Choose an active signup draft.');
+   const incoming=this.capture(b.step);if(new URL(incoming.url).origin!==new URL(d.formUrl).origin)throw fail('This form is on another site. Start a separate signup.');
+   const identity=s=>JSON.stringify([s.url,s.formIndex||0,s.fields.map(f=>f.key).sort()]),index=d.steps.findIndex(s=>identity(s)===identity(incoming));
+   const step={...incoming,answers:b.step.answers||{},sources:b.step.sources||{},files:{},sharing:{}};
+   if(index>=0){const old=d.steps[index];for(const f of step.fields){if(!validateAnswer(f,old.answers?.[f.key]))step.answers[f.key]=old.answers?.[f.key]||'';if(f.type==='file'&&!validateFiles(f,old.files?.[f.key]||[]))step.files[f.key]=old.files?.[f.key]||[];}d.steps[index]=step;}else{if(d.steps.length>=12)throw fail('Maximum 12 captured steps.');d.steps.push(step);}
+   if(/^[a-p]{32}$/.test(b.extensionId))d.extensionId=b.extensionId;d.status='Draft';d.reviewedAll=false;d.revision=(d.revision||0)+1;this.cancelNotices(owner,d.id);return this.save(owner,d);
+  }
   if(match[2]==='registered'){this.cancelNotices(owner,d.id);d.status='Already registered';d.notice='You marked this signup as already registered. Backup stopped.';return this.save(owner,d);}
   if(match[2]==='cancel'){this.cancelNotices(owner,d.id);d.status='Cancelled';return this.save(owner,d);}
   if(match[2]!=='arm')throw fail('Action not found.',404);this.validate(owner,d);

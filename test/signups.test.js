@@ -45,3 +45,13 @@ test('public captures require auth to consume and signup APIs never expose anoth
  const app=createApp({env:{HOST:'127.0.0.1',APP_URL:base},store:new Store(':memory:')});await new Promise(r=>app.server.listen(0,'127.0.0.1',r));t.after(()=>app.close());const root='http://127.0.0.1:'+app.server.address().port;
  const r=await fetch(root+'/api/signup-captures',{method:'POST',body:JSON.stringify({step:{url:'https://example.org/form',fields:[],terms:''}})});assert.equal(r.status,200);const capture=await r.json(),token=new URL(capture.url).hash.slice(9);const denied=await fetch(root+'/api/signup-captures/'+token);assert.equal(denied.status,401);assert.equal((await fetch(root+'/api/signups')).status,401);
 });
+
+test('next form capture appends atomically, recapture keeps answers, and user ordering persists',async t=>{
+ const f=fixture(t),d=await draft(f,{mode:'reminder'}),step={url:base+'/second-step',title:'Team details',fields:[{key:'id:team',id:'team',label:'Team name',type:'text',required:true}],answers:{'id:team':'Scout team'}};
+ const appended=await f.s.route('alice','/api/signups/'+d.id+'/steps','POST',{step});assert.equal(appended.id,d.id);assert.equal(appended.steps.length,2);assert.equal(appended.status,'Draft');assert.equal(appended.reviewedAll,false);
+ const recaptured=await f.s.route('alice','/api/signups/'+d.id+'/steps','POST',{step:{...step,answers:{'id:team':''}}});assert.equal(recaptured.steps.length,2);assert.equal(recaptured.steps[1].answers['id:team'],'Scout team');
+ const reordered=await f.s.route('alice','/api/signups/'+d.id+'/reorder','POST',{order:[1,0],revision:recaptured.revision});assert.equal(reordered.steps[0].title,'Team details');assert.equal(reordered.steps[1].answers['id:name'],'Test Person');assert.equal(f.s.read('alice',d.id).steps[0].url,base+'/second-step');
+ await assert.rejects(f.s.route('alice','/api/signups/'+d.id+'/reorder','POST',{order:[0,0],revision:reordered.revision}),/exactly once/);
+ await assert.rejects(f.s.route('alice','/api/signups','POST',{...recaptured,reviewedAll:true}),/another tab/);
+ assert.equal(f.s.list('alice').length,1);
+});
