@@ -236,8 +236,8 @@ export function createApp(options={}) {
         res.removeHeader('Content-Security-Policy');res.setHeader('Content-Type','text/html; charset=utf-8');return res.end(demoHtml(path,store.get('_system','demo','state')||{mode:'original'}));
       }
       const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);
-      if(!/^(?:panel\.(?:html|css|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/logo-(?:symbol|wordmark)\.png|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url)\.js)$/.test(relative))throw fail('Page not found.',404);
-      res.setHeader('Content-Type',relative.endsWith('.html')?'text/html; charset=utf-8':relative.endsWith('.css')?'text/css':relative.endsWith('.svg')?'image/svg+xml':relative.endsWith('.png')?'image/png':'text/javascript');res.end(readFileSync(join(root,'extension',relative)));
+      if(!/^(?:panel\.(?:html|css|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url)\.js)$/.test(relative))throw fail('Page not found.',404);
+      res.setHeader('Content-Type',relative.endsWith('.html')?'text/html; charset=utf-8':relative.endsWith('.css')?'text/css':relative.endsWith('.svg')?'image/svg+xml':relative.endsWith('.png')?'image/png':relative.endsWith('.woff2')?'font/woff2':'text/javascript');res.end(readFileSync(join(root,'extension',relative)));
     }catch(e){if(!res.headersSent)send({error:e.message},e.status||400);else res.end();}
   });
   return {server,store,engine,google,base,host,port,close:()=>new Promise(resolve=>server.close(()=>{store.close();resolve();}))};
