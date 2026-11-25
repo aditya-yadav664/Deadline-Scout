@@ -20,7 +20,7 @@ node --env-file-if-exists=.env server/index.js
 
 Copy `.env.example` only on the first setup; preserve your existing `.env` afterward. If `node` is missing or reports a version below 24, install Node.js 24+ from the [official Node.js download page](https://nodejs.org/en/download), reopen PowerShell, and run the commands again. `npm` is not needed.
 
-Keep the server PowerShell window open. Open [the web companion](http://localhost:4317/) and [the fictional registration page](http://localhost:4317/demo/registration). The companion uses the same interface as the extension; active-tab reading and browser notifications require the extension.
+Keep the server PowerShell window open. Open [the web companion](http://localhost:4317/) and [the fictional registration page](http://localhost:4317/demo/registration). The companion uses the same interface as the extension; active-tab reading requires the extension. Website notifications work while the website is open; background browser alerts use the signed-in extension.
 
 Stop the server with **Ctrl+C**. Restart with:
 
@@ -41,7 +41,7 @@ node --env-file-if-exists=.env server/index.js
 4. Pin **Deadline Scout** in Edge's Extensions menu.
 5. Open a registration page and click its toolbar icon to open the side panel.
 6. Use **Track this page**. If page access fails, click the toolbar icon again on that page and retry, or paste its public URL.
-7. Enable **Browser alerts** in Settings when you want notifications. Permission is requested at that point.
+7. For background alerts, choose **Set up background alerts** in the popup, open Profile → Settings, and enable **Browser alerts**. The extension requests notification permission and signs in if its own session is missing. Use **Send test browser alert** to check Edge/Windows notifications. The website also supports its own alerts while the page remains open.
 
 If you extracted the ZIP somewhere else, select its `extension` folder instead. The folder contains the manifest, service worker, shared extraction code, and icons. No build step is necessary.
 
@@ -90,7 +90,7 @@ New Google sign-in uses a separate user namespace; local-demo registrations do n
 
 ## Monitoring and extraction
 
-The server checks due registrations every 15 seconds and fetches each track according to its configured interval (5 minutes to 7 days). It must stay running; the browser can be closed. No cloud hosting has been provisioned by this project.
+The local server checks due registrations every 15 seconds and fetches each track according to its configured interval. Production runs on Vercel with Supabase Postgres/Auth; Supabase cron invokes due checks every five minutes. Backend monitoring continues when the website is closed.
 
 The source reader handles public HTML/text pages, Schema.org Event JSON-LD, English month dates, ISO dates, numeric date ambiguity, times, and explicit timezone offsets/IANA zones. When the renderer is installed, it executes page JavaScript in an isolated, cookie-free browser, with public read-only requests routed through the URL guard. It does not bypass logins or bot protection. Pages requiring those features show a check error and keep the last confirmed dates. Use a public FAQ or a manual reminder for such sources. It is not a universal extraction engine for PDFs or every language/layout.
 
@@ -163,3 +163,7 @@ docs/TEST-REPORT.md    What was actually verified
 See [the test report](docs/TEST-REPORT.md) for the distinction between automated mock tests, browser checks, and live integration checks still requiring your accounts.
 
 See [generic extraction and rendered rechecks](docs/GENERIC-MONITORING.md) for the current monitoring pipeline, setup, tests, and limitations. This supersedes older descriptions of JavaScript-only pages being manual-only.
+
+## Account activity controls
+
+Profile → Settings → Email activity initially shows the newest three entries. The floating **Load 5 more** bar appends five entries without collapsing the ones already visible. **Clear account data** permanently clears the signed-in account’s tracked registrations, timeline, notification/email history and internal Google links, plus this browser’s local tracking caches. Profile preferences, sign-in, and Google authorization remain. Existing Calendar events and Tasks are not deleted from Google. No data is cleared until the user clicks the button.

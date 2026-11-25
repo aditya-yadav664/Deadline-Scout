@@ -1,3 +1,4 @@
+import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
 import {api,storage,settings,isExtension,connectGoogle} from './api.js';
 import {extract,labels} from './shared/extract.js';
 import {compare} from './shared/compare.js';
@@ -6,7 +7,7 @@ import {selectMilestone,dedupeMilestones,milestoneKey,mergeCapturedMilestones} f
 const $=s=>document.querySelector(s);
 const icon=name=>'<img class="ui-icon" src="/assets/icons/'+name+'.svg" alt="">';
 const openTracks=new Set();
-let profileNameDirty=false;
+let profileNameDirty=false,workspaceEpoch=0,outboxVisible=3,outboxOwner=null,outboxItems=[],webAlertsBusy=false;
 const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata'}).format(new Date());
 $('#today-label').textContent=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'long',year:'numeric',timeZone:'Asia/Kolkata'}).format(new Date())+' · IST';
 function nextMilestone(t){const dates=[...t.milestones].sort((a,b)=>a.date.localeCompare(b.date));return dates.find(m=>m.date>=today)||dates.at(-1);}
@@ -24,12 +25,13 @@ function displayZone(zone){return ['Asia/Kolkata','Asia/Calcutta'].includes(zone
 function relative(value){if(!value)return 'Not checked yet';const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(value))/60000));return minutes===0?'Just now':minutes<60?`${minutes} min ago`:minutes<1440?`${Math.floor(minutes/60)} hr ago`:new Date(value).toLocaleDateString();}
 function showView(name){if(name==='settings'){openProfileSettings();return;}view=name;for(const v of ['watchlist','timeline'])$('#'+v+'-view').hidden=v!==name;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.view===name));}
 async function refresh(){
+  const epoch=workspaceEpoch;
   localTracks=await storage.get('localTracks')||[];
   try{
     config=await api('/api/config');connected=true;
     if(!await storage.get('token')&&config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);}
     if(await storage.get('token')){
-      try{({tracks,changes,me}=await api('/api/workspace'));}
+      try{const workspace=await api('/api/workspace');if(epoch!==workspaceEpoch)return;({tracks,changes,me}=workspace);}
       catch(e){if(e.status===401){await storage.set('token',null);tracks=[];me={};if(config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);return refresh();}}else throw e;}
     }else{tracks=[];me={};}
     await storage.set('cachedTracks',tracks);
@@ -42,6 +44,7 @@ function render(){
   const all=[...tracks,...localTracks.map(t=>({...t,local:true}))];
   $('#profile-email').textContent=me.email||'Not signed in';$('#profile-status').textContent=me.email?(me.googleConnected?'Google Calendar & Tasks connected':'Google account signed in'):'Sign in to connect your Google account.';$('#profile-avatar').innerHTML=me.email?esc((me.displayName||me.email)[0].toUpperCase()):icon('user');$('#profile-signin').hidden=!!me.email;$('#profile-switch').hidden=!me.email;$('#sign-out').hidden=!me.email;
   $('#profile-name-form').hidden=!me.email;if(!me.email)profileNameDirty=false;if(!profileNameDirty)$('#profile-name').value=me.displayName||'';
+  if(outboxOwner!==me.email){outboxOwner=me.email;outboxVisible=3;outboxItems=[];paintOutbox();}
   $('#track-count').textContent=all.length;$('#change-count').textContent=changes.length;
   const reviews=all.filter(t=>['conflict','needs_review','check_failed','date_missing'].includes(t.status)).length;$('#review-count').textContent=reviews?`${reviews} need${reviews===1?'s':''} attention`:all.length?'All in view':'';
   const ordered=[...all].sort((a,b)=>{const ad=nextMilestone(a).date,bd=nextMilestone(b).date;return (ad<today)-(bd<today)||ad.localeCompare(bd);});
@@ -71,7 +74,11 @@ async function renderSettings(){
   $('#model-status').textContent=config.model?'Optional Gemini fallback enabled. Model extractions require review.':'Rule-based extraction · optional Gemini fallback not configured.';
   $('#demo-controls').hidden=connected&&!['localhost','127.0.0.1'].includes(new URL(config.base).hostname);
   const s=await settings();$('#demo-link').href=s.backendUrl+'/demo/registration';$('.demo-hint').hidden=connected&&!['localhost','127.0.0.1'].includes(new URL(config.base).hostname);
-  if(isExtension)$('#browser-alerts').checked=await chrome.permissions.contains({permissions:['notifications']});else{$('#browser-alerts').disabled=true;$('#browser-alerts').title='Install the extension to receive browser alerts.';}
+  const supported=isExtension||'Notification' in window;$('#browser-alerts').disabled=!supported;
+  $('#browser-alerts').checked=isExtension?!!me.email&&await chrome.permissions.contains({permissions:['notifications']})&&await chrome.notifications.getPermissionLevel()==='granted':supported&&Notification.permission==='granted'&&!!await storage.get('webAlerts:'+me.email);
+  $('#browser-alerts-help').textContent=isExtension?'Background alerts while Edge is running. Sign in here and allow notifications.':'Alerts while this website is open. In the extension, choose Set up background alerts to receive them without this page.';
+  $('#test-browser-alert').disabled=!$('#browser-alerts').checked;
+
 }
 async function inspect(url,captured){
   url=url.trim();if(url&&!/^[a-z][a-z0-9+.-]*:/i.test(url))url='https://'+url;
@@ -194,7 +201,17 @@ function resolveDialog(t,kind,index){
     await api(`/api/tracks/${t.id}/resolve`,'POST',{milestoneId:old.id,date:$('#resolve-date').value,sourceDate:m.date,time:$('#resolve-time').value,zone:$('#resolve-zone').value,sourceUrl:m.sourceUrl,approved:true});closeDialog();await refresh();
   });
 }
-async function renderOutbox(){const items=await api('/api/deliveries');$('#outbox').innerHTML=items.filter(d=>d.channel!=='browser').reverse().slice(0,30).map(d=>`<div class="outbox-item"><strong>${esc(d.subject||'Email alert')}</strong><p>${esc(d.to)} · ${esc(d.status)}</p><p>${esc(d.label||d.error||'Queued')}</p>${d.status==='demo'?`<pre>${esc(d.text)}</pre>`:''}</div>`).join('')||'<p class="muted">No email activity yet.</p>';}
+function paintOutbox(){
+  const shown=outboxItems.slice(0,outboxVisible);$('#outbox').innerHTML=shown.map(d=>`<div class="outbox-item"><strong>${esc(d.subject||'Email alert')}</strong><p>${esc(d.to)} · ${esc(d.status)}</p><p>${esc(d.label||d.error||'Queued')}</p>${d.status==='demo'?`<pre>${esc(d.text)}</pre>`:''}</div>`).join('')||'<p class="muted">No email activity yet.</p>';
+  $('#outbox-load-bar').hidden=outboxItems.length===0;$('#outbox-count').textContent=shown.length+' of '+outboxItems.length;$('#load-more-outbox').hidden=shown.length>=outboxItems.length;
+}
+async function renderOutbox(){const epoch=workspaceEpoch,owner=me.email;if(outboxOwner!==me.email){outboxOwner=me.email;outboxVisible=3;}const items=await api('/api/deliveries');if(epoch!==workspaceEpoch||owner!==me.email)return;outboxItems=items.filter(d=>d.channel!=='browser').sort((a,b)=>String(b.at||'').localeCompare(String(a.at||'')));paintOutbox();}
+$('#load-more-outbox').onclick=()=>{outboxVisible+=5;paintOutbox();};
+$('#clear-account-data').onclick=e=>run(e.currentTarget,async()=>{
+  if(!connected||!await storage.get('token'))throw new Error('Sign in to clear your account data.');
+  workspaceEpoch++;$('#clear-data-status').textContent='Clearing…';
+  try{await api('/api/account/clear-data','POST',{action:'clear-account-data'});for(const key of ['localTracks','localChanges','cachedTracks'])await storage.set(key,[]);await storage.set('pendingReview',null);tracks=[];localTracks=[];changes=[];openTracks.clear();outboxItems=[];outboxVisible=3;paintOutbox();if(draft)await closeDraft();await refresh();$('#clear-data-status').textContent='Account activity cleared. Your profile and Google connection are unchanged.';}catch(error){$('#clear-data-status').textContent=error.message;throw error;}
+});
 $('#watchlist-view').onclick=e=>{
   const button=e.target.closest('[data-action]');if(!button)return;
   const id=button.closest('[data-track]').dataset.track,t=tracks.find(t=>t.id===id)||localTracks.find(t=>t.id===id);
@@ -217,7 +234,7 @@ $('#profile-name-form').onsubmit=e=>{e.preventDefault();void run($('#save-profil
   $('#profile-name-status').textContent='Saving…';try{await api('/api/me','PATCH',{displayName:$('#profile-name').value});profileNameDirty=false;await refresh();$('#profile-name-status').textContent='Name saved. Future email alerts will use it.';}catch(error){$('#profile-name-status').textContent=error.message;throw error;}
 });};
 $('#profile-signin').onclick=e=>run(e.currentTarget,signIn);
-async function signOut(){try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];me={};await storage.set('cachedTracks',[]);render();}}
+async function signOut(){workspaceEpoch++;try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];me={};await storage.set('cachedTracks',[]);render();}}
 $('#profile-switch').onclick=e=>run(e.currentTarget,async()=>{await signOut();await signIn();});
 async function signIn(){if(draft){readDraft();await storage.set('pendingReview',draft);}await connectGoogle();await refresh();}
 $('#tracking-signin').onclick=e=>run(e.currentTarget,signIn);
@@ -241,7 +258,30 @@ $('#manual-start').onclick=()=>{const url=$('#source-url').value.trim();if(!/^ht
 $('#close-dialog').onclick=closeDialog;
 $('#connect-google').onclick=e=>run(e.currentTarget,async()=>{await signIn();toast('Google connected.');});
 $('#disconnect-google').onclick=e=>run(e.currentTarget,async()=>{await api('/api/google/disconnect','POST',{});await refresh();});
-$('#browser-alerts').onchange=e=>run(null,async()=>{if(e.target.checked){const ok=await chrome.permissions.request({permissions:['notifications']});e.target.checked=ok;if(ok)chrome.runtime.sendMessage({type:'surface-alerts'});}else await chrome.permissions.remove({permissions:['notifications']});});
+function websiteNotification(title,body,tag){
+  if(!('Notification' in window)||Notification.permission!=='granted')throw new Error('Allow notifications for Deadline Scout in Edge site permissions.');
+  return new Promise((resolve,reject)=>{const notification=new Notification(title,{body,icon:'/icon128.png',tag});const timer=setTimeout(()=>reject(new Error('No notification confirmation received. Check Edge and Windows notification settings.')),15000);notification.onshow=()=>{clearTimeout(timer);resolve();};notification.onerror=()=>{clearTimeout(timer);reject(new Error('The browser could not show the notification. Check Edge and Windows notification settings.'));};notification.onclick=()=>{window.focus();showView('timeline');notification.close();};});
+}
+async function surfaceWebsiteAlerts(){
+  if(isExtension||webAlertsBusy||!connected||!me.email||!('Notification' in window)||Notification.permission!=='granted'||!await storage.get('webAlerts:'+me.email))return;
+  webAlertsBusy=true;try{await deliverBrowserAlerts({load:()=>api('/api/alerts'),notify:alert=>{const c=alert.change;return websiteNotification(c.title+': '+c.label,c.before.date+' → '+c.after.date+'\n'+c.impact,alert.id);},ack:id=>api('/api/alerts/ack','POST',{id})});$('#browser-alerts-status').textContent='Website alerts connected. Keep this page open.';}catch(error){$('#browser-alerts-status').textContent=error.message;}finally{webAlertsBusy=false;}
+}
+$('#browser-alerts').onchange=e=>run(null,async()=>{
+  const wanted=e.target.checked;$('#browser-alerts-status').textContent='';try{
+    if(isExtension){
+      if(wanted){await enableExtensionAlerts({browser:chrome,validateSession:()=>api('/api/me'),signIn:connectGoogle});await refresh();await chrome.runtime.sendMessage({type:'surface-alerts'});$('#browser-alerts-status').textContent='Background alerts connected to '+me.email+'.';
+      }else{await chrome.permissions.remove({permissions:['notifications']});$('#browser-alerts-status').textContent='Background alerts turned off.';}
+    }else{
+      if(wanted){if(!me.email)throw new Error('Sign in before enabling browser alerts.');if(!('Notification' in window))throw new Error('This browser does not support desktop notifications.');const permission=await Notification.requestPermission();if(permission!=='granted')throw new Error('Notifications were not allowed. Open Edge site permissions for Deadline Scout and allow notifications.');}
+      await storage.set('webAlerts:'+me.email,wanted);if(wanted)await surfaceWebsiteAlerts();else $('#browser-alerts-status').textContent='Website alerts turned off.';
+    }
+  }catch(error){$('#browser-alerts-status').textContent=error.message;throw error;}finally{await renderSettings();}
+});
+$('#test-browser-alert').onclick=e=>run(e.currentTarget,async()=>{
+  if(isExtension){if(!await chrome.permissions.contains({permissions:['notifications']}))throw new Error('Enable browser alerts first.');await chrome.notifications.create('scout-test',{type:'basic',iconUrl:'icon128.png',title:'Deadline Scout is connected',message:'Your browser alerts are ready.',priority:2});}
+  else await websiteNotification('Deadline Scout is connected','Your browser alerts are ready.','scout-test');
+  $('#browser-alerts-status').textContent='Test sent. If no banner appears, check Windows notification settings and Do not disturb.';
+});
 $('#email-alerts').onchange=e=>run(null,async()=>{try{await api('/api/settings','PATCH',{emailEnabled:e.target.checked});await refresh();}catch(error){e.target.checked=!e.target.checked;throw error;}});
 $('#request-code').onclick=e=>run(e.currentTarget,async()=>{const r=await api('/api/email/verify/request','POST',{email:$('#email-address').value.trim()});toast(r.mode==='brevo'?'Verification code sent.':'Demo verification only: inspect the code in Email activity. Live email remains unverified.');await renderOutbox();});
 $('#confirm-code').onclick=e=>run(e.currentTarget,async()=>{const r=await api('/api/email/verify/confirm','POST',{code:$('#email-code').value});toast(r.demo?'Demo code confirmed. Use Brevo or Google sign-in to verify a real recipient.':'Email verified. Alerts enabled.');await refresh();});
@@ -282,3 +322,5 @@ setInterval(async()=>{
   if(refreshing||document.visibilityState!=='visible'||draft||$('#action-dialog').open||view==='settings')return;
   refreshing=true;try{await refresh();}finally{refreshing=false;}
 },15000);
+
+void surfaceWebsiteAlerts();setInterval(()=>void surfaceWebsiteAlerts(),15000);

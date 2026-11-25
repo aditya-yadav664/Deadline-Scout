@@ -38,3 +38,10 @@ test('public cloud assets and config work without opening a database connection;
  const denied=await fetch(base+'/api/config',{headers:{Origin:'https://evil.example'}});assert.equal(denied.status,403);
  assert.equal((await fetch(base+'/api/workspace')).status,503);assert.equal(connections,1);
 });
+
+test('cloud account clear batches deletion, preserves other accounts, and rolls back cleanly',async()=>{
+ const queries=[],client={query:async(...args)=>{queries.push(args);return {rows:[]};}};
+ const rows=[{owner:'alice',kind:'track',id:'one',body:{id:'one'}},{owner:'bob',kind:'track',id:'two',body:{id:'two'}},{owner:'alice',kind:'profile',id:'me',body:{displayName:'Alice'}}];
+ const store=new CloudStore(client,rows);assert.throws(()=>store.transaction(()=>{store.clearKinds('alice',['track']);throw Error('rollback');}));assert.equal(store.list('alice','track').length,1);assert.equal(store.bulkClears.size,0);
+ store.clearKinds('alice',['track','change','delivery','googleLink']);await store.flush();assert.equal(store.list('bob','track').length,1);assert.equal(store.get('alice','profile','me').displayName,'Alice');assert.equal(queries.length,1);assert.equal(queries[0][1][0],'alice');assert.match(queries[0][0],/kind=ANY/);
+});

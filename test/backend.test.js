@@ -205,3 +205,16 @@ test('preferred profile name persists per account and personalizes test and date
  await f.request('/api/me','PATCH',{displayName:'Other person'},otherToken);assert.equal((await f.request('/api/me')).data.displayName,'Aditi Scout');
  await f.request('/api/me','PATCH',{displayName:''});assert.equal((await f.request('/api/me')).data.displayName,'');
 });
+
+test('clear account data removes only account activity and preserves sign-in, profile and Google connection',async t=>{
+ const f=await fixture(t),track=await f.track();await f.request('/api/demo','POST',{mode:'changed'});await f.request('/api/tracks/'+track.id+'/check','POST',{});
+ const p=f.store.get('local-demo','profile','me');p.displayName='Keep this name';p.google='encrypted-google-connection';f.store.put('local-demo','profile','me',p);
+ f.store.put('local-demo','googleLink','link-one',{id:'link-one',trackId:track.id});
+ for(const kind of ['track','change','delivery','googleLink'])f.store.put('other-account',kind,'other-'+kind,{id:'other-'+kind});
+ assert.equal((await f.request('/api/account/clear-data','POST',{})).status,400);assert.equal((await f.request('/api/account/clear-data','POST',{action:'clear-account-data'},'wrong')).status,401);
+ f.engine.delivering.add('local-demo');assert.equal((await f.request('/api/account/clear-data','POST',{action:'clear-account-data'})).status,409);f.engine.delivering.delete('local-demo');
+ const result=await f.request('/api/account/clear-data','POST',{action:'clear-account-data'});assert.equal(result.status,200);assert.ok(result.data.deleted>=4);
+ for(const kind of ['track','change','delivery','googleLink']){assert.equal(f.store.list('local-demo',kind).length,0);assert.equal(f.store.list('other-account',kind).length,1);}
+ const me=(await f.request('/api/me')).data;assert.equal(me.displayName,'Keep this name');assert.equal(me.googleConnected,true);assert.equal(me.emailEnabled,p.emailEnabled);
+ assert.equal((await f.request('/api/workspace')).data.tracks.length,0);assert.equal((await f.request('/api/account/clear-data','POST',{action:'clear-account-data'})).data.deleted,0);
+});

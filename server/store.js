@@ -12,6 +12,7 @@ export class Store {
   put(owner,kind,id,body) { this.db.prepare('INSERT INTO records VALUES(?,?,?,?) ON CONFLICT(owner,kind,id) DO UPDATE SET body=excluded.body').run(owner,kind,id,JSON.stringify(body));return body; }
   list(owner,kind) {return this.db.prepare('SELECT body FROM records WHERE owner=? AND kind=?').all(owner,kind).map(r=>JSON.parse(r.body));}
   remove(owner,kind,id) { this.db.prepare('DELETE FROM records WHERE owner=? AND kind=? AND id=?').run(owner,kind,id); }
+  clearKinds(owner,kinds){let removed=0;const q=this.db.prepare('DELETE FROM records WHERE owner=? AND kind=?');for(const kind of kinds)removed+=Number(q.run(owner,kind).changes);return removed;}
   allTracks() {return this.db.prepare("SELECT owner,body FROM records WHERE kind='track'").all().map(r=>({owner:r.owner,track:JSON.parse(r.body)}));}
   transaction(fn) { this.db.exec('BEGIN IMMEDIATE');try{const r=fn();this.db.exec('COMMIT');return r;}catch(e){this.db.exec('ROLLBACK');throw e;} }
   close(){this.db.close();}
