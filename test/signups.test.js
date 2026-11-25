@@ -80,3 +80,23 @@ test('Register now manually invokes only the demo organizer and produces a recei
  const f=fixture(t),d=await draft(f);const result=await f.s.route('alice','/api/signups/'+d.id+'/submit-now','POST',{approved:true,milestoneId:'deadline'});assert.equal(result.status,'Confirmed');assert.match(result.receipt,/DEMO-/);
  const ordinary=await draft(f,{mode:'reminder'});ordinary.formUrl='https://example.org/form';ordinary.steps[0].url=ordinary.formUrl;f.s.save('alice',ordinary);await assert.rejects(f.s.route('alice','/api/signups/'+ordinary.id+'/submit-now','POST',{approved:true,milestoneId:'deadline'}),/demo organizer/);
 });
+
+import {advanceSignup} from '../extension/shared/signup-resume.js';
+test('approved submission dispatch requires complete files, consent, validity and one submit control',()=>{
+ const previous=globalThis.document;let submits=0,valid=true,files=[],checks=[],buttons=[{type:'submit',innerText:'Register',disabled:false,getClientRects:()=>[{}]}];
+ const form={innerText:'Your registration',getClientRects:()=>[{}],querySelector:()=>({}),querySelectorAll:s=>s==='input[type=file]'?files:s==='input[type=checkbox]'?checks:s==='button,input[type=submit]'?buttons:[],checkValidity:()=>valid,requestSubmit:()=>submits++};
+ globalThis.document={forms:[form],querySelectorAll:()=>[]};try{
+  files=[{required:true,files:[]}];assert.equal(advanceSignup({finalStep:true}).paused,true);assert.equal(submits,0);
+  files=[];checks=[{required:true,checked:false}];assert.equal(advanceSignup({finalStep:true}).paused,true);assert.equal(submits,0);
+  checks=[];valid=false;assert.equal(advanceSignup({finalStep:true}).paused,true);valid=true;
+  assert.equal(advanceSignup({finalStep:true}).attempted,true);assert.equal(submits,1);
+  assert.equal(advanceSignup({finalStep:false}).paused,true);assert.equal(submits,1);
+  buttons=[{type:'button',innerText:'Next',getClientRects:()=>[{}],click:()=>{}}];assert.equal(advanceSignup({finalStep:false}).advanced,true);assert.equal(submits,1);
+ }finally{globalThis.document=previous;}
+});
+
+test('an uncertain ordinary-site submit attempt is persisted and never automatically repeated',async t=>{
+ const f=fixture(t),step=f.s.capture({url:'https://example.org/register',terms:'',fields:[{key:'id:name',id:'name',label:'Name',type:'text'}]});let pending={draft:{formUrl:step.url,steps:[{...step,answers:{'id:name':'Test'}}]},tabId:1,expires:Date.now()+100000,autoSubmit:true},attempts=0;
+ const storage={get:async()=>pending,set:async(_k,v)=>pending=v},browser={tabs:{get:async()=>({url:step.url})},permissions:{contains:async()=>true},scripting:{executeScript:async o=>{if(o.func.name==='captureSignupForm')return [{result:step}];if(o.func.name==='restoreSignupAnswers')return [{result:['Name restored']}];if(o.func.name==='advanceSignup'){attempts++;throw Error('Navigation interrupted response');}return [{result:null}];}}};
+ await assert.rejects(fillPendingSignup({browser,storage,tabId:1}),/interrupted/);await fillPendingSignup({browser,storage,tabId:1,force:true});assert.equal(attempts,1);
+});
