@@ -1,7 +1,7 @@
 // Acknowledge only after the browser has accepted the notification.
 export async function deliverBrowserAlerts({load,notify,ack}){
   const alerts=await load();let shown=0;
-  for(const alert of alerts){if(!alert.change)continue;await notify(alert);await ack(alert.id);shown++;}
+  for(const alert of alerts){if(!alert.change&&!alert.notice)continue;await notify(alert);await ack(alert.id);shown++;}
   return shown;
 }
 

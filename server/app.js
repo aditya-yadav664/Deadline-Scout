@@ -1,3 +1,4 @@
+import {Signups} from './signups.js';
 import {dedupeMilestones,milestoneKey} from '../extension/shared/milestone-selection.js';
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -20,7 +21,7 @@ import {saveCapture,consumeCapture} from './captures.js';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const sha256url=s=>createHash('sha256').update(s).digest('base64url');
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
-export function isPublicFilePath(path){const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);return /^(?:panel\.(?:html|css|js)|dashboard\.js|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts|alert-connection)\.js)$/.test(relative);}
+export function isPublicFilePath(path){const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);return /^(?:panel\.(?:html|css|js)|dashboard\.js|backup\.(?:html|js|css)|signup-demo\.(?:html|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts|alert-connection|signup)\.js)$/.test(relative);}
 export function createApp(options={}) {
   const env=options.env||process.env;
   const port=Number(env.PORT||4317),host=env.HOST||'127.0.0.1';
@@ -53,7 +54,9 @@ export function createApp(options={}) {
     }
     return page;
   }
+  const signups=new Signups({store,secrets,base});
   const engine=options.engine||new Engine({store,readPage:options.readPage||readPage,email,google});
+  engine.backups=signups;
   function session(owner,scope,parentSession) {const token=randomToken();store.put('_system','session',hash(token),{owner,...(scope?{scope}:{}),...(parentSession?{parentSession}:{}),expires:Date.now()+30*86400000});return token;}
   async function body(req) {let bytes=0,chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>300000)throw fail('Request too large.',413);chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{throw fail('Invalid JSON.');}}
   function profileFor(owner) {return store.get(owner,'profile','me')||{email:'',emailEnabled:false,emailVerified:false};}
@@ -72,6 +75,8 @@ export function createApp(options={}) {
       if(req.method==='OPTIONS'){res.writeHead(204);return res.end();}
       const u=new URL(req.url,base),path=u.pathname;
       if(path==='/api/config')return send({name:'Deadline Scout',auth:liveAuth?'supabase':'local',email:email.mode,model:!!env.GEMINI_API_KEY,base,googleConfigured:liveAuth&&!!env.GOOGLE_CLIENT_ID&&!!env.GOOGLE_CLIENT_SECRET});
+      if(path==='/api/demo-organizer/schema'&&req.method==='GET')return send(signups.schema());
+      if(path==='/api/signup-captures'&&req.method==='POST'){const key='signup-capture:'+req.socket.remoteAddress,q=buckets.get(key)||{count:0,until:Date.now()+60000};if(q.until<Date.now()){q.count=0;q.until=Date.now()+60000;}q.count++;buckets.set(key,q);if(q.count>20)throw fail('Too many form captures. Wait one minute.',429);for(const old of store.list('_system','signupCapture'))if(old.expires<Date.now())store.remove('_system','signupCapture',old.id);const b=await body(req),step=signups.capture(b.step),token=randomToken();store.put('_system','signupCapture',hash(token),{id:hash(token),expires:Date.now()+600000,sealed:secrets.seal({step,extensionId:b.extensionId})});return send({url:base+'/backup.html#capture='+token});}
       if(path==='/health')return send({ok:true});
       if(path==='/api/captures'&&req.method==='POST'){
         const key='capture:'+req.socket.remoteAddress,b=buckets.get(key)||{count:0,until:Date.now()+60000};if(b.until<Date.now()){b.count=0;b.until=Date.now()+60000;}b.count++;buckets.set(key,b);if(b.count>20)throw fail('Too many scans. Wait one minute.',429);
@@ -146,10 +151,14 @@ export function createApp(options={}) {
           const b=await body(req);if(!/^[a-p]{32}$/.test(b.extensionId||'')||!(extensionIds.length?extensionIds.includes(b.extensionId):loopback)||!/^[A-Za-z0-9_-]{43}$/.test(b.challenge||''))throw fail('Invalid extension alert setup.');
           const code=randomToken();store.put('_system','redeem',hash(code),{owner,challenge:b.challenge,extensionId:b.extensionId,scope:'browser-alerts',parentSession:hash(token),expires:Date.now()+60000});return send({code});
         }
+        if(path.startsWith('/api/signup')||path.startsWith('/api/signups')){
+          if(path.startsWith('/api/signup-captures/')&&req.method==='GET'){const key=hash(path.split('/').at(-1)),c=store.get('_system','signupCapture',key);if(!c||c.expires<Date.now())throw fail('Capture expired. Scan the form again.',404);store.remove('_system','signupCapture',key);return send(secrets.open(c.sealed));}
+          return send(await signups.route(owner,path,req.method,req.method==='GET'?{}:await body(req)));
+        }
         if(path==='/api/account/clear-data'&&req.method==='POST'){
           const b=await body(req);if(b.action!=='clear-account-data')throw fail('Choose Clear account data to continue.');
           if([...engine.locks].some(key=>key.startsWith(owner+':'))||engine.delivering.has(owner))throw fail('A check or delivery is running. Try again when it finishes.',409);
-          const deleted=store.transaction(()=>store.clearKinds(owner,['track','change','delivery','googleLink']));return send({ok:true,deleted});
+          const deleted=store.transaction(()=>{for(const r of store.list('_system','demoSignup'))if(r.owner===owner&&r.key)store.remove('_system','demoSignup',r.key);return store.clearKinds(owner,['track','change','delivery','googleLink','signup','signupFile','signupProfile']);});return send({ok:true,deleted});
         }
         if(path==='/api/logout'&&req.method==='POST'){store.remove('_system','session',hash(token));return send({ok:true});}
         if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {const p=profileFor(owner),me={displayName:p.displayName||p.googleName||'',email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local};return send(path==='/api/me'?me:{me,tracks:store.list(owner,'track').map(t=>enrich(owner,t)),changes:changesFor(owner)});}
@@ -224,6 +233,7 @@ export function createApp(options={}) {
             if(engine.delivering.has(owner)||(engine.locks.has(owner+':'+id)&&!engine.reading.has(owner+':'+id)))throw fail('A Google update or email delivery is already in progress. Retry removal when it finishes.',409);
             store.transaction(()=>{
               const related=store.list(owner,'change').filter(c=>c.trackId===id),changeIds=new Set(related.map(c=>c.id));
+              for(const draft of signups.list(owner).filter(d=>d.trackId===id)){draft.status='Cancelled';signups.save(owner,draft);}
               store.remove(owner,'track',id);for(const c of related)store.remove(owner,'change',c.id);
               for(const d of store.list(owner,'delivery').filter(d=>d.trackId===id||changeIds.has(d.changeId))){if(d.channel==='browser')store.remove(owner,'delivery',d.id);else if(['queued','retry','sending'].includes(d.status))store.put(owner,'delivery',d.id,{...d,status:'cancelled',error:'Registration removed; alert cancelled.'});}
               for(const link of store.list(owner,'googleLink').filter(l=>l.trackId===id))store.remove(owner,'googleLink',link.id);
@@ -263,7 +273,7 @@ export function createApp(options={}) {
         }
         if(path==='/api/changes'&&req.method==='GET')return send(changesFor(owner));
         if(path==='/api/deliveries'&&req.method==='GET')return send(store.list(owner,'delivery'));
-        if(path==='/api/alerts'&&req.method==='GET'){const active=new Map(changesFor(owner).map(c=>[c.id,c]));return send(store.list(owner,'delivery').filter(d=>d.channel==='browser'&&d.status==='queued'&&active.has(d.changeId)).map(d=>({...d,change:active.get(d.changeId)})));}
+        if(path==='/api/alerts'&&req.method==='GET'){const active=new Map(changesFor(owner).map(c=>[c.id,c]));return send(store.list(owner,'delivery').filter(d=>d.channel==='browser'&&d.status==='queued'&&(active.has(d.changeId)||d.signupId&&store.get(owner,'track',d.trackId)&&store.get(owner,'signup',d.signupId)?.status!=='Cancelled')).map(d=>({...d,change:active.get(d.changeId)})));}
         if(path==='/api/alerts/ack'&&req.method==='POST'){const b=await body(req),d=store.get(owner,'delivery',b.id);if(d?.channel==='browser'){d.status='shown';store.put(owner,'delivery',d.id,d);}return send({ok:true});}
         if(path==='/api/demo'&&req.method==='POST'){
           if(!loopback||env.ENABLE_DEMO==='false')throw fail('Demo fixtures are disabled.',403);const b=await body(req);if(!['original','changed','conflict','failed','reworded'].includes(b.mode))throw fail('Invalid demo state.');store.put('_system','demo','state',{mode:b.mode});return send({ok:true});
@@ -280,5 +290,5 @@ export function createApp(options={}) {
       res.setHeader('Cache-Control','public, max-age=0, must-revalidate');res.setHeader('ETag',etag);if(req.headers['if-none-match']===etag){res.statusCode=304;return res.end();}res.end(content);
     }catch(e){if(!res.headersSent)send({error:e.message},e.status||400);else res.end();}
   });
-  return {server,store,engine,google,base,host,port,close:()=>new Promise(resolve=>server.close(()=>{store.close();resolve();}))};
+  return {server,store,engine,google,signups,base,host,port,close:()=>new Promise(resolve=>server.close(()=>{store.close();resolve();}))};
 }

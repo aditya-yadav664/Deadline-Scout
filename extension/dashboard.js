@@ -312,13 +312,13 @@ $('#manual-start').onclick=()=>{const url=$('#source-url').value.trim();if(!/^ht
 $('#close-dialog').onclick=closeDialog;
 $('#connect-google').onclick=e=>run(e.currentTarget,async()=>{await signIn();toast('Google connected.');});
 $('#disconnect-google').onclick=e=>run(e.currentTarget,async()=>{await api('/api/google/disconnect','POST',{});await refresh();});
-function websiteNotification(title,body,tag){
+function websiteNotification(title,body,tag,url){
   if(!('Notification' in window)||Notification.permission!=='granted')throw new Error('Allow notifications for Deadline Scout in Edge site permissions.');
-  return new Promise((resolve,reject)=>{const notification=new Notification(title,{body,icon:'/icon128.png',tag});const timer=setTimeout(()=>reject(new Error('No notification confirmation received. Check Edge and Windows notification settings.')),15000);notification.onshow=()=>{clearTimeout(timer);resolve();};notification.onerror=()=>{clearTimeout(timer);reject(new Error('The browser could not show the notification. Check Edge and Windows notification settings.'));};notification.onclick=()=>{window.focus();showView('timeline');notification.close();};});
+  return new Promise((resolve,reject)=>{const notification=new Notification(title,{body,icon:'/icon128.png',tag});const timer=setTimeout(()=>reject(new Error('No notification confirmation received. Check Edge and Windows notification settings.')),15000);notification.onshow=()=>{clearTimeout(timer);resolve();};notification.onerror=()=>{clearTimeout(timer);reject(new Error('The browser could not show the notification. Check Edge and Windows notification settings.'));};notification.onclick=()=>{window.focus();if(url&&new URL(url).origin===location.origin)location.assign(url);else showView('timeline');notification.close();};});
 }
 async function surfaceWebsiteAlerts(){
   if(isExtension||webAlertsBusy||!connected||!me.email||!('Notification' in window)||Notification.permission!=='granted'||!await storage.get('webAlerts:'+me.email))return;
-  webAlertsBusy=true;try{await deliverBrowserAlerts({load:()=>api('/api/alerts'),notify:alert=>{const c=alert.change;return websiteNotification(c.title+': '+c.label,c.before.date+' → '+c.after.date+'\n'+c.impact,alert.id);},ack:id=>api('/api/alerts/ack','POST',{id})});$('#browser-alerts-status').textContent='Website alerts connected. Keep this page open.';}catch(error){$('#browser-alerts-status').textContent=error.message;}finally{webAlertsBusy=false;}
+  webAlertsBusy=true;try{await deliverBrowserAlerts({load:()=>api('/api/alerts'),notify:alert=>{if(alert.notice)return websiteNotification(alert.notice.title+': '+alert.notice.label,alert.notice.message,alert.id,alert.notice.url);const c=alert.change;return websiteNotification(c.title+': '+c.label,c.before.date+' → '+c.after.date+'\n'+c.impact,alert.id);},ack:id=>api('/api/alerts/ack','POST',{id})});$('#browser-alerts-status').textContent='Website alerts connected. Keep this page open.';}catch(error){$('#browser-alerts-status').textContent=error.message;}finally{webAlertsBusy=false;}
 }
 $('#browser-alerts').onchange=e=>run(null,async()=>{
   const wanted=e.target.checked;$('#browser-alerts-status').textContent='';try{

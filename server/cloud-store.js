@@ -9,6 +9,7 @@ export class CloudStore {
  remove(owner,kind,id){const key=this.key(owner,kind,id);this.rows.delete(key);this.dirty.set(key,{owner,kind,id,removed:true});}
  clearKinds(owner,kinds){const selected=new Set(kinds);let removed=0;for(const [key,row] of this.rows)if(row.owner===owner&&selected.has(row.kind)){this.rows.delete(key);this.dirty.delete(key);removed++;}this.bulkClears.set(owner,new Set([...(this.bulkClears.get(owner)||[]),...kinds]));return removed;}
  allTracks(){return [...this.rows.values()].filter(r=>r.kind==='track').map(r=>({owner:r.owner,track:structuredClone(r.body)}));}
+ allSignups(){return [...this.rows.values()].filter(r=>r.kind==='signup').map(r=>({owner:r.owner,record:structuredClone(r.body)}));}
  pendingEmailOwners(){return [...new Set([...this.rows.values()].filter(r=>r.kind==='delivery'&&r.body.channel==='email'&&['queued','retry','sending'].includes(r.body.status)).map(r=>r.owner))];}
  transaction(fn){const previous=structuredClone(this.rows),dirty=structuredClone(this.dirty),bulkClears=structuredClone(this.bulkClears);try{return fn();}catch(error){this.rows=previous;this.dirty=dirty;this.bulkClears=bulkClears;throw error;}}
  close(){}

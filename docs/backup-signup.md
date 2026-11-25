@@ -1,0 +1,45 @@
+# Backup Signup
+
+Backup Signup is part of Deadline Scout. Open `/backup.html` from the dashboard navigation. It reuses your Google sign-in and active tracked pages.
+
+## Setup
+
+1. Update the source and reload Deadline Scout at `edge://extensions` (or `chrome://extensions`). The unpacked folder remains `extension` in this project. Version: 1.6.0.
+2. Refresh the hosted dashboard and open **Backup signup**. Sign in on the dashboard if needed.
+3. Save your signup name, phone, affiliation, and named links. Email comes from the signed-in account. GitHub profile and repository links, videos and decks have separate link types. Multiple matches are left for your choice.
+4. Track the relevant event/page and its deadline before arming a signup. Ordinary form destinations can differ from the tracked event's domain.
+
+No new keys, npm dependencies, database tables, DNS settings or Supabase migrations are required. The existing owner-scoped `deadline_scout_records` table stores the new `signup`, `signupProfile`, and `signupFile` kinds. The existing encryption key encrypts answer snapshots, profile links, and private file bytes. Existing RLS and server ownership checks continue to apply. Do not expose the encryption key or database connection in extension code.
+
+## Ordinary-site walkthrough
+
+1. Open the actual form and click **Prepare signup** in the extension. If several forms are present, select the intended form and click again. Active-tab access is used, without requesting all-site permissions.
+2. Review every label, answer, option, required flag, URL, help instruction and file constraint. Arbitrary custom controls, consent, passwords and embedded forms remain manual. A sign-in wall must be completed on the site.
+3. Choose files explicitly. Ordinary-site files stay on your device; only their filename, size and type are saved as a checklist. The extension does not claim they are uploaded or attach them automatically.
+4. For multi-step forms, navigate to each step yourself, click Prepare signup again, then **Append captured step** to the existing draft. Review all steps before marking them complete. At resume, choose the captured step in the popup, including when steps share a URL.
+5. Select the active tracked page, review the exact snapshot and save. The saved answers will not change when the profile changes. Editing a saved draft disarms it.
+6. Choose a deadline and backup time. The screen shows the exact local time and UTC representation. A fixed time pauses if the deadline changes. A relative rule follows the approved offset; if the recalculated time has passed it asks for review instead of silently executing.
+7. At backup time, the email and browser queues produce **Ready to finish** with a Resume signup link. Open the draft, click Resume signup, and on the form click **Restore approved answers** in the extension. New required fields, changed options and terms are flagged; clearly unchanged fields can be restored. Attach the named files and handle CAPTCHA, OTP, sign-in, consent and submission yourself.
+8. Use **Cancel backup** or **I already registered** to stop it. Removing the tracked page cancels its backups and pending alerts.
+
+Common input constraints (required, allowed options, email, HTTP(S) URL, explicit hostname, length, file type/size/count) are checked. Complex site-specific patterns and custom widgets still require the site's own validation. Sharing permissions cannot be independently verified; a published sharing instruction requires your confirmation. Unknown file limits remain labelled unknown. No automatic submission is available for ordinary websites.
+
+## Demo organizer walkthrough
+
+This is an internal simulator, not a real event registration or third-party organizer integration.
+
+1. Open `/signup-demo.html`. Its test deadline is September 12, 2030 at 17:00 IST, and the registration is free.
+2. Track that page's test deadline on the main dashboard. Open the form, then use Prepare signup in the extension (the demo also offers a website-only capture shortcut).
+3. Use a test name, an address such as `scout-test@example.com`, a GitHub repository URL and a small valid `.pdf` proposal. Max size is **200 KB**. The demo explicitly supports a private upload; the server stores encrypted bytes with a unique version and SHA-256 digest. Replacing the chosen file creates a new reference and needs fresh approval.
+4. Save the reviewed draft. Select **Automatic submission · demo organizer only**, choose a backup time shortly in the future, and approve. The exact snapshot and destination are shown before arming.
+5. After that time, click **Run due backups now** for a short demonstration, or let the existing five-minute cloud cron run. The scheduler is not second-precise.
+6. The internal organizer records the approved answers and exact file content in an encrypted simulated registration and returns a `DEMO-...` receipt. A repeat draft for the same account/email reports Already registered. A timeout is reconciled through the stored receipt before another attempt. No real third-party signup occurs.
+
+Private uploads expire after seven days; missing, expired or changed references pause automatic submission. A changed schema/version, new fee, closed/uncertain status, new terms, or unresolved deadline also pauses for review. Only this explicitly supported demo path can submit automatically. Adding a real organizer later requires its own authenticated status API, schema checks, upload support and duplicate-safe adapter.
+
+## Verification
+
+- `node --test` runs regression tests and `test/signups.test.js` checks mapping, URL distinctions, multiple uploads, wrong type, missing files, encryption and owner isolation, immutable snapshots, demo receipt/idempotency, already-registered detection, schema/terms/fee changes, timeout recovery, cancellation, removal and relative timing.
+- Browser QA exercised actual DOM capture on the controlled Scout Lab form, saved suggested/edited answers and a private PDF, armed the demo snapshot, reopened the form and restored text/email/repository fields. The file remained a manual attachment on the form, as intended.
+- The website-only demo shortcut uses the same capture/restore functions as the extension injection. Physical Edge popup-to-website handoff still requires the installed extension to be reloaded and tried in that browser; automated tests and website shortcuts do not establish that physical-browser result.
+- No real organizer submission or real test email was sent during QA. Brevo continues to use the existing email preference and verified Google recipient. Mapping uses local rules; no AI key is needed and no profile values/files are sent to an AI provider.

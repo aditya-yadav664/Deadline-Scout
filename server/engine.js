@@ -52,6 +52,7 @@ export class Engine {
     if(this.delivering.has(owner))return;this.delivering.add(owner);
     try{for(const d of this.store.list(owner,'delivery').filter(d=>d.channel==='email'&&['queued','retry','sending'].includes(d.status)&&d.nextTry<=Date.now())) {
       const change=d.changeId&&this.store.get(owner,'change',d.changeId),trackId=d.trackId||change?.trackId;
+      if(d.signupId&&this.store.get(owner,'signup',d.signupId)?.status==='Cancelled'){d.status='cancelled';this.store.put(owner,'delivery',d.id,d);continue;}
       if(d.type!=='welcome'&&(!trackId||!this.store.get(owner,'track',trackId)||d.changeId&&!change)){d.status='cancelled';d.error='Tracked page removed or alert no longer linked; delivery cancelled.';this.store.put(owner,'delivery',d.id,d);continue;}
       const p=this.store.get(owner,'profile','me');
       if(!p||(!p.emailEnabled&&d.type!=='welcome')||!(p.emailVerified||this.email.mode==='demo'&&p.local)||p.email!==d.to){d.status='cancelled';this.store.put(owner,'delivery',d.id,d);continue;}
@@ -67,6 +68,8 @@ export class Engine {
   async tick(){
     const owners=new Set(this.store.pendingEmailOwners());
     for(const {owner,track} of this.store.allTracks()){owners.add(owner);if(track.nextCheck<=Date.now()&&!track.milestones.every(m=>m.manual))await this.check(owner,track.id).catch(()=>{});}
+    await this.backups?.tick();
+    for(const owner of this.store.pendingEmailOwners())owners.add(owner);
     for(const owner of owners)await this.deliver(owner);
   }
 }
