@@ -29,13 +29,22 @@ export class Engine {
           if(p?.emailEnabled&&(p.emailVerified||this.email.mode==='demo'&&p.local))this.store.put(owner,'delivery',c.id+':email',{id:c.id+':email',changeId:c.id,channel:'email',status:'queued',to:p.email,...changeEmail(t,c,p),attempts:0,createdAt:Date.now(),nextTry:Date.now(),at:now});
         }
       });
-      if(!result.conflicts.length&&!result.uncertain.length&&t.autoGoogle) {
-        for(const c of changes) for(const link of this.store.list(owner,'googleLink').filter(l=>l.trackId===id&&l.milestoneId===c.before.id&&l.state==='linked')) {
-          try{await this.google.perform(owner,t,t.milestones.find(m=>m.id===link.milestoneId),link.channel,link.minutes);}catch(e){t.googleError=e.message;this.store.put(owner,'track',id,t);}
-        }
-      }
+      await this.syncGoogle(owner,t,changes.length>0);
       await this.deliver(owner);return t;
     }finally{this.locks.delete(lock);}
+  }
+  async syncGoogle(owner,t,detailsChanged=false) {
+    // Linking an entry authorizes keeping that existing entry in sync. Never
+    // create entries for unlinked milestones, or write an unverified date.
+    if(t.conflicts?.length||t.uncertain?.length||t.missing?.length)return;
+    const errors=[];
+    for(const link of this.store.list(owner,'googleLink').filter(l=>l.trackId===t.id&&l.state==='linked')) {
+      const m=t.milestones.find(m=>m.id===link.milestoneId);
+      if(!m||m.manual||(!detailsChanged&&scheduleKey(m)===scheduleKey(link)))continue;
+      try{await this.google.perform(owner,t,m,link.channel,link.minutes);}catch(e){errors.push(e.message);}
+    }
+    if(errors.length)t.googleError='Google sync pending: '+[...new Set(errors)].join(' ');else delete t.googleError;
+    this.store.put(owner,'track',t.id,t);
   }
   async deliver(owner) {
     if(this.delivering.has(owner))return;this.delivering.add(owner);

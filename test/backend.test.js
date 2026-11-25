@@ -48,6 +48,27 @@ test('approval resolves a conflict and remains stable on unchanged evidence',asy
 test('scheduler runs due tracks without extension polling',async t=>{
   const f=await fixture(t),track=await f.track();await f.request('/api/demo','POST',{mode:'changed'});track.nextCheck=0;f.store.put('local-demo','track',track.id,track);await f.engine.tick();assert.equal(f.store.list('local-demo','change').length,1);
 });
+
+test('scheduled changes patch linked Calendar and Task automatically and retry a failed sync without a new change',async t=>{
+ const calls=[];let failTask=true;
+ const f=await fixture(t,{google:{perform:async(owner,track,m,channel,minutes)=>{
+   const key=`${track.id}:${m.id}:${channel}`,link=f.store.get(owner,'googleLink',key);
+   assert.equal(link.googleId,channel+'-existing');calls.push({channel,date:m.date,minutes});
+   if(channel==='task'&&failTask)throw new Error('Temporary Google outage');
+   return f.store.put(owner,'googleLink',key,{...link,date:m.date,time:m.time,zone:m.zone});
+ }}}),track=await f.track(),m=track.milestones[0];
+ track.autoGoogle=false;track.nextCheck=0;f.store.put('local-demo','track',track.id,track);
+ for(const channel of ['calendar','task']){const id=`${track.id}:${m.id}:${channel}`;f.store.put('local-demo','googleLink',id,{id,trackId:track.id,milestoneId:m.id,channel,googleId:channel+'-existing',state:'linked',date:m.date,time:m.time,zone:m.zone,minutes:60});}
+ await f.request('/api/demo','POST',{mode:'changed'});await f.engine.tick();
+ assert.equal(calls.length,2);assert.ok(calls.every(c=>c.date==='2026-11-26'&&c.minutes===60));
+ assert.match(f.store.get('local-demo','track',track.id).googleError,/sync pending/);
+ failTask=false;await f.engine.check('local-demo',track.id);
+ assert.equal(calls.length,3);assert.equal(calls[2].channel,'task');assert.equal(f.store.get('local-demo','track',track.id).googleError,undefined);
+ await f.engine.check('local-demo',track.id);assert.equal(calls.length,3);
+ assert.equal(f.store.list('local-demo','googleLink').length,2);assert.equal(f.store.list('local-demo','change').length,1);
+ await f.request('/api/demo','POST',{mode:'conflict'});await f.engine.check('local-demo',track.id);assert.equal(calls.length,3);
+ await f.request('/api/demo','POST',{mode:'failed'});await f.engine.check('local-demo',track.id);assert.equal(calls.length,3);
+});
 test('manual reminders explicitly enable source monitoring and detect subsequent changes',async t=>{
  const f=await fixture(t),track=await f.track();track.milestones.forEach(m=>m.manual=true);f.store.put('local-demo','track',track.id,track);
  assert.equal((await f.request(`/api/tracks/${track.id}/check`,'POST',{})).data.status,'manual');
@@ -278,4 +299,11 @@ test('website sessions connect extension alerts with single-use origin-bound PKC
  assert.equal((await f.request('/api/tracks','GET',undefined,token)).status,403);assert.equal((await f.request('/api/account/clear-data','POST',{action:'clear-account-data'},token)).status,403);assert.equal((await f.request('/api/auth/extension-session','POST',{extensionId,challenge},token)).status,403);
  assert.equal((await f.request('/api/auth/redeem','POST',{code:grant.data.code,verifier,extensionId})).status,401);assert.equal((await f.request('/api/tracks')).data[0].id,track.id);
  await f.request('/api/logout','POST',{});assert.equal((await f.request('/api/alerts','GET',undefined,token)).status,401);
+});
+
+test('automatic Google sync skips missing dates, manual reminders and unlinked milestones',async t=>{
+ let calls=0;const f=await fixture(t,{google:{perform:async()=>{calls++;}}}),track=await f.track(),m=track.milestones[0];
+ await f.engine.syncGoogle('local-demo',track,true);assert.equal(calls,0);
+ const id=`${track.id}:${m.id}:calendar`;f.store.put('local-demo','googleLink',id,{id,trackId:track.id,milestoneId:m.id,channel:'calendar',state:'linked',date:'2026-01-01'});
+ for(const state of [{missing:[m.kind]},{uncertain:[{kind:m.kind}]},{conflicts:[{kind:m.kind}]},{milestones:[{...m,manual:true}]}]){await f.engine.syncGoogle('local-demo',{...track,...state},true);assert.equal(calls,0);}
 });

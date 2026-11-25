@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Deadline Scout",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Track registration deadlines, see what changed, and keep your plans in sync.",
   "minimum_chrome_version": "120",
   "permissions": [
@@ -25,7 +25,7 @@
     "http://*/*"
   ],
   "action": {
-    "default_title": "Deadline Scout \u2014 scan this page",
+    "default_title": "Deadline Scout — scan this page",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icon16.png",

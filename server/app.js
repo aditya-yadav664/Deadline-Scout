@@ -188,7 +188,7 @@ export function createApp(options={}) {
           const signature=ms=>ms.map(milestoneKey).sort().join("\n");
           const existing=store.list(owner,'track').find(t=>t.url===url&&t.title===String(b.title||'Registration').slice(0,200)&&signature(t.milestones)===signature(milestones)&&t.plan===(b.plan||null));
           if(existing)return send(enrich(owner,existing));
-          const t={id:randomUUID(),title:String(b.title||'Registration').slice(0,200),url,sources,milestones,plan:b.plan||null,intervalMinutes:60,nextCheck:Date.now()+3600000,createdAt:new Date().toISOString(),status:milestones.every(m=>m.manual)?'manual':'watching',autoGoogle:false,errors:[],conflicts:[],uncertain:[]};
+          const t={id:randomUUID(),title:String(b.title||'Registration').slice(0,200),url,sources,milestones,plan:b.plan||null,intervalMinutes:60,nextCheck:Date.now()+3600000,createdAt:new Date().toISOString(),status:milestones.every(m=>m.manual)?'manual':'watching',errors:[],conflicts:[],uncertain:[]};
           return send(enrich(owner,store.put(owner,'track',t.id,t)),201);
         }
         const match=path.match(/^\/api\/tracks\/([^/]+)(?:\/(check|google|preview|resolve|monitor))?$/);
@@ -225,7 +225,6 @@ export function createApp(options={}) {
             if(engine.locks.has(owner+':'+id))throw fail('Wait for the current operation.');const b=await body(req);
             if(b.intervalMinutes!==undefined){if(!Number.isInteger(b.intervalMinutes)||b.intervalMinutes<5||b.intervalMinutes>10080)throw fail('Choose an interval between 5 minutes and 7 days.');t.intervalMinutes=b.intervalMinutes;t.nextCheck=Date.now()+b.intervalMinutes*60000;}
             if(b.plan!==undefined){if(b.plan&&!validDate(b.plan))throw fail('Invalid planned date.');t.plan=b.plan||null;}
-            if(b.autoGoogle!==undefined)t.autoGoogle=!!b.autoGoogle;
             if(b.addSource){const s=safeUrl(b.addSource).href;if(new URL(s).origin!==new URL(t.url).origin||t.sources.length>=5)throw fail('Add a same-site source (maximum five).');if(!t.sources.includes(s))t.sources.push(s);}
             return send(enrich(owner,store.put(owner,'track',id,t)));
           }
@@ -242,7 +241,8 @@ export function createApp(options={}) {
             store.transaction(()=>{store.put(owner,'track',id,t);if(scheduleKey(change.before)!==scheduleKey(change.after)){
               store.put(owner,'change',change.id,change);store.put(owner,'delivery',change.id+':browser',{id:change.id+':browser',changeId:change.id,channel:'browser',status:'queued',at:change.at});
               const p=profileFor(owner);if(p.emailEnabled&&(p.emailVerified||email.mode==='demo'&&p.local))store.put(owner,'delivery',change.id+':email',{id:change.id+':email',changeId:change.id,channel:'email',status:'queued',to:p.email,...changeEmail(t,change,p),attempts:0,createdAt:Date.now(),nextTry:Date.now(),at:change.at});
-            }});await engine.deliver(owner);return send(enrich(owner,t));
+            }});const lock=owner+':'+id;engine.locks.add(lock);
+            try{await engine.syncGoogle(owner,t,true);await engine.deliver(owner);return send(enrich(owner,t));}finally{engine.locks.delete(lock);}
           }
           if(['google','preview'].includes(action)&&req.method==='POST'){
             const b=await body(req),m=t.milestones.find(m=>m.id===b.milestoneId);if(!m)throw fail('Select a milestone.');
