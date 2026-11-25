@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Deadline Scout",
-  "version": "1.3.10",
+  "version": "1.4.0",
   "description": "Track registration deadlines, see what changed, and keep your plans in sync.",
   "minimum_chrome_version": "120",
   "permissions": [
@@ -25,7 +25,7 @@
     "http://*/*"
   ],
   "action": {
-    "default_title": "Deadline Scout — scan this page",
+    "default_title": "Deadline Scout \u2014 scan this page",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icon16.png",
@@ -46,5 +46,12 @@
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"
+  },
+  "externally_connectable": {
+    "matches": [
+      "https://deadline-scout.vercel.app/*",
+      "http://localhost/*",
+      "http://127.0.0.1/*"
+    ]
   }
 }

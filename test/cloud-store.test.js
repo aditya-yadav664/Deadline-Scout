@@ -32,7 +32,7 @@ test('cloud reads avoid write locks and schema changes during background monitor
 test('public cloud assets and config work without opening a database connection; private APIs still require it',async t=>{
  let connections=0;const server=startCloud({env,pool:{connect:async()=>{connections++;throw Error('database offline');}}});await once(server,'listening');t.after(()=>new Promise(r=>server.close(r)));
  const base='http://127.0.0.1:'+server.address().port;
- for(const path of ['/','/auth/done','/panel.css','/panel.js','/assets/inter.woff2','/assets/icons/calendar.svg','/api/config','/health']){const r=await fetch(base+path);assert.equal(r.status,200,path);await r.arrayBuffer();}
+ for(const path of ['/','/auth/done','/panel.css','/panel.js','/dashboard.js','/shared/alert-connection.js','/assets/inter.woff2','/assets/icons/calendar.svg','/api/config','/health']){const r=await fetch(base+path);assert.equal(r.status,200,path);await r.arrayBuffer();}
  assert.equal(connections,0);
  const css=await fetch(base+'/panel.css');const etag=css.headers.get('etag');await css.text();assert.ok(etag);const unchanged=await fetch(base+'/panel.css',{headers:{'If-None-Match':etag}});assert.equal(unchanged.status,304);
  const denied=await fetch(base+'/api/config',{headers:{Origin:'https://evil.example'}});assert.equal(denied.status,403);

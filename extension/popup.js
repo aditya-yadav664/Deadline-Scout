@@ -1,5 +1,6 @@
-import {api,settings,isExtension} from './api.js';
+import {api,settings,storage,isExtension} from './api.js';
 import {scanActivePage} from './shared/page-scanner.js';
+import {beginAlertConnection} from './shared/alert-connection.js';
 import {copiedLinkReviewUrl} from './shared/copied-link.js';
 let capture=null,blockedOrigin=null;
 const $=s=>document.querySelector(s);
@@ -29,4 +30,4 @@ $('#track-copied').onclick=e=>run(e.currentTarget,async()=>{
 });
 try{const [t]=await chrome.tabs.query({active:true,currentWindow:true});$('#page-title').textContent=t?.title||'Open a registration page to scan.';}catch{}
 
-$('#setup-alerts').onclick=e=>run(e.currentTarget,async()=>{if(!isExtension)throw new Error('Open the installed Deadline Scout extension to set up background alerts.');await chrome.tabs.create({url:chrome.runtime.getURL('panel.html#settings')});});
+$('#setup-alerts').onclick=e=>run(e.currentTarget,async()=>{if(!isExtension)throw new Error('Open the installed Deadline Scout extension to set up background alerts.');await openWebsite(await beginAlertConnection(chrome,storage,async()=>(await settings()).backendUrl));});

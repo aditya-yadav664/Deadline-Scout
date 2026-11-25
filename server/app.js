@@ -20,7 +20,7 @@ import {saveCapture,consumeCapture} from './captures.js';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const sha256url=s=>createHash('sha256').update(s).digest('base64url');
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
-export function isPublicFilePath(path){const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);return /^(?:panel\.(?:html|css|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts)\.js)$/.test(relative);}
+export function isPublicFilePath(path){const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);return /^(?:panel\.(?:html|css|js)|dashboard\.js|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts|alert-connection)\.js)$/.test(relative);}
 export function createApp(options={}) {
   const env=options.env||process.env;
   const port=Number(env.PORT||4317),host=env.HOST||'127.0.0.1';
@@ -54,7 +54,7 @@ export function createApp(options={}) {
     return page;
   }
   const engine=options.engine||new Engine({store,readPage:options.readPage||readPage,email,google});
-  function session(owner) {const token=randomToken();store.put('_system','session',hash(token),{owner,expires:Date.now()+30*86400000});return token;}
+  function session(owner,scope,parentSession) {const token=randomToken();store.put('_system','session',hash(token),{owner,...(scope?{scope}:{}),...(parentSession?{parentSession}:{}),expires:Date.now()+30*86400000});return token;}
   async function body(req) {let bytes=0,chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>300000)throw fail('Request too large.',413);chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{throw fail('Invalid JSON.');}}
   function profileFor(owner) {return store.get(owner,'profile','me')||{email:'',emailEnabled:false,emailVerified:false};}
   function changesFor(owner){const active=new Set(store.list(owner,'track').map(t=>t.id));return store.list(owner,'change').filter(c=>active.has(c.trackId)).sort((a,b)=>b.at.localeCompare(a.at));}
@@ -123,14 +123,21 @@ export function createApp(options={}) {
       }
       if(path==='/api/auth/redeem'&&req.method==='POST'){
         const b=await body(req),key=hash(b.code||''),r=store.get('_system','redeem',key);
-        if(!r||r.expires<Date.now()||sha256url(b.verifier||'')!==r.challenge)throw fail('Invalid sign-in exchange.',401);
-        store.remove('_system','redeem',key);return send({token:session(r.owner)});
+        if(!r||r.expires<Date.now()||sha256url(b.verifier||'')!==r.challenge||r.extensionId&&(b.extensionId!==r.extensionId||origin&&origin!=='chrome-extension://'+r.extensionId))throw fail('Invalid sign-in exchange.',401);
+        if(r.parentSession){const parent=store.get('_system','session',r.parentSession);if(!parent||parent.owner!==r.owner||parent.expires<Date.now())throw fail('Website sign-in expired. Sign in and restart alert setup.',401);}
+        store.remove('_system','redeem',key);return send({token:session(r.owner,r.scope,r.parentSession),...(r.scope==='browser-alerts'?{email:profileFor(r.owner).email}:{})});
       }
       if(path.startsWith('/api/')){
         const token=req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];const auth=token&&store.get('_system','session',hash(token));
         if(!auth||auth.expires<Date.now()||liveAuth&&auth.owner==='local-demo')throw fail('Sign in to continue.',401);
         const owner=auth.owner;
+        if(auth.scope==='browser-alerts'&&auth.parentSession){const parent=store.get('_system','session',auth.parentSession);if(!parent||parent.owner!==owner||parent.expires<Date.now())throw fail('Sign in to the dashboard and reconnect background alerts.',401);}
+        if(auth.scope==='browser-alerts'&&!['GET /api/me','GET /api/alerts','POST /api/alerts/ack','POST /api/logout'].includes(req.method+' '+path))throw fail('This session is limited to browser alerts.',403);
         const bucket=buckets.get(owner)||{count:0,until:Date.now()+60000};if(bucket.until<Date.now()){bucket.count=0;bucket.until=Date.now()+60000;}bucket.count++;buckets.set(owner,bucket);if(bucket.count>180)throw fail('Too many requests. Wait one minute.',429);
+        if(path==='/api/auth/extension-session'&&req.method==='POST'){
+          const b=await body(req);if(!/^[a-p]{32}$/.test(b.extensionId||'')||!(extensionIds.length?extensionIds.includes(b.extensionId):loopback)||!/^[A-Za-z0-9_-]{43}$/.test(b.challenge||''))throw fail('Invalid extension alert setup.');
+          const code=randomToken();store.put('_system','redeem',hash(code),{owner,challenge:b.challenge,extensionId:b.extensionId,scope:'browser-alerts',parentSession:hash(token),expires:Date.now()+60000});return send({code});
+        }
         if(path==='/api/account/clear-data'&&req.method==='POST'){
           const b=await body(req);if(b.action!=='clear-account-data')throw fail('Choose Clear account data to continue.');
           if([...engine.locks].some(key=>key.startsWith(owner+':'))||engine.delivering.has(owner))throw fail('A check or delivery is running. Try again when it finishes.',409);

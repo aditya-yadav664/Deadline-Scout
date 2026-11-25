@@ -111,7 +111,7 @@ test('demo verification never verifies a live recipient',async t=>{
 test('OAuth return page resolves every script, stylesheet and icon from the site root',async t=>{
  const f=await fixture(t),base='http://127.0.0.1:'+f.server.address().port;
  const page=await(await fetch(base+'/auth/done')).text();
- for(const m of page.matchAll(/(?:src|href)="([^"#]+\.(?:js|css|svg))"/g)){
+ for(const m of page.matchAll(/(?:src|href)="([^"#]+\.(?:js|css|svg)(?:\?[^"#]*)?)"/g)){
    const asset=new URL(m[1],base+'/auth/done');assert.ok(!asset.pathname.startsWith('/auth/'),asset.href);
    assert.equal((await fetch(asset)).status,200,asset.href);
  }
@@ -263,4 +263,19 @@ test('Calendar approval works directly without requesting a reminder preview',as
  const track=await f.track();const r=await f.request('/api/tracks/'+track.id+'/google','POST',{milestoneId:track.milestones[0].id,channel:'calendar',minutes:60,approved:true});
  assert.equal(r.status,200);assert.equal(r.data.googleId,'test-calendar-id');assert.equal(calls.length,1);assert.equal(calls[0].minutes,60);
  assert.equal((await f.request('/api/tracks/'+track.id+'/google','POST',{milestoneId:track.milestones[0].id,channel:'calendar',minutes:60})).status,400);assert.equal(calls.length,1);
+});
+
+test('website sessions connect extension alerts with single-use origin-bound PKCE and an alert-only token',async t=>{
+ const f=await fixture(t),track=await f.track(),extensionId='nicbdenkpmljnljbicmjajhimpbkdgdf';
+ const verifier=randomBytes(32).toString('base64url'),challenge=createHash('sha256').update(verifier).digest('base64url');
+ const grant=await f.request('/api/auth/extension-session','POST',{extensionId,challenge});assert.equal(grant.status,200);assert.ok(grant.data.code);
+ assert.equal((await f.request('/api/auth/extension-session','POST',{extensionId,challenge},'wrong')).status,401);
+ assert.equal((await f.request('/api/auth/redeem','POST',{code:grant.data.code,verifier:'wrong',extensionId})).status,401);
+ assert.equal((await f.request('/api/auth/redeem','POST',{code:grant.data.code,verifier,extensionId:'a'.repeat(32)})).status,401);
+ const rejectedOrigin=await fetch('http://127.0.0.1:'+f.server.address().port+'/api/auth/redeem',{method:'POST',headers:{'Content-Type':'application/json',Origin:'http://localhost:4317'},body:JSON.stringify({code:grant.data.code,verifier,extensionId})});assert.equal(rejectedOrigin.status,401);
+ const redeemed=await f.request('/api/auth/redeem','POST',{code:grant.data.code,verifier,extensionId});assert.equal(redeemed.status,200);const token=redeemed.data.token;
+ assert.equal((await f.request('/api/me','GET',undefined,token)).data.email,'demo@localhost');assert.equal((await f.request('/api/alerts','GET',undefined,token)).status,200);
+ assert.equal((await f.request('/api/tracks','GET',undefined,token)).status,403);assert.equal((await f.request('/api/account/clear-data','POST',{action:'clear-account-data'},token)).status,403);assert.equal((await f.request('/api/auth/extension-session','POST',{extensionId,challenge},token)).status,403);
+ assert.equal((await f.request('/api/auth/redeem','POST',{code:grant.data.code,verifier,extensionId})).status,401);assert.equal((await f.request('/api/tracks')).data[0].id,track.id);
+ await f.request('/api/logout','POST',{});assert.equal((await f.request('/api/alerts','GET',undefined,token)).status,401);
 });

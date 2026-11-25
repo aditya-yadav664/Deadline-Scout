@@ -1,3 +1,4 @@
+import {handleAlertConnection} from './shared/alert-connection.js';
 import {deliverBrowserAlerts} from './shared/browser-alerts.js';
 import {api,storage,settings,connectGoogle} from './api.js';
 chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'}).catch(console.error);
@@ -22,3 +23,8 @@ chrome.runtime.onMessage.addListener((message,_sender,respond)=>{
 let notificationClickRegistered=false;
 function registerNotificationClick(){if(notificationClickRegistered||!chrome.notifications?.onClicked)return;chrome.notifications.onClicked.addListener(async()=>chrome.tabs.create({url:(await settings()).backendUrl+'/#timeline'}));notificationClickRegistered=true;}
 registerNotificationClick();chrome.permissions.onAdded.addListener(permissions=>{if(permissions.permissions?.includes('notifications'))registerNotificationClick();});
+
+chrome.runtime.onMessageExternal.addListener((message,sender,respond)=>{
+  if(!['scout-alerts-status','scout-alerts-connect','scout-alerts-test'].includes(message?.type))return false;
+  (async()=>{const s=await settings();return handleAlertConnection(message,sender,{browser:chrome,storage,api,backend:s.backendUrl});})().then(result=>{respond(result);if(message.type==='scout-alerts-connect')void surfaceAlerts();}).catch(error=>respond({ok:false,error:error.message}));return true;
+});

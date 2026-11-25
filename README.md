@@ -41,7 +41,9 @@ node --env-file-if-exists=.env server/index.js
 4. Pin **Deadline Scout** in Edge's Extensions menu.
 5. Open a registration page and click its toolbar icon to open the side panel.
 6. Use **Track this page**. If page access fails, click the toolbar icon again on that page and retry, or paste its public URL.
-7. For background alerts, choose **Set up background alerts** in the popup, open Profile → Settings, and enable **Browser alerts**. The extension requests notification permission and signs in if its own session is missing. Use **Send test browser alert** to check Edge/Windows notifications. The website also supports its own alerts while the page remains open.
+7. For background alerts, choose **Set up background alerts** in the popup and allow extension notifications. Setup opens the hosted dashboard and reuses its signed-in account. If needed, sign in there once; setup resumes automatically. Profile → Settings shows connection status and **Send test background alert**. Reload the extension at edge://extensions after updating it. Legacy extension dashboard pages redirect to the hosted website. Website-only Browser alerts remain separate and work while the page is open.
+
+Background setup uses a short-lived, single-use PKCE exchange. The extension receives an alerts-only session bound to the website session; it cannot change tracked events, clear account data, or access Calendar APIs. Signing out of that website session revokes its background access.
 
 If you extracted the ZIP somewhere else, select its `extension` folder instead. The folder contains the manifest, service worker, shared extraction code, and icons. No build step is necessary.
 
