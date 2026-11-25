@@ -67,3 +67,11 @@ test('automatic highlight follows upcoming event date, not when a future page wa
  assert.equal(nearestUpcomingTrack([december],'2027-01-01'),undefined);
  const invoice={id:'invoice',title:'Invoice',milestones:[{kind:'payment',date:'2026-11-28'}]};assert.equal(nearestUpcomingTrack([later,invoice],'2026-11-25').id,'invoice');
 });
+
+test('cross-origin POST telemetry is blocked without invalidating readable schedule dates',async t=>{
+ if(!await rendererAvailable()){t.skip('Renderer unavailable');return;}
+ const html='<main>'+schedule.replace(/\n/g,'<br>')+'</main><script>fetch("https://telemetry.example/installations",{method:"POST",body:"test"}).catch(()=>{})</script>';
+ let reads=0;const result=await renderPublicPage(url,html,process.env,async()=>{reads++;throw Error('Unexpected external read');});assert.equal(result.milestones.length,4);assert.equal(reads,0);
+ const dependent='<main>'+schedule.replace(/\n/g,'<br>')+'</main><script>fetch("/schedule",{method:"POST",body:"test"}).catch(()=>{})</script>';
+ await assert.rejects(renderPublicPage(url,dependent),/non-GET/);
+});

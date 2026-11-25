@@ -57,7 +57,9 @@ test('inactive browser job fills two captured panels, attaches PDF and submits a
  const storage={get:async k=>state[k],set:async(k,v)=>state[k]=structuredClone(v)};let tabOptions;
  const adapter={permissions:{contains:async()=>true},storage:{session:{set:async o=>Object.assign(session,o),get:async()=>session}},tabs:{get:async()=>({url:page.url()}),create:async args=>{tabOptions=args;return {id:5};}},scripting:{executeScript:async o=>[{result:await page.evaluate(({source,args})=>(new Function('return ('+source+')'))()(...args),{source:o.func.toString(),args:o.args||[]})}]}};
  await startSignupSession({browser:adapter,storage,draft,filePayload:[file],autoSubmit:true});assert.equal(tabOptions.active,false);
- await fillPendingSignup({browser:adapter,storage,tabId:5});await fillPendingSignup({browser:adapter,storage,tabId:5});const result=await fillPendingSignup({browser:adapter,storage,tabId:5});assert.equal(result.execution.attempted,true);
+ await page.exposeFunction('notifyScout',()=>fillPendingSignup({browser:adapter,storage,tabId:5}));
+ await page.evaluate(()=>{window.chrome.runtime.sendMessage=()=>window.notifyScout();setInterval(()=>document.body.classList.toggle('animation-tick'),75);});
+ await fillPendingSignup({browser:adapter,storage,tabId:5});
  await page.waitForFunction(()=>window.receipt==='TEST-123');await fillPendingSignup({browser:adapter,storage,tabId:5});assert.equal(submissions,1);assert.equal(draft.steps.length,2);
 });
 

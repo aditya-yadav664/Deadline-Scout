@@ -21,9 +21,10 @@ export function resumePlan(draft,live,preferredIndex){
 }
 export function watchSignupStep(){
  if(window.__scoutSignupWatch)return;window.__scoutSignupWatch=true;let timer;
- const notify=()=>{clearTimeout(timer);timer=setTimeout(()=>chrome.runtime.sendMessage({type:'signup-form-changed'}).catch(()=>{}),500);};
+ const notify=()=>{if(timer)return;timer=setTimeout(()=>{timer=null;try{chrome.runtime.sendMessage({type:'signup-form-changed'}).catch(()=>{});}catch{}},500);};
  new MutationObserver(records=>{if(records.every(r=>r.target.closest?.('#deadline-scout-fill-status')||r.target.id==='deadline-scout-fill-status'||r.type==='childList'&&[...r.addedNodes,...r.removedNodes].length&&[...r.addedNodes,...r.removedNodes].every(n=>n.id==='deadline-scout-fill-status')))return;notify();}).observe(document.body,{childList:true,subtree:true,attributes:true,characterData:true,attributeFilter:['class','style','hidden','aria-hidden','aria-selected','required','disabled']});
  document.addEventListener('change',notify,true);
+ window.addEventListener('popstate',notify);
  window.addEventListener('hashchange',()=>chrome.runtime.sendMessage({type:'signup-form-changed'}).catch(()=>{}));
 }
 export function showSignupProgress({message,nextUrl}){

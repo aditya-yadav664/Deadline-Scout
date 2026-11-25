@@ -21,7 +21,7 @@ export async function renderPublicPage(url,initialHtml,env=process.env,resourceR
     let requests=0,bytes=0;const failures=[];
     await context.route('**/*',async route=>{
       const req=route.request();
-      if(req.method()!=='GET'){if(['document','script','xhr','fetch'].includes(req.resourceType()))failures.push('This source requires a non-GET request; automatic monitoring is read-only.');return route.abort();}
+      if(req.method()!=='GET'){if(new URL(req.url()).origin===new URL(url).origin&&['document','script','xhr','fetch'].includes(req.resourceType()))failures.push('This source requires a non-GET request; automatic monitoring is read-only.');return route.abort();}
       if(['image','font','media'].includes(req.resourceType()))return route.abort();
       if(++requests>75){failures.push('Rendered page request limit exceeded.');return route.abort();}
       try{
