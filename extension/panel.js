@@ -6,6 +6,7 @@ import {selectMilestone,dedupeMilestones,milestoneKey,mergeCapturedMilestones} f
 const $=s=>document.querySelector(s);
 const icon=name=>'<img class="ui-icon" src="/assets/icons/'+name+'.svg" alt="">';
 const openTracks=new Set();
+let profileNameDirty=false;
 const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata'}).format(new Date());
 $('#today-label').textContent=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'long',year:'numeric',timeZone:'Asia/Kolkata'}).format(new Date())+' · IST';
 function nextMilestone(t){const dates=[...t.milestones].sort((a,b)=>a.date.localeCompare(b.date));return dates.find(m=>m.date>=today)||dates.at(-1);}
@@ -39,7 +40,8 @@ const statusLabels={watching:['Watching',''],changed:['Date updated','warn'],con
 function render(){
   $('#tracks').setAttribute('aria-busy','false');
   const all=[...tracks,...localTracks.map(t=>({...t,local:true}))];
-  $('#profile-email').textContent=me.email||'Not signed in';$('#profile-status').textContent=me.email?(me.googleConnected?'Google Calendar & Tasks connected':'Google account signed in'):'Sign in to connect your Google account.';$('#profile-avatar').innerHTML=me.email?esc(me.email[0].toUpperCase()):icon('user');$('#profile-signin').hidden=!!me.email;$('#profile-switch').hidden=!me.email;$('#sign-out').hidden=!me.email;
+  $('#profile-email').textContent=me.email||'Not signed in';$('#profile-status').textContent=me.email?(me.googleConnected?'Google Calendar & Tasks connected':'Google account signed in'):'Sign in to connect your Google account.';$('#profile-avatar').innerHTML=me.email?esc((me.displayName||me.email)[0].toUpperCase()):icon('user');$('#profile-signin').hidden=!!me.email;$('#profile-switch').hidden=!me.email;$('#sign-out').hidden=!me.email;
+  $('#profile-name-form').hidden=!me.email;if(!me.email)profileNameDirty=false;if(!profileNameDirty)$('#profile-name').value=me.displayName||'';
   $('#track-count').textContent=all.length;$('#change-count').textContent=changes.length;
   const reviews=all.filter(t=>['conflict','needs_review','check_failed','date_missing'].includes(t.status)).length;$('#review-count').textContent=reviews?`${reviews} need${reviews===1?'s':''} attention`:all.length?'All in view':'';
   const ordered=[...all].sort((a,b)=>{const ad=nextMilestone(a).date,bd=nextMilestone(b).date;return (ad<today)-(bd<today)||ad.localeCompare(bd);});
@@ -106,7 +108,7 @@ async function closeDraft(){draft=null;$('#draft-dialog').close();document.body.
 $('#draft-dialog').addEventListener('cancel',event=>{event.preventDefault();void closeDraft();});
 function renderDraft(){
   const box=$('#draft');box.hidden=false;
-  box.innerHTML=`<section class="draft"><div class="card-heading"><h2 id="draft-review-title">Choose what to track</h2><button id="cancel-draft" class="text-button">Cancel</button></div><p class="draft-intro">Confirm the dates and their source before saving.${!draft.monitoring?' Backend monitoring is unavailable. Local entries can be rechecked manually while your browser is open; manual reminders are never rechecked.':''}</p><label for="draft-title">Registration name</label><input id="draft-title" value="${esc(draft.title)}">${draft.milestones.map((m,i)=>`<div class="candidate" data-candidate="${i}"><label class="candidate-heading"><input type="checkbox" data-field="selected" ${m.selected===false?'':'checked'}> Track this milestone</label><label>Milestone<select data-field="kind">${Object.entries(labels).map(([k,v])=>`<option value="${k}" ${m.kind===k?'selected':''}>${v}</option>`).join('')}</select></label>${renderEvidenceChoices(m)}<blockquote>${esc(m.quote||'Enter a source sentence below.')}</blockquote><label>Source sentence<input data-field="quote" value="${esc(m.quote)}"></label><a class="muted" href="${safeLink(m.sourceUrl)}" target="_blank" rel="noreferrer">View source</a><div class="date-grid"><label>Date<input data-field="date" type="date" value="${esc(m.date)}"></label><label>Time (optional)<input data-field="time" type="time" value="${esc(m.time||'')}"></label><label class="zone-field">Timezone (default: IST / UTC+05:30)<input data-field="zone" value="${esc(m.zone||'')}" placeholder="Asia/Kolkata or UTC+05:30"></label></div>${m.reasons?.length?`<p class="hint">${esc(m.reasons.join(' '))}</p>`:''}<label class="candidate-heading"><input type="checkbox" data-field="manual" ${m.manual?'checked':''}> Manual reminder only</label></div>`).join('')}<button id="add-manual" class="text-button">Add another milestone</button>${draft.links.length?`<div class="review"><h4>Suggested supporting sources</h4><p>Only pages you approve will be checked.</p>${draft.links.filter(l=>!draft.sources.includes(l.url)).map(l=>`<button class="text-button" data-add-source="${esc(l.url)}">Add ${esc(l.label||new URL(l.url).pathname)}</button><br>`).join('')}</div>`:''}<p class="muted">${draft.sources.length} approved source${draft.sources.length===1?'':'s'}</p><label for="planned-date">I plan to register on (optional)</label><input id="planned-date" type="date" value="${esc(draft.plan||'')}"><button id="save-draft" class="button primary full">Save registration</button></section>`;
+  box.innerHTML=`<section class="draft"><div class="card-heading"><h2 id="draft-review-title">Choose what to track</h2><button id="cancel-draft" class="text-button">Cancel</button></div><p class="draft-intro">Confirm the dates and their source before saving.${draft.verifying?' Checking the source in the background. You can review the captured dates now; editing and saving will unlock when the check finishes.':!draft.monitoring?' Backend monitoring is unavailable. Local entries can be rechecked manually while your browser is open; manual reminders are never rechecked.':''}</p>${draft.verifying?'<p class="source-verification" role="status"><progress aria-label="Checking source"></progress> Checking the latest source dates…</p>':''}<fieldset class="review-fields" ${draft.verifying?'disabled':''}><label for="draft-title">Registration name</label><input id="draft-title" value="${esc(draft.title)}">${draft.milestones.map((m,i)=>`<div class="candidate" data-candidate="${i}"><label class="candidate-heading"><input type="checkbox" data-field="selected" ${m.selected===false?'':'checked'}> Track this milestone</label><label>Milestone<select data-field="kind">${Object.entries(labels).map(([k,v])=>`<option value="${k}" ${m.kind===k?'selected':''}>${v}</option>`).join('')}</select></label>${renderEvidenceChoices(m)}<blockquote>${esc(m.quote||'Enter a source sentence below.')}</blockquote><label>Source sentence<input data-field="quote" value="${esc(m.quote)}"></label><a class="muted" href="${safeLink(m.sourceUrl)}" target="_blank" rel="noreferrer">View source</a><div class="date-grid"><label>Date<input data-field="date" type="date" value="${esc(m.date)}"></label><label>Time (optional)<input data-field="time" type="time" value="${esc(m.time||'')}"></label><label class="zone-field">Timezone (default: IST / UTC+05:30)<input data-field="zone" value="${esc(m.zone||'')}" placeholder="Asia/Kolkata or UTC+05:30"></label></div>${m.reasons?.length?`<p class="hint">${esc(m.reasons.join(' '))}</p>`:''}<label class="candidate-heading"><input type="checkbox" data-field="manual" ${m.manual?'checked':''}> Manual reminder only</label></div>`).join('')}<button id="add-manual" class="text-button">Add another milestone</button>${draft.links.length?`<div class="review"><h4>Suggested supporting sources</h4><p>Only pages you approve will be checked.</p>${draft.links.filter(l=>!draft.sources.includes(l.url)).map(l=>`<button class="text-button" data-add-source="${esc(l.url)}">Add ${esc(l.label||new URL(l.url).pathname)}</button><br>`).join('')}</div>`:''}<p class="muted">${draft.sources.length} approved source${draft.sources.length===1?'':'s'}</p><label for="planned-date">I plan to register on (optional)</label><input id="planned-date" type="date" value="${esc(draft.plan||'')}"></fieldset><button id="save-draft" class="button primary full" ${draft.verifying?'disabled':''}>${draft.verifying?'Checking source…':'Save registration'}</button></section>`;
   $('#cancel-draft').onclick=closeDraft;
   $('#add-manual').onclick=()=>{readDraft();draft.milestones.push(manualMilestone(draft.url));renderDraft();};
   box.querySelectorAll('[data-add-source]').forEach(button=>button.onclick=()=>run(button,async()=>{
@@ -138,6 +140,7 @@ function readDraft(){
   $('#draft').querySelectorAll('[data-candidate]').forEach(node=>{const m=draft.milestones[+node.dataset.candidate];for(const field of ['selected','kind','quote','date','time','zone','manual']){const input=node.querySelector(`[data-field="${field}"]`);m[field]=input.type==='checkbox'?input.checked:input.value;}m.label=labels[m.kind];});
 }
 async function saveDraft(){
+  if(draft?.verifying)return;
   readDraft();const selected=dedupeMilestones(draft.milestones.filter(m=>m.selected!==false));if(!selected.length)throw new Error('Select at least one milestone.');
   for(const m of selected){validateMilestone(m);if(m.time)instant(m);}
   const payload={...draft,milestones:selected.map(m=>({...m,confirmed:true,uncertain:false,reasons:[]}))};
@@ -209,6 +212,10 @@ $('#watchlist-view').onclick=e=>{
 document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{showView(button.dataset.view);if(view==='settings'&&connected)renderOutbox().catch(()=>{});});
 function openProfileSettings(){const popover=$('#profile-popover');if(!popover.matches(':popover-open'))popover.showPopover();$('#settings-view').hidden=false;$('#profile-settings').setAttribute('aria-expanded','true');if(connected)renderOutbox().catch(()=>{});}
 $('#profile-settings').onclick=()=>{const expanded=$('#settings-view').hidden;$('#settings-view').hidden=!expanded;$('#profile-settings').setAttribute('aria-expanded',String(expanded));if(expanded&&connected)renderOutbox().catch(()=>{});};
+$('#profile-name').oninput=()=>{profileNameDirty=true;$('#profile-name-status').textContent='';};
+$('#profile-name-form').onsubmit=e=>{e.preventDefault();void run($('#save-profile-name'),async()=>{
+  $('#profile-name-status').textContent='Saving…';try{await api('/api/me','PATCH',{displayName:$('#profile-name').value});profileNameDirty=false;await refresh();$('#profile-name-status').textContent='Name saved. Future email alerts will use it.';}catch(error){$('#profile-name-status').textContent=error.message;throw error;}
+});};
 $('#profile-signin').onclick=e=>run(e.currentTarget,signIn);
 async function signOut(){try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];me={};await storage.set('cachedTracks',[]);render();}}
 $('#profile-switch').onclick=e=>run(e.currentTarget,async()=>{await signOut();await signIn();});
@@ -251,16 +258,22 @@ $('#sign-out').onclick=e=>run(e.currentTarget,async()=>{await signOut();toast('S
 async function openCapturedReview(token){
   const captured=await api('/api/captures/'+encodeURIComponent(token));
   history.replaceState(null,'',location.pathname);
-  let serverPage=null;try{serverPage=await api('/api/inspect','POST',{url:captured.url});}catch{/* Captured evidence remains useful as a manual reminder. */}
+  const preview=mergeCapturedMilestones(captured.milestones,null).map(m=>({...m,confirmed:false,detected:{time:m.time??null,zone:m.zone??null}}));
+  const current={url:captured.url,title:captured.title,sources:[captured.url],links:captured.links||[],verifying:true,monitoring:false,milestones:preview.length?preview:[manualMilestone(captured.url)]};
+  current.catalog=structuredClone(current.milestones);draft=current;renderDraft();
+  // Show the extension's evidence first. Re-reading a rendered source can be slow.
+  let serverPage=null;try{serverPage=await api('/api/inspect','POST',{url:captured.url});}catch{/* Preserve captured evidence if source verification fails. */}
+  if(draft!==current)return; // Closing the review must not reopen it after the request finishes.
   const all=mergeCapturedMilestones(captured.milestones,serverPage?.milestones).map(m=>({...m,confirmed:false,detected:{time:m.time??null,zone:m.zone??null}}));
-  draft={url:captured.url,title:captured.title,sources:[captured.url],links:captured.links||[],monitoring:!!serverPage?.milestones.length,milestones:all.length?all:[manualMilestone(captured.url)]};
-  draft.catalog=structuredClone(draft.milestones);renderDraft();
+  Object.assign(current,{verifying:false,monitoring:!!serverPage?.milestones.length,milestones:all.length?all:[manualMilestone(captured.url)]});
+  current.catalog=structuredClone(current.milestones);renderDraft();
   trackingStatus('Page scan received from the extension. Backend-readable dates can be monitored; browser-only dates are labelled manual reminders.');
 }
 if(location.pathname!=='/auth/done'){
-  await refresh();
   const fragment=new URLSearchParams(location.hash.slice(1));
-  if(fragment.has('capture'))await run(null,()=>openCapturedReview(fragment.get('capture')));
+  const captureReview=fragment.has('capture')?run(null,()=>openCapturedReview(fragment.get('capture'))):null;
+  await refresh();
+  if(captureReview)await captureReview;
   else if(fragment.has('inspect')){const url=fragment.get('inspect');history.replaceState(null,'',location.pathname);$('#source-url').value=url;await run(null,()=>inspect(url));}
   else {const pending=await storage.get('pendingReview');if(pending){draft=pending;renderDraft();}if(['#settings','#timeline'].includes(location.hash))showView(location.hash.slice(1));}
 }

@@ -7,7 +7,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { Store } from './store.js';
 import { vault, randomToken, hash, safeUrl } from './security.js';
 import { fetchPublicPage } from './fetch-page.js';
-import { createEmailAdapter, changeEmail } from './email.js';
+import { createEmailAdapter, changeEmail, emailGreeting } from './email.js';
 import { Google } from './google.js';
 import { Engine } from './engine.js';
 import { demoHtml } from './demo.js';
@@ -130,7 +130,11 @@ export function createApp(options={}) {
         const owner=auth.owner;
         const bucket=buckets.get(owner)||{count:0,until:Date.now()+60000};if(bucket.until<Date.now()){bucket.count=0;bucket.until=Date.now()+60000;}bucket.count++;buckets.set(owner,bucket);if(bucket.count>180)throw fail('Too many requests. Wait one minute.',429);
         if(path==='/api/logout'&&req.method==='POST'){store.remove('_system','session',hash(token));return send({ok:true});}
-        if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {const p=profileFor(owner),me={email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local};return send(path==='/api/me'?me:{me,tracks:store.list(owner,'track').map(t=>enrich(owner,t)),changes:store.list(owner,'change').sort((a,b)=>b.at.localeCompare(a.at))});}
+        if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {const p=profileFor(owner),me={displayName:p.displayName||'',email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local};return send(path==='/api/me'?me:{me,tracks:store.list(owner,'track').map(t=>enrich(owner,t)),changes:store.list(owner,'change').sort((a,b)=>b.at.localeCompare(a.at))});}
+        if(path==='/api/me'&&req.method==='PATCH'){
+          const b=await body(req);if(typeof b.displayName!=='string'||b.displayName.trim().length>80||/[\u0000-\u001f\u007f]/.test(b.displayName))throw fail('Use a name of up to 80 characters without line breaks.');
+          const p=profileFor(owner);p.displayName=b.displayName.trim();store.put(owner,'profile','me',p);return send({displayName:p.displayName});
+        }
         if(path==='/api/settings'&&req.method==='PATCH') {
           const b=await body(req),p=profileFor(owner);if(b.emailEnabled&&!p.emailVerified&&!(email.mode==='demo'&&p.local))throw fail('Verify the recipient email before enabling alerts.');p.emailEnabled=!!b.emailEnabled;store.put(owner,'profile','me',p);return send({ok:true});
         }
@@ -150,7 +154,7 @@ export function createApp(options={}) {
         }
         if(path==='/api/email/test'&&req.method==='POST'){
           const p=profileFor(owner);if(!p.emailVerified&&!(email.mode==='demo'&&p.local))throw fail('Verify your email first.');
-          const id=randomUUID(),d={id,channel:'test',to:p.email,subject:'Deadline Scout test email',text:'Deadline Scout email alerts are connected. This is a user-requested test.',at:new Date().toISOString()};Object.assign(d,await email.send(d));store.put(owner,'delivery',id,d);return send(d);
+          const id=randomUUID(),d={id,channel:'test',to:p.email,subject:'Deadline Scout test email',text:emailGreeting(p)+'\n\nDeadline Scout email alerts are connected. This is a user-requested test.',at:new Date().toISOString()};Object.assign(d,await email.send(d));store.put(owner,'delivery',id,d);return send(d);
         }
         if(path==='/api/inspect'&&req.method==='POST'){
           const b=await body(req);return send(await readPage(b.url));
@@ -211,7 +215,7 @@ export function createApp(options={}) {
             Object.assign(m,change.after);t.conflicts=t.conflicts.filter(c=>c.kind!==m.kind);t.uncertain=t.uncertain.filter(c=>c.kind!==m.kind);t.status=t.conflicts.length?'conflict':t.uncertain.length?'needs_review':'watching';
             store.transaction(()=>{store.put(owner,'track',id,t);if(scheduleKey(change.before)!==scheduleKey(change.after)){
               store.put(owner,'change',change.id,change);store.put(owner,'delivery',change.id+':browser',{id:change.id+':browser',changeId:change.id,channel:'browser',status:'queued',at:change.at});
-              const p=profileFor(owner);if(p.emailEnabled&&(p.emailVerified||email.mode==='demo'&&p.local))store.put(owner,'delivery',change.id+':email',{id:change.id+':email',changeId:change.id,channel:'email',status:'queued',to:p.email,...changeEmail(t,change),attempts:0,createdAt:Date.now(),nextTry:Date.now(),at:change.at});
+              const p=profileFor(owner);if(p.emailEnabled&&(p.emailVerified||email.mode==='demo'&&p.local))store.put(owner,'delivery',change.id+':email',{id:change.id+':email',changeId:change.id,channel:'email',status:'queued',to:p.email,...changeEmail(t,change,p),attempts:0,createdAt:Date.now(),nextTry:Date.now(),at:change.at});
             }});await engine.deliver(owner);return send(enrich(owner,t));
           }
           if(['google','preview'].includes(action)&&req.method==='POST'){

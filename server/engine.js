@@ -26,7 +26,7 @@ export class Engine {
           this.store.put(owner,'change',c.id,c);
           this.store.put(owner,'delivery',c.id+':browser',{id:c.id+':browser',changeId:c.id,channel:'browser',status:'queued',at:now});
           const p=this.store.get(owner,'profile','me');
-          if(p?.emailEnabled&&(p.emailVerified||this.email.mode==='demo'&&p.local))this.store.put(owner,'delivery',c.id+':email',{id:c.id+':email',changeId:c.id,channel:'email',status:'queued',to:p.email,...changeEmail(t,c),attempts:0,createdAt:Date.now(),nextTry:Date.now(),at:now});
+          if(p?.emailEnabled&&(p.emailVerified||this.email.mode==='demo'&&p.local))this.store.put(owner,'delivery',c.id+':email',{id:c.id+':email',changeId:c.id,channel:'email',status:'queued',to:p.email,...changeEmail(t,c,p),attempts:0,createdAt:Date.now(),nextTry:Date.now(),at:now});
         }
       });
       if(!result.conflicts.length&&!result.uncertain.length&&t.autoGoogle) {

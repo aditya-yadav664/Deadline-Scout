@@ -190,3 +190,18 @@ test('workspace bootstrap returns one owner snapshot without exposing Google sec
  const r=await f.request('/api/workspace');assert.equal(r.status,200);assert.equal(r.data.tracks.length,1);assert.equal(r.data.tracks[0].id,track.id);assert.deepEqual(r.data.changes,[]);assert.equal(r.data.me.local,true);assert.doesNotMatch(JSON.stringify(r.data),/Other owner private event/);
  assert.equal((await f.request('/api/workspace','GET',undefined,'wrong')).status,401);
 });
+
+test('preferred profile name persists per account and personalizes test and date-change emails',async t=>{
+ const f=await fixture(t);const original=(await f.request('/api/me')).data;
+ assert.equal((await f.request('/api/me','PATCH',{displayName:'  Aditi Scout  '})).status,200);
+ const profile=(await f.request('/api/me')).data;assert.equal(profile.displayName,'Aditi Scout');assert.equal(profile.email,original.email);assert.equal(profile.emailEnabled,original.emailEnabled);
+ assert.equal((await f.request('/api/workspace')).data.me.displayName,'Aditi Scout');
+ await f.request('/api/email/test','POST',{});let deliveries=(await f.request('/api/deliveries')).data;assert.match(deliveries.find(d=>d.channel==='test').text,/^Hi Aditi Scout,/);
+ const track=await f.track();await f.request('/api/demo','POST',{mode:'changed'});await f.request('/api/tracks/'+track.id+'/check','POST',{});
+ deliveries=(await f.request('/api/deliveries')).data;assert.match(deliveries.find(d=>d.channel==='email').text,/^Hi Aditi Scout,/);
+ assert.equal((await f.request('/api/me','PATCH',{displayName:'x'.repeat(81)})).status,400);assert.equal((await f.request('/api/me','PATCH',{displayName:'Name\nInjected'})).status,400);
+ assert.equal((await f.request('/api/me','PATCH',{displayName:'No access'},'wrong')).status,401);
+ const otherToken='other-profile-account';f.store.put('_system','session',createHash('sha256').update(otherToken).digest('hex'),{owner:'other-profile',expires:Date.now()+60000});
+ await f.request('/api/me','PATCH',{displayName:'Other person'},otherToken);assert.equal((await f.request('/api/me')).data.displayName,'Aditi Scout');
+ await f.request('/api/me','PATCH',{displayName:''});assert.equal((await f.request('/api/me')).data.displayName,'');
+});
