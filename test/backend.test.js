@@ -136,7 +136,7 @@ test('public URL preview works before Google sign-in; saved tracks remain privat
 test('Supabase PKCE flow validates browser state, verified user and single-use redemption',async t=>{
  const f=await fixture(t,{env:{HOST:'127.0.0.1',APP_URL:'http://localhost:4317',SUPABASE_URL:'https://project.supabase.co',SUPABASE_PUBLISHABLE_KEY:'fake-publishable'},oauthFetch:async(url,o)=>{
    if(url.includes('/token')){const b=JSON.parse(o.body);assert.equal(b.auth_code,'fake-authorization-code');assert.ok(b.code_verifier);return Response.json({access_token:'fake-supabase-token',provider_token:'fake-google-token',provider_refresh_token:'fake-refresh'});}
-   return Response.json({id:'verified-user',email:'user@example.com',email_confirmed_at:'2026-11-22T00:00:00Z'});
+   return Response.json({id:'verified-user',email:'user@example.com',email_confirmed_at:'2026-11-22T00:00:00Z',user_metadata:{full_name:'Google Account Name'}});
  }});
  const verifier=randomBytes(32).toString('base64url'),challenge=createHash('sha256').update(verifier).digest('base64url'),local='http://127.0.0.1:'+f.server.address().port;
  let r=await f.request('/api/auth/prepare','POST',{redirect:'https://evil.example/',challenge});assert.equal(r.status,400);
@@ -147,7 +147,7 @@ test('Supabase PKCE flow validates browser state, verified user and single-use r
  const code=new URLSearchParams(new URL(callback.headers.get('location')).hash.slice(1)).get('code');
  assert.equal((await f.request('/api/auth/redeem','POST',{code,verifier:'wrong'})).status,401);
  const redeemed=await f.request('/api/auth/redeem','POST',{code,verifier});assert.ok(redeemed.data.token);
- const profile=await f.request('/api/me','GET',undefined,redeemed.data.token);assert.equal(profile.data.email,'user@example.com');assert.equal(profile.data.googleConnected,true);assert.ok(!JSON.stringify(profile).includes('fake-google-token'));
+ const profile=await f.request('/api/me','GET',undefined,redeemed.data.token);assert.equal(profile.data.email,'user@example.com');assert.equal(profile.data.displayName,'Google Account Name');assert.equal(profile.data.googleConnected,true);assert.ok(!JSON.stringify(profile).includes('fake-google-token'));
  assert.equal((await f.request('/api/auth/redeem','POST',{code,verifier})).status,401);
 });
 test('model extraction rejects invented quotes and flags valid evidence for review',async()=>{
@@ -217,4 +217,15 @@ test('clear account data removes only account activity and preserves sign-in, pr
  for(const kind of ['track','change','delivery','googleLink']){assert.equal(f.store.list('local-demo',kind).length,0);assert.equal(f.store.list('other-account',kind).length,1);}
  const me=(await f.request('/api/me')).data;assert.equal(me.displayName,'Keep this name');assert.equal(me.googleConnected,true);assert.equal(me.emailEnabled,p.emailEnabled);
  assert.equal((await f.request('/api/workspace')).data.tracks.length,0);assert.equal((await f.request('/api/account/clear-data','POST',{action:'clear-account-data'})).data.deleted,0);
+});
+
+test('existing accounts inherit the Google name without overriding an edited profile name',async t=>{
+ let calls=0;const f=await fixture(t,{google:{api:async(owner,url)=>{assert.equal(owner,'local-demo');assert.equal(url,'https://openidconnect.googleapis.com/v1/userinfo');calls++;return {name:'Google Default Name'};}}});
+ const p=f.store.get('local-demo','profile','me');p.google='existing-encrypted-connection';f.store.put('local-demo','profile','me',p);
+ assert.equal((await f.request('/api/profile/google-name','POST',{})).data.displayName,'Google Default Name');assert.equal((await f.request('/api/me')).data.displayName,'Google Default Name');
+ await f.request('/api/profile/google-name','POST',{});assert.equal(calls,1);
+ await f.request('/api/email/test','POST',{});assert.match((await f.request('/api/deliveries')).data.find(d=>d.channel==='test').text,/^Hi Google Default Name,/);
+ await f.request('/api/me','PATCH',{displayName:'My edited name'});assert.equal((await f.request('/api/profile/google-name','POST',{})).data.displayName,'My edited name');assert.equal((await f.request('/api/me')).data.displayName,'My edited name');
+ await f.request('/api/me','PATCH',{displayName:''});assert.equal((await f.request('/api/me')).data.displayName,'Google Default Name');
+ assert.equal((await f.request('/api/profile/google-name','POST',{},'wrong')).status,401);
 });

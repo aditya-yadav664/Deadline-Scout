@@ -7,7 +7,8 @@ import {selectMilestone,dedupeMilestones,milestoneKey,mergeCapturedMilestones} f
 const $=s=>document.querySelector(s);
 const icon=name=>'<img class="ui-icon" src="/assets/icons/'+name+'.svg" alt="">';
 const openTracks=new Set();
-let profileNameDirty=false,workspaceEpoch=0,outboxVisible=3,outboxOwner=null,outboxItems=[],webAlertsBusy=false;
+const googleNamesRequested=new Set();
+let profileNameDirty=false,profileNameEditing=false,workspaceEpoch=0,outboxVisible=3,outboxOwner=null,outboxItems=[],webAlertsBusy=false;
 const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata'}).format(new Date());
 $('#today-label').textContent=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'long',year:'numeric',timeZone:'Asia/Kolkata'}).format(new Date())+' · IST';
 function nextMilestone(t){const dates=[...t.milestones].sort((a,b)=>a.date.localeCompare(b.date));return dates.find(m=>m.date>=today)||dates.at(-1);}
@@ -43,7 +44,8 @@ function render(){
   $('#tracks').setAttribute('aria-busy','false');
   const all=[...tracks,...localTracks.map(t=>({...t,local:true}))];
   $('#profile-email').textContent=me.email||'Not signed in';$('#profile-status').textContent=me.email?(me.googleConnected?'Google Calendar & Tasks connected':'Google account signed in'):'Sign in to connect your Google account.';$('#profile-avatar').innerHTML=me.email?esc((me.displayName||me.email)[0].toUpperCase()):icon('user');$('#profile-signin').hidden=!!me.email;$('#profile-switch').hidden=!me.email;$('#sign-out').hidden=!me.email;
-  $('#profile-name-form').hidden=!me.email;if(!me.email)profileNameDirty=false;if(!profileNameDirty)$('#profile-name').value=me.displayName||'';
+  if(!me.email){profileNameDirty=false;profileNameEditing=false;}
+  $('#profile-identity').hidden=!me.email;$('#profile-display-name').textContent=me.displayName||'Your profile';$('#edit-profile-name').hidden=profileNameEditing;$('#profile-name-form').hidden=!me.email||!profileNameEditing;if(!profileNameEditing&&!profileNameDirty)$('#profile-name').value=me.displayName||'';
   if(outboxOwner!==me.email){outboxOwner=me.email;outboxVisible=3;outboxItems=[];paintOutbox();}
   $('#track-count').textContent=all.length;$('#change-count').textContent=changes.length;
   const reviews=all.filter(t=>['conflict','needs_review','check_failed','date_missing'].includes(t.status)).length;$('#review-count').textContent=reviews?`${reviews} need${reviews===1?'s':''} attention`:all.length?'All in view':'';
@@ -229,9 +231,18 @@ $('#watchlist-view').onclick=e=>{
 document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{showView(button.dataset.view);if(view==='settings'&&connected)renderOutbox().catch(()=>{});});
 function openProfileSettings(){const popover=$('#profile-popover');if(!popover.matches(':popover-open'))popover.showPopover();$('#settings-view').hidden=false;$('#profile-settings').setAttribute('aria-expanded','true');if(connected)renderOutbox().catch(()=>{});}
 $('#profile-settings').onclick=()=>{const expanded=$('#settings-view').hidden;$('#settings-view').hidden=!expanded;$('#profile-settings').setAttribute('aria-expanded',String(expanded));if(expanded&&connected)renderOutbox().catch(()=>{});};
+function cancelProfileName(){profileNameEditing=false;profileNameDirty=false;$('#profile-name-status').textContent='';render();$('#edit-profile-name').focus();}
+$('#edit-profile-name').onclick=()=>{profileNameEditing=true;profileNameDirty=false;$('#profile-name').value=me.displayName||'';$('#profile-name-status').textContent='';render();$('#profile-name').focus();};
+$('#cancel-profile-name').onclick=cancelProfileName;
 $('#profile-name').oninput=()=>{profileNameDirty=true;$('#profile-name-status').textContent='';};
+$('#profile-name').onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();cancelProfileName();}};
+$('#profile-popover').addEventListener('toggle',async event=>{
+  if(event.newState==='closed'){profileNameEditing=false;profileNameDirty=false;$('#profile-name-form').hidden=true;$('#edit-profile-name').hidden=false;return;}
+  if(event.newState!=='open'||!me.email||me.displayName||!me.googleConnected||googleNamesRequested.has(me.email))return;
+  const account=me.email;googleNamesRequested.add(account);try{const result=await api('/api/profile/google-name','POST',{});if(me.email!==account)return;me.displayName=result.displayName;render();}catch{/* The edit action remains available if Google cannot provide a name. */}
+});
 $('#profile-name-form').onsubmit=e=>{e.preventDefault();void run($('#save-profile-name'),async()=>{
-  $('#profile-name-status').textContent='Saving…';try{await api('/api/me','PATCH',{displayName:$('#profile-name').value});profileNameDirty=false;await refresh();$('#profile-name-status').textContent='Name saved. Future email alerts will use it.';}catch(error){$('#profile-name-status').textContent=error.message;throw error;}
+  $('#profile-name-status').textContent='Saving…';try{const result=await api('/api/me','PATCH',{displayName:$('#profile-name').value});me.displayName=result.displayName;profileNameDirty=false;profileNameEditing=false;await refresh();toast('Name saved.');if($('#profile-popover').matches(':popover-open'))$('#edit-profile-name').focus();}catch(error){$('#profile-name-status').textContent=error.message;throw error;}
 });};
 $('#profile-signin').onclick=e=>run(e.currentTarget,signIn);
 async function signOut(){workspaceEpoch++;try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];me={};await storage.set('cachedTracks',[]);render();}}

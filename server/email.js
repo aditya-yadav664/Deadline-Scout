@@ -1,4 +1,4 @@
-export function emailGreeting(profile={}){return profile.displayName?'Hi '+profile.displayName+',':'Hi there,';}
+export function emailGreeting(profile={}){const name=profile.displayName||profile.googleName;return name?'Hi '+name+',':'Hi there,';}
 export function changeEmail(track,change,profile={}) {
   return {subject:`Deadline changed: ${track.title} · ${change.label}`,text:[emailGreeting(profile),track.title,change.label,`Before: ${change.before.date}${change.before.time?' '+change.before.time+' '+change.before.zone:''}`,`After: ${change.after.date}${change.after.time?' '+change.after.time+' '+change.after.zone:''}`,change.impact,`Evidence: “${change.after.quote}”`,`Source: ${change.after.sourceUrl}`].join('\n\n')};
 }

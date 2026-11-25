@@ -114,6 +114,7 @@ export function createApp(options={}) {
         const user=await userResponse.json();if(!userResponse.ok||!user.id||!user.email_confirmed_at)throw fail('Google account email could not be verified.',401);
         const p=profileFor(user.id),old=p.google?secrets.open(p.google):{};
         Object.assign(p,{email:user.email,emailVerified:true,local:false,emailEnabled:p.emailEnabled??false});
+        const googleName=user.user_metadata?.full_name||user.user_metadata?.name;if(typeof googleName==='string')p.googleName=googleName.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,80);
         if(s.provider_token)p.google=secrets.seal({access_token:s.provider_token,refresh_token:s.provider_refresh_token||old.refresh_token,expires_at:Date.now()+45*60000});
         delete p.googleError;store.put(user.id,'profile','me',p);
         const code=randomToken();store.put('_system','redeem',hash(code),{owner:user.id,challenge:state.challenge,expires:Date.now()+60000});
@@ -135,10 +136,14 @@ export function createApp(options={}) {
           const deleted=store.transaction(()=>store.clearKinds(owner,['track','change','delivery','googleLink']));return send({ok:true,deleted});
         }
         if(path==='/api/logout'&&req.method==='POST'){store.remove('_system','session',hash(token));return send({ok:true});}
-        if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {const p=profileFor(owner),me={displayName:p.displayName||'',email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local};return send(path==='/api/me'?me:{me,tracks:store.list(owner,'track').map(t=>enrich(owner,t)),changes:store.list(owner,'change').sort((a,b)=>b.at.localeCompare(a.at))});}
+        if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {const p=profileFor(owner),me={displayName:p.displayName||p.googleName||'',email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local};return send(path==='/api/me'?me:{me,tracks:store.list(owner,'track').map(t=>enrich(owner,t)),changes:store.list(owner,'change').sort((a,b)=>b.at.localeCompare(a.at))});}
+        if(path==='/api/profile/google-name'&&req.method==='POST'){
+          let p=profileFor(owner);if(!p.googleName&&p.google){const info=await google.api(owner,'https://openidconnect.googleapis.com/v1/userinfo');p=profileFor(owner);if(typeof info.name==='string'){p.googleName=info.name.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,80);store.put(owner,'profile','me',p);}}
+          return send({displayName:p.displayName||p.googleName||''});
+        }
         if(path==='/api/me'&&req.method==='PATCH'){
           const b=await body(req);if(typeof b.displayName!=='string'||b.displayName.trim().length>80||/[\u0000-\u001f\u007f]/.test(b.displayName))throw fail('Use a name of up to 80 characters without line breaks.');
-          const p=profileFor(owner);p.displayName=b.displayName.trim();store.put(owner,'profile','me',p);return send({displayName:p.displayName});
+          const p=profileFor(owner);p.displayName=b.displayName.trim();store.put(owner,'profile','me',p);return send({displayName:p.displayName||p.googleName||''});
         }
         if(path==='/api/settings'&&req.method==='PATCH') {
           const b=await body(req),p=profileFor(owner);if(b.emailEnabled&&!p.emailVerified&&!(email.mode==='demo'&&p.local))throw fail('Verify the recipient email before enabling alerts.');p.emailEnabled=!!b.emailEnabled;store.put(owner,'profile','me',p);return send({ok:true});
