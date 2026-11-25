@@ -1,11 +1,19 @@
 import {captureSignupForm,restoreSignupAnswers,formSignature} from './signup.js';
 import {attachSignupPdfs} from './signup-files.js';
+export function finalReviewPlan(pending,live,all){
+ if(!pending.autoSubmit||live.fields.length||!pending.draft.steps.every((s,i)=>!s.fields.length||pending.visited?.includes(i)))return null;
+ const known=pending.draft.steps.flatMap(s=>s.fields),constraints=f=>JSON.stringify([f.key,f.type,!!f.required,f.options||[],f.accept||'',!!f.multiple,f.maxLength||null,f.pattern||'',f.min||'',f.max||'']);
+ if(!known.length||known.filter(f=>f.required).some(f=>!all.fields.some(n=>n.key===f.key)))return null;
+ if(all.fields.some(f=>!known.some(k=>constraints(f)===constraints(k))))return null;
+ if(live.terms&&!pending.draft.steps.some(s=>s.terms===live.terms))return null;
+ return {index:pending.draft.steps.length,review:true,step:{...live,fields:[]},answers:{},signature:formSignature(live),warnings:[]};
+}
 export function resumePlan(draft,live,preferredIndex){
  const normalize=url=>{const u=new URL(url);for(const key of [...u.searchParams.keys()])if(/^utm_|^(gclid|fbclid)$/i.test(key))u.searchParams.delete(key);return u.href;};
  const same=draft.steps.map((step,index)=>({step,index})).filter(x=>preferredIndex!==undefined?x.index===preferredIndex&&new URL(x.step.url).origin===new URL(live.url).origin&&new URL(x.step.url).pathname===new URL(live.url).pathname:normalize(x.step.url)===normalize(live.url));
  const ranked=same.filter(x=>!x.step.stepToken||!live.stepToken||x.step.stepToken===live.stepToken).map(x=>({...x,matches:x.step.fields.filter(f=>live.fields.some(n=>n.key===f.key&&formSignature({...live,fields:[n]})===formSignature({...live,fields:[f]})))})).sort((a,b)=>b.matches.length-a.matches.length);
  const reviewOnly=ranked.length===1&&!live.fields.length&&!ranked[0].step.fields.length&&live.stepToken&&ranked[0].step.stepToken===live.stepToken;
- if(!ranked.length||(!ranked[0].matches.length&&!reviewOnly)||ranked[1]?.matches.length===ranked[0].matches.length)return {error:'No unique saved step matches this page. Choose the step in the extension or capture it again. Capture the final review page too, even if it has no answer fields.'};
+ if(!ranked.length||(!ranked[0].matches.length&&!reviewOnly)||ranked[1]?.matches.length===ranked[0].matches.length)return {error:'This page has new or unmatched answer fields. Review those answers; an empty final review page does not need a saved draft.'};
  const {step,index,matches}=ranked[0];if(step.terms!==live.terms)return {error:'Terms changed. Capture this step again for review.'};
  const added=live.fields.filter(f=>f.required&&!step.fields.some(s=>s.key===f.key));
  return {index,step:{...step,fields:matches},answers:step.answers,signature:formSignature(live),warnings:[...added.map(f=>'New required field: '+f.label),...step.fields.filter(f=>!matches.includes(f)).map(f=>f.label+': changed; review manually.')]};
@@ -42,11 +50,13 @@ const filling=new Set();
 export async function fillPendingSignup({browser,storage,tabId,force=false,preferredIndex}){
  if(filling.has(tabId))return {ok:true};filling.add(tabId);
  try{const pending=await storage.get('signupResume');if(!pending||pending.expires<Date.now()||pending.tabId!==tabId)return {ok:false,error:'Start Fill form now from your saved draft.'};
+ if(pending.submissionRequested)return {ok:true,execution:{attempted:true,message:'Submission was requested once. Verify the organizer receipt.'}};if(pending.dispatching)return {ok:false,error:'Previous action outcome is unknown. Review the organizer before retrying.'};
  const tab=await browser.tabs.get(tabId),origin=new URL(pending.draft.formUrl).origin;if(new URL(tab.url).origin!==origin)return {ok:false,error:'Navigate to the saved form site.'};
  if(!await browser.permissions.contains({origins:[origin+'/*']}))return {ok:false,needsPermission:true,error:'Open the extension and choose Enable autofill on this site.'};
  await browser.scripting.executeScript({target:{tabId},func:watchSignupStep});
  const captureIndex=pending.draft.steps[preferredIndex]?.formIndex||pending.draft.steps.find(s=>s.url===tab.url)?.formIndex||0;
- const [captured]=await browser.scripting.executeScript({target:{tabId},func:captureSignupForm,args:[captureIndex]});const plan=resumePlan(pending.draft,captured.result,preferredIndex);
+ const [captured]=await browser.scripting.executeScript({target:{tabId},func:captureSignupForm,args:[captureIndex]});let plan=resumePlan(pending.draft,captured.result,preferredIndex);
+ if(plan.error&&pending.autoSubmit&&!captured.result.fields.length){const [all]=await browser.scripting.executeScript({target:{tabId},func:captureSignupForm,args:[captureIndex,true]});plan=finalReviewPlan(pending,captured.result,all.result)||plan;}
  if(plan.error){await browser.scripting.executeScript({target:{tabId},func:showSignupProgress,args:[{message:plan.error}]});return {ok:false,error:plan.error};}
  pending.filled||=[];const key=plan.index+':'+(captured.result.stepToken||'')+':'+plan.signature;
  const alreadyFilled=pending.filled.includes(key);
@@ -60,10 +70,11 @@ export async function fillPendingSignup({browser,storage,tabId,force=false,prefe
  }
  result.result.push(...attachmentResult.report);
  pending.filled=[...new Set([...pending.filled,key])];await storage.set('signupResume',pending);
+ if(!plan.warnings.length&&!attachmentResult.blocked&&!result.result.some(line=>/ambiguous or missing/.test(line))){pending.visited=[...new Set([...(pending.visited||[]),plan.index])];await storage.set('signupResume',pending);}
  let execution;
- if(pending.autoSubmit&&!plan.warnings.length&&!attachmentResult.blocked){pending.attempted||=[];if(!pending.attempted.includes(key)){pending.attempted.push(key);await storage.set('signupResume',pending);const [attempt]=await browser.scripting.executeScript({target:{tabId},func:advanceSignup,args:[{finalStep:plan.index===pending.draft.steps.length-1,formIndex:plan.step.formIndex||0}]});execution=attempt.result;if(execution?.paused){pending.attempted=pending.attempted.filter(k=>k!==key);await storage.set('signupResume',pending);}}}
+ if(pending.autoSubmit&&!plan.warnings.length&&!attachmentResult.blocked&&!result.result.some(line=>/ambiguous or missing/.test(line))){pending.attempted||=[];if(!pending.attempted.includes(key)&&!pending.submissionRequested){pending.attempted.push(key);pending.dispatching=true;await storage.set('signupResume',pending);const [attempt]=await browser.scripting.executeScript({target:{tabId},func:advanceSignup,args:[{finalStep:plan.review||plan.index===pending.draft.steps.length-1,formIndex:plan.step.formIndex||0}]});execution=attempt.result;pending.dispatching=false;if(execution?.paused){pending.attempted=pending.attempted.filter(k=>k!==key);}if(execution?.attempted)pending.submissionRequested=true;await storage.set('signupResume',pending);}}
  await browser.scripting.executeScript({target:{tabId},func:watchSignupStep});
  const nextUrl=pending.draft.steps[plan.index+1]?.url;
- await browser.scripting.executeScript({target:{tabId},func:showSignupProgress,args:[{message:'Deadline Scout · step '+(plan.index+1)+' of '+pending.draft.steps.length+'. '+[...result.result,...plan.warnings].join(' ')+' '+(execution?.message||'Finish consent, attachments and submission yourself.'),nextUrl:nextUrl!==tab.url?nextUrl:undefined}]});return {ok:true,report:[...result.result,...plan.warnings,...(execution?.message?[execution.message]:[])]};
+ await browser.scripting.executeScript({target:{tabId},func:showSignupProgress,args:[{message:'Deadline Scout · '+(plan.review?'Final review':('step '+(plan.index+1)+' of '+pending.draft.steps.length))+'. '+[...result.result,...plan.warnings].join(' ')+' '+(execution?.message||'Finish consent, attachments and submission yourself.'),nextUrl:nextUrl!==tab.url?nextUrl:undefined}]});return {ok:true,execution,report:[...result.result,...plan.warnings,...(execution?.message?[execution.message]:[])]};
  }finally{filling.delete(tabId);}
 }

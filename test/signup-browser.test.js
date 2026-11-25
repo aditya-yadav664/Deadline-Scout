@@ -41,3 +41,22 @@ test('real browser: approved PDF attachment reaches FormData and fires the site 
  assert.equal(await page.locator('#pdf').evaluate(el=>el.files.length),0);
  assert.throws(()=>approvedSessionFiles({steps:[step]},[{...file,id:'unapproved'}]),/reviewed/);
 });
+
+import {fillPendingSignup} from '../extension/shared/signup-resume.js';
+import {startSignupSession} from '../extension/shared/signup-background.js';
+test('inactive browser job fills two captured panels, attaches PDF and submits an uncaptured empty review exactly once', {skip:!executablePath},async t=>{
+ const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());const page=await browser.newPage();let submissions=0;
+ await page.route('https://background.test/**',route=>{
+  if(route.request().method()==='POST'){submissions++;assert.match(route.request().postData()||'',/test.pdf/);return route.fulfill({contentType:'application/json',body:'{"receipt":"TEST-123"}'});}
+  return route.fulfill({contentType:'text/html',body:`<form><section id="step-1-panel"><label>Name<input id="name" name="name" required></label><button type="button" onclick="one.hidden=true;two.hidden=false">Continue to project</button></section><section id="step-2-panel" hidden><label>Project<input id="project" name="project" required></label><label>PDF<input id="pdf" name="proposal" type="file" accept=".pdf" required></label><button type="button" onclick="two.hidden=true;three.hidden=false">Review Submission</button></section><section id="step-3-panel" hidden><p>Review your answers</p><button type="submit">Submit registration</button></section></form><script>var one=document.getElementById('step-1-panel'),two=document.getElementById('step-2-panel'),three=document.getElementById('step-3-panel');window.chrome.runtime={sendMessage:async()=>({})};document.forms[0].onsubmit=async e=>{e.preventDefault();window.receipt=(await (await fetch('/submit',{method:'POST',body:new FormData(e.target)})).json()).receipt;};</script>`});
+ });
+ await page.goto('https://background.test/form');
+ const first=await page.evaluate(captureSignupForm);await page.evaluate(()=>{one.hidden=true;two.hidden=false;});const second=await page.evaluate(captureSignupForm);await page.evaluate(()=>{one.hidden=false;two.hidden=true;});
+ const bytes=Buffer.from('%PDF-1.4\nFictional job test'),file={id:'file1',stepIndex:1,key:'id:pdf',name:'test.pdf',type:'application/pdf',size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),data:bytes.toString('base64')};
+ const draft={formUrl:first.url,reviewedAll:true,steps:[{...first,answers:{'id:name':'Fictional Person'}},{...second,answers:{'id:project':'Fictional project'},files:{'id:pdf':[{...file,data:undefined}]}}]},state={},session={};
+ const storage={get:async k=>state[k],set:async(k,v)=>state[k]=structuredClone(v)};let tabOptions;
+ const adapter={permissions:{contains:async()=>true},storage:{session:{set:async o=>Object.assign(session,o),get:async()=>session}},tabs:{get:async()=>({url:page.url()}),create:async args=>{tabOptions=args;return {id:5};}},scripting:{executeScript:async o=>[{result:await page.evaluate(({source,args})=>(new Function('return ('+source+')'))()(...args),{source:o.func.toString(),args:o.args||[]})}]}};
+ await startSignupSession({browser:adapter,storage,draft,filePayload:[file],autoSubmit:true});assert.equal(tabOptions.active,false);
+ await fillPendingSignup({browser:adapter,storage,tabId:5});await fillPendingSignup({browser:adapter,storage,tabId:5});const result=await fillPendingSignup({browser:adapter,storage,tabId:5});assert.equal(result.execution.attempted,true);
+ await page.waitForFunction(()=>window.receipt==='TEST-123');await fillPendingSignup({browser:adapter,storage,tabId:5});assert.equal(submissions,1);assert.equal(draft.steps.length,2);
+});

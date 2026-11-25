@@ -30,10 +30,10 @@ export function validateFiles(field,files=[]){
 }
 
 // Both functions below are serialized into an isolated active-tab world.
-export function captureSignupForm(formIndex=0){
+export function captureSignupForm(formIndex=0,includeInactive=false){
  const visible=el=>!!el.getClientRects().length&&getComputedStyle(el).visibility!=='hidden';
  const forms=[...document.forms].filter(f=>visible(f)&&f.querySelector('input,textarea,select'));const root=forms.sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length)[formIndex]||document;
- const controls=[...root.querySelectorAll('input,textarea,select')].filter(visible),fields=[],seen=new Set(),warnings=[];if(forms.length>1)warnings.push('Multiple forms found. Review the selected form before saving.');
+ const controls=[...root.querySelectorAll('input,textarea,select')].filter(el=>includeInactive||visible(el)),fields=[],seen=new Set(),warnings=[];if(forms.length>1)warnings.push('Multiple forms found. Review the selected form before saving.');
  for(const el of controls){
   const type=el.tagName==='TEXTAREA'?'textarea':el.tagName==='SELECT'?'select':el.type;
   if(['hidden','submit','button','reset'].includes(type))continue;

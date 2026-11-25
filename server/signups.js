@@ -38,6 +38,23 @@ export class Signups {
  }
  approvedFiles(owner,d){for(const step of d.steps)for(const f of step.fields.filter(f=>f.type==='file'))for(const ref of step.files?.[f.key]||[]){const file=this.store.get(owner,'signupFile',ref.id);if(!file||file.expires<Date.now()||file.sha256!==ref.sha256||file.version!==ref.version||hash(Buffer.from(this.secrets.open(file.sealed).data,'base64'))!==ref.sha256)throw fail('Approved file missing, expired or replaced. Review '+f.label+'.');}}
  cancelNotices(owner,id){for(const d of this.store.list(owner,'delivery'))if(d.signupId===id&&['queued','retry','sending'].includes(d.status))this.store.put(owner,'delivery',d.id,{...d,status:'cancelled'});}
+ async browserPoll(owner,id,revision,b={}){
+  let d=this.read(owner,id);if(d.revision!==revision||!d.reviewedAll||d.mode!=='browser-auto')throw fail('Signup approval changed. Schedule it again.',409);
+  if(!this.store.get(owner,'track',d.trackId)){d.status='Cancelled';this.save(owner,d);return {stop:true,status:d.status};}
+  if(b.runId){
+   if(d.browserRunId!==b.runId)throw fail('Wrong browser execution.',409);
+   if(!['Browser running','Needs review'].includes(d.status))return {stop:true,status:d.status};
+   if(b.check){const track=this.store.get(owner,'track',d.trackId),m=track.milestones.find(m=>m.id===d.milestoneId);if(!m||this.deadlineTime(m)<=Date.now()||track.conflicts?.length||track.missing?.length||track.uncertain?.length||JSON.stringify([m.date,m.time,m.zone])!==JSON.stringify([d.deadline.date,d.deadline.time,d.deadline.zone]))throw fail('The deadline needs review before continuing.',409);return {allowed:true};}
+   d.status=b.result==='attempted'?'Submission requested':'Needs review';d.notice=b.result==='attempted'?'The browser requested submission once. Check the organizer for a receipt.':'Browser automation paused: '+String(b.message||'Review the form.').slice(0,500);this.save(owner,d);this.notify(owner,d,d.notice);return {stop:true,status:d.status};
+  }
+  await this.tick(owner);d=this.read(owner,id);
+  if(d.status==='Armed')return {waiting:true,backupAt:d.backupAt};
+  if(d.status==='Browser running'&&d.browserStartedAt<Date.now()-30*60000){d.status='Needs review';d.notice='The browser run did not report an outcome. Check the organizer before trying again.';this.save(owner,d);}
+  if(d.status!=='Waiting for browser')return {stop:true,status:d.status};
+  d.status='Browser running';d.browserStartedAt=Date.now();d.browserRunId=randomToken();d.notice='Claimed by your extension. Edge must remain running; uncertain attempts are not automatically repeated.';this.save(owner,d);
+  const filePayload=[];let bytes=0;for(const [stepIndex,step]of d.steps.entries())for(const field of step.fields.filter(f=>f.type==='file'))for(const ref of step.files?.[field.key]||[]){const file=await this.route(owner,'/api/signups/'+id+'/files/'+ref.id,'GET',{});bytes+=file.size;if(bytes>4*1024*1024)throw fail('Saved PDFs exceed the 4 MB session limit.');filePayload.push({stepIndex,key:field.key,id:ref.id,...file});}
+  return {draft:d,filePayload,runId:d.browserRunId};
+ }
  async route(owner,path,method,b){
   if(path==='/api/signup-profile'){
    const existing=this.store.get(owner,'signupProfile','me')||{name:'',phone:'',college:'',links:[]};if(method==='GET')return this.secrets.open(existing.sealed||this.secrets.seal(existing));
@@ -83,11 +100,11 @@ export class Signups {
   }
   if(match[2]==='registered'){this.cancelNotices(owner,d.id);d.status='Already registered';d.notice='You marked this signup as already registered. Backup stopped.';return this.save(owner,d);}
   if(match[2]==='cancel'){this.cancelNotices(owner,d.id);d.status='Cancelled';return this.save(owner,d);}
-  if(match[2]!=='arm')throw fail('Action not found.',404);this.validate(owner,d);
+  if(match[2]!=='arm')throw fail('Action not found.',404);if(['Browser running','Submission requested'].includes(d.status))throw fail('This signup already started. Check the organizer before saving a new approval.');this.validate(owner,d);
   const track=this.store.get(owner,'track',d.trackId),milestone=track.milestones.find(m=>m.id===b.milestoneId);if(!milestone)throw fail('Choose a tracked deadline.');
   if(track.conflicts?.length||track.uncertain?.length||track.missing?.length)throw fail('Resolve the tracked deadline before arming.');
   if(!b.approved)throw fail('Approve the exact snapshot and backup time.');
-  d.milestoneId=milestone.id;d.deadline=milestone;d.mode=b.mode==='demo-auto'?'demo-auto':'reminder';d.rule=b.rule==='relative'?'relative':'fixed';d.offsetMinutes=Number(b.offsetMinutes??15);
+  d.milestoneId=milestone.id;d.deadline=milestone;d.mode=['demo-auto','browser-auto'].includes(b.mode)?b.mode:'reminder';d.rule=b.rule==='relative'?'relative':'fixed';d.offsetMinutes=Number(b.offsetMinutes??15);
   if(!Number.isInteger(d.offsetMinutes)||d.offsetMinutes<0||d.offsetMinutes>10080)throw fail('Choose an offset between 0 and 10080 minutes.');
   d.backupAt=d.rule==='relative'?this.deadlineTime(milestone)-d.offsetMinutes*60000:Number(b.backupAt);if(!Number.isFinite(d.backupAt)||d.backupAt<=Date.now())throw fail('Choose a future backup time.');
   if(d.backupAt>=this.deadlineTime(milestone))throw fail('Backup time must be before the confirmed deadline.');
@@ -98,7 +115,8 @@ export class Signups {
    if(JSON.stringify(schema.fields)!==JSON.stringify(d.steps[0].fields))throw fail('Demo form changed. Capture its latest version.');
    this.approvedFiles(owner,d);d.organizerVersion=schema.version;
   }
-  d.approvedAt=new Date().toISOString();d.status='Armed';delete d.notice;return this.save(owner,d);
+  if(d.mode==='browser-auto'){this.approvedFiles(owner,d);const bytes=d.steps.flatMap(s=>Object.values(s.files||{}).flat()).reduce((sum,f)=>sum+f.size,0);if(bytes>4*1024*1024)throw fail('Saved PDFs exceed the 4 MB session limit.');delete d.browserRunId;}
+  d.revision=(d.revision||0)+1;d.approvedAt=new Date().toISOString();d.status='Armed';delete d.notice;return this.save(owner,d);
  }
  notify(owner,d,message){
   const id='signup:'+d.id+':'+hash(d.status+'|'+message).slice(0,16),url=this.base+'/backup.html#draft='+d.id,p=this.store.get(owner,'profile','me');
@@ -119,7 +137,8 @@ export class Signups {
     if(d.backupAt>Date.now())continue;
     this.validate(owner,d);
     if(this.deadlineTime(m)<=Date.now())throw fail('Registration may have closed. Review now.');
-    if(d.mode==='reminder'){d.status='Ready to finish';d.notice='Reopen the form, restore reviewed answers, attach the listed files, and submit yourself.';}
+    if(d.mode==='browser-auto'){this.approvedFiles(owner,d);d.status='Waiting for browser';d.notice='Approved background signup is due. Your connected Edge extension will run it while Edge is open.';}
+    else if(d.mode==='reminder'){d.status='Ready to finish';d.notice='Reopen the form, restore reviewed answers, attach the listed files, and submit yourself.';}
     else{
      const schema=this.schema();if(schema.open!==true||schema.fee||schema.version!==d.organizerVersion||schema.terms!==d.steps[0].terms||JSON.stringify(schema.fields)!==JSON.stringify(d.steps[0].fields))throw fail('Organizer form, terms, fee or registration status changed.');
      this.approvedFiles(owner,d);

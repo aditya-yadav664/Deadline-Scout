@@ -144,9 +144,16 @@ export function createApp(options={}) {
         const token=req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];const auth=token&&store.get('_system','session',hash(token));
         if(!auth||auth.expires<Date.now()||liveAuth&&auth.owner==='local-demo')throw fail('Sign in to continue.',401);
         const owner=auth.owner;
-        if(auth.scope==='browser-alerts'&&auth.parentSession){const parent=store.get('_system','session',auth.parentSession);if(!parent||parent.owner!==owner||parent.expires<Date.now())throw fail('Sign in to the dashboard and reconnect background alerts.',401);}
+        if(['browser-alerts','browser-signup'].includes(auth.scope)&&auth.parentSession){const parent=store.get('_system','session',auth.parentSession);if(!parent||parent.owner!==owner||parent.expires<Date.now())throw fail('Sign in to the dashboard and reconnect the extension.',401);}
         if(auth.scope==='browser-alerts'&&!['GET /api/me','GET /api/alerts','POST /api/alerts/ack','POST /api/logout'].includes(req.method+' '+path))throw fail('This session is limited to browser alerts.',403);
+        if(auth.scope==='browser-signup'&&(path!=='/api/signup-browser/poll'||req.method!=='POST'))throw fail('This session is limited to the approved signup.',403);
         const bucket=buckets.get(owner)||{count:0,until:Date.now()+60000};if(bucket.until<Date.now()){bucket.count=0;bucket.until=Date.now()+60000;}bucket.count++;buckets.set(owner,bucket);if(bucket.count>180)throw fail('Too many requests. Wait one minute.',429);
+        if(path==='/api/signup-browser/poll'&&req.method==='POST'){if(auth.scope!=='browser-signup')throw fail('Use the scoped signup connection.',403);return send(await signups.browserPoll(owner,auth.signupId,auth.revision,await body(req)));}
+        const browserSession=path.match(/^\/api\/signups\/([\w-]+)\/browser-session$/);
+        if(browserSession&&req.method==='POST'){
+          const d=signups.read(owner,browserSession[1]);if(d.mode!=='browser-auto'||!['Armed','Waiting for browser'].includes(d.status)||!d.reviewedAll)throw fail('Approve the background signup first.');
+          const scoped=session(owner,'browser-signup',hash(token)),key=hash(scoped),record=store.get('_system','session',key);store.put('_system','session',key,{...record,signupId:d.id,revision:d.revision});return send({token:scoped,signupId:d.id,revision:d.revision});
+        }
         if(path==='/api/auth/extension-session'&&req.method==='POST'){
           const b=await body(req);if(!/^[a-p]{32}$/.test(b.extensionId||'')||!(extensionIds.length?extensionIds.includes(b.extensionId):loopback)||!/^[A-Za-z0-9_-]{43}$/.test(b.challenge||''))throw fail('Invalid extension alert setup.');
           const code=randomToken();store.put('_system','redeem',hash(code),{owner,challenge:b.challenge,extensionId:b.extensionId,scope:'browser-alerts',parentSession:hash(token),expires:Date.now()+60000});return send({code});

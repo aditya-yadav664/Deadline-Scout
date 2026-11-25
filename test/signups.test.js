@@ -119,3 +119,44 @@ test('saved PDF downloads require the owner, reviewed active draft and immutable
  d.reviewedAll=true;f.s.save('alice',d);const saved=f.store.get('alice','signupFile',ref.id);saved.expires=0;f.store.put('alice','signupFile',ref.id,saved);await assert.rejects(f.s.route('alice',path,'GET',{}),/expired/);
  assert.throws(()=>f.s.file('alice',{name:'bad.pdf',data:Buffer.alloc(2*1024*1024+1).toString('base64')}),/2 MB/);
 });
+
+import {finalReviewPlan} from '../extension/shared/signup-resume.js';
+test('background jobs claim once, stop after deletion or reapproval, and report submission without pretending confirmation',async t=>{
+ const f=fixture(t),d=await draft(f,{mode:'reminder'});const armed=await f.s.route('alice','/api/signups/'+d.id+'/arm','POST',{approved:true,mode:'browser-auto',milestoneId:'deadline',backupAt:Date.now()+60000});
+ assert.equal((await f.s.browserPoll('alice',armed.id,armed.revision)).waiting,true);due(f,armed);
+ const run=await f.s.browserPoll('alice',armed.id,armed.revision);assert.ok(run.runId);assert.ok(run.filePayload[0].data);assert.equal(run.draft.status,'Browser running');
+ assert.equal((await f.s.browserPoll('alice',armed.id,armed.revision)).stop,true);assert.equal((await f.s.browserPoll('alice',armed.id,armed.revision,{runId:run.runId,check:true})).allowed,true);
+ await assert.rejects(f.s.browserPoll('alice',armed.id,armed.revision,{runId:'wrong',result:'attempted'}),/Wrong/);
+ const reported=await f.s.browserPoll('alice',armed.id,armed.revision,{runId:run.runId,result:'attempted'});assert.equal(reported.status,'Submission requested');assert.notEqual(f.s.read('alice',armed.id).status,'Confirmed');
+ const next=await draft(f,{mode:'reminder'}),a=await f.s.route('alice','/api/signups/'+next.id+'/arm','POST',{approved:true,mode:'browser-auto',milestoneId:'deadline',backupAt:Date.now()+60000});
+ await f.s.route('alice','/api/signups/'+next.id+'/arm','POST',{approved:true,mode:'browser-auto',milestoneId:'deadline',backupAt:Date.now()+70000});await assert.rejects(f.s.browserPoll('alice',a.id,a.revision),/approval changed/);
+ const removed=await draft(f,{mode:'reminder'}),b=await f.s.route('alice','/api/signups/'+removed.id+'/arm','POST',{approved:true,mode:'browser-auto',milestoneId:'deadline',backupAt:Date.now()+60000});f.store.remove('alice','track','track');assert.equal((await f.s.browserPoll('alice',b.id,b.revision)).status,'Cancelled');
+});
+test('final review needs all approved steps visited and rejects new fields or changed terms',()=>{
+ const field={key:'id:name',type:'text',required:true},step={url:'https://example.org/form',fields:[field],terms:''},pending={autoSubmit:true,draft:{steps:[step]},visited:[0]},live={...step,fields:[]};
+ assert.equal(finalReviewPlan(pending,live,step).review,true);assert.equal(finalReviewPlan({...pending,visited:[]},live,step),null);
+ assert.equal(finalReviewPlan(pending,live,{...step,fields:[field,{key:'id:new',type:'text'}]}),null);assert.equal(finalReviewPlan(pending,{...live,terms:'New agreement'},step),null);assert.equal(finalReviewPlan(pending,live,{...step,fields:[]}),null);
+});
+
+import {startSignupSession,pollSignupJobs} from '../extension/shared/signup-background.js';
+test('automatic sessions create inactive tabs and queued jobs do not steal an active signup session',async()=>{
+ const state={};const storage={get:async k=>state[k],set:async(k,v)=>state[k]=v};let created;
+ const browser={permissions:{contains:async()=>true},storage:{session:{set:async()=>{}}},tabs:{create:async args=>{created=args;return {id:12};}}};
+ const draft={formUrl:'https://example.org/form',reviewedAll:true,steps:[]};await startSignupSession({browser,storage,draft,autoSubmit:true});assert.equal(created.active,false);assert.equal(state.signupResume.autoSubmit,true);
+ await assert.rejects(startSignupSession({browser,storage,draft,autoSubmit:true}),/Another/);
+ let requests=0;await pollSignupJobs({browser,storage,request:async()=>{requests++;},start:async()=>{}});assert.equal(requests,0);
+ state.signupResume=null;state.signupJobs=[{token:'test'}];await pollSignupJobs({browser,storage,request:async()=>({stop:true}),start:async()=>{}});assert.equal(state.signupJobs.length,0);
+});
+
+import {hash} from '../server/security.js';
+test('scheduled signup token is bound to one draft and the parent website session',async t=>{
+ const app=createApp({env:{HOST:'127.0.0.1',APP_URL:base},store:new Store(':memory:')});await new Promise(r=>app.server.listen(0,'127.0.0.1',r));t.after(()=>app.close());const root='http://127.0.0.1:'+app.server.address().port,web='website-test-token';
+ app.store.put('_system','session',hash(web),{owner:'alice',expires:Date.now()+100000});app.store.put('alice','track','track',{id:'track',milestones:[{id:'deadline',date:'2030-09-12',time:'17:00',zone:'Asia/Kolkata'}],conflicts:[],uncertain:[]});
+ const step={url:'https://example.org/form',fields:[{key:'id:name',label:'Name',type:'text',required:true}],answers:{'id:name':'Test'},terms:''};
+ const d=await app.signups.route('alice','/api/signups','POST',{trackId:'track',steps:[step],reviewedAll:true});await app.signups.route('alice','/api/signups/'+d.id+'/arm','POST',{approved:true,mode:'browser-auto',milestoneId:'deadline',backupAt:Date.now()+60000});
+ const grant=await (await fetch(root+'/api/signups/'+d.id+'/browser-session',{method:'POST',headers:{Authorization:'Bearer '+web,'Content-Type':'application/json'},body:'{}'})).json();assert.ok(grant.token);
+ const headers={Authorization:'Bearer '+grant.token,'Content-Type':'application/json'};
+ assert.equal((await fetch(root+'/api/signups',{headers})).status,403);assert.equal((await fetch(root+'/api/signup-files',{method:'POST',headers,body:'{}'})).status,403);
+ assert.equal((await (await fetch(root+'/api/signup-browser/poll',{method:'POST',headers,body:'{}'})).json()).waiting,true);
+ app.store.remove('_system','session',hash(web));assert.equal((await fetch(root+'/api/signup-browser/poll',{method:'POST',headers,body:'{}'})).status,401);
+});
