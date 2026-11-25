@@ -1,5 +1,9 @@
-import {renderChangeEmail,renderBasicEmail} from './email-template.js';
+import {renderChangeEmail,renderBasicEmail,renderWelcomeEmail} from './email-template.js';
 export function emailGreeting(profile={}){const name=profile.displayName||profile.googleName;return name?'Hi '+name+',':'Hi there,';}
+export function welcomeEmail(profile,base){
+  const subject='Welcome to Deadline Scout';
+  return {subject,text:`${emailGreeting(profile)}\n\nWelcome to Deadline Scout!\n\nPaste an event link or scan a page with the extension to track its milestones. We will email you when a verified date changes. Once you add a milestone to Google Calendar or Google Tasks, future verified changes keep that entry in sync automatically.\n\nOpen your dashboard: ${base}\n\nYou can turn email alerts off in Profile → Settings.`,html:renderWelcomeEmail(emailGreeting(profile),base)};
+}
 export function changeEmail(track,change,profile={}) {
   return {html:renderChangeEmail(track,change,emailGreeting(profile)),subject:`Deadline changed: ${track.title} · ${change.label}`,text:[emailGreeting(profile),track.title,change.label,`Before: ${change.before.date}${change.before.time?' '+change.before.time+' '+change.before.zone:''}`,`After: ${change.after.date}${change.after.time?' '+change.after.time+' '+change.after.zone:''}`,change.impact,`Evidence: “${change.after.quote}”`,`Source: ${change.after.sourceUrl}`,`Event page: ${track.url}`].join('\n\n')};
 }

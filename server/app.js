@@ -7,7 +7,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { Store } from './store.js';
 import { vault, randomToken, hash, safeUrl } from './security.js';
 import { fetchPublicPage } from './fetch-page.js';
-import { createEmailAdapter, changeEmail, emailGreeting } from './email.js';
+import { createEmailAdapter, changeEmail, emailGreeting, welcomeEmail } from './email.js';
 import { Google } from './google.js';
 import { Engine } from './engine.js';
 import { demoHtml } from './demo.js';
@@ -113,11 +113,19 @@ export function createApp(options={}) {
         const s=await r.json();if(!r.ok)throw fail('Supabase code exchange failed. Check the callback allowlist and Google provider configuration.');
         const userResponse=await oauthFetch(env.SUPABASE_URL+'/auth/v1/user',{signal:AbortSignal.timeout(15000),headers:{apikey:env.SUPABASE_PUBLISHABLE_KEY,Authorization:`Bearer ${s.access_token}`}});
         const user=await userResponse.json();if(!userResponse.ok||!user.id||!user.email_confirmed_at)throw fail('Google account email could not be verified.',401);
-        const p=profileFor(user.id),old=p.google?secrets.open(p.google):{};
-        Object.assign(p,{email:user.email,emailVerified:true,local:false,emailEnabled:p.emailEnabled??false});
+        const existing=store.get(user.id,'profile','me'),p=existing||{},old=p.google?secrets.open(p.google):{};
+        Object.assign(p,{email:user.email,googleEmail:user.email,emailVerified:true,local:false,emailEnabled:p.emailEnabled??true});
         const googleName=user.user_metadata?.full_name||user.user_metadata?.name;if(typeof googleName==='string')p.googleName=googleName.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,80);
         if(s.provider_token)p.google=secrets.seal({access_token:s.provider_token,refresh_token:s.provider_refresh_token||old.refresh_token,expires_at:Date.now()+45*60000});
-        delete p.googleError;store.put(user.id,'profile','me',p);
+        delete p.googleError;
+        store.transaction(()=>{
+          if(!existing){
+            const now=Date.now();p.welcomeQueuedAt=new Date(now).toISOString();
+            store.put(user.id,'delivery','welcome:email',{id:'welcome:email',channel:'email',type:'welcome',status:'queued',to:p.email,...welcomeEmail(p,base),attempts:0,createdAt:now,nextTry:now,at:p.welcomeQueuedAt});
+          }
+          store.put(user.id,'profile','me',p);
+        });
+        await engine.deliver(user.id);
         const code=randomToken();store.put('_system','redeem',hash(code),{owner:user.id,challenge:state.challenge,expires:Date.now()+60000});
         return redirect(state.redirect+'#code='+code,'dd_oauth=; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=0');
       }

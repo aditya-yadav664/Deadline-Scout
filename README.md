@@ -75,7 +75,7 @@ The implementation makes real API calls when configured. Calendar and Tasks are 
 
 Supabase is used for authentication here; tracking records remain in SQLite. A Supabase service-role key is **not** required. Google provider tokens remain encrypted on the backend; the extension receives a separate opaque application session token.
 
-After Google sign-in, your verified Google email can receive alerts. Enable Email alerts explicitly. To use another recipient, request its six-digit verification code, read the email in that inbox, and confirm the code. Demo verification does not verify a real address, and live verification codes are not exposed by the activity API.
+Google sign-in verifies your account email automatically; no additional email code is required. New accounts start with email alerts enabled and receive one personalized welcome email through Brevo. Repeat sign-ins do not resend the welcome or change an existing email-alert preference. Temporary delivery failures retry through the durable email queue, including accounts with no tracked events. Profile → Settings lets users turn email alerts off. Legacy alternate-recipient verification endpoints remain available for existing integrations; Google account emails bypass that step.
 
 New Google sign-in uses a separate user namespace; local-demo registrations do not automatically become part of a signed-in account. Track the demo again after connecting Google.
 

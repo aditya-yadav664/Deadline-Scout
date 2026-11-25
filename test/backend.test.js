@@ -307,3 +307,25 @@ test('automatic Google sync skips missing dates, manual reminders and unlinked m
  const id=`${track.id}:${m.id}:calendar`;f.store.put('local-demo','googleLink',id,{id,trackId:track.id,milestoneId:m.id,channel:'calendar',state:'linked',date:'2026-01-01'});
  for(const state of [{missing:[m.kind]},{uncertain:[{kind:m.kind}]},{conflicts:[{kind:m.kind}]},{milestones:[{...m,manual:true}]}]){await f.engine.syncGoogle('local-demo',{...track,...state},true);assert.equal(calls,0);}
 });
+
+test('Google signup verifies email, enables alerts and queues one welcome with retries even without tracks',async t=>{
+ let sends=0,verified=true;const messages=[];
+ const f=await fixture(t,{env:{HOST:'127.0.0.1',APP_URL:'http://localhost:4317',SUPABASE_URL:'https://project.supabase.co',SUPABASE_PUBLISHABLE_KEY:'fake'},email:{mode:'brevo',send:async d=>{messages.push(d);sends++;if(sends===1)throw Object.assign(new Error('Temporary Brevo outage'),{transient:true});return {status:'accepted',messageId:'welcome-test'};}},oauthFetch:async url=>Response.json(url.includes('/token')?{access_token:'fake',provider_token:'fake-google'}:{id:'new-google-user',email:'new@example.com',email_confirmed_at:verified?'2026-11-25':null,user_metadata:{name:'New <Scout>'}})});
+ async function login(){
+  const verifier=randomBytes(32).toString('base64url'),challenge=createHash('sha256').update(verifier).digest('base64url');
+  const prepared=await f.request('/api/auth/prepare','POST',{redirect:'http://localhost:4317/auth/done',challenge}),flow=new URL(prepared.data.url).searchParams.get('flow'),base='http://127.0.0.1:'+f.server.address().port;
+  const start=await fetch(base+'/auth/start?flow='+flow,{redirect:'manual'}),cookie=start.headers.get('set-cookie').split(';')[0];
+  const response=await fetch(base+'/auth/callback?flow='+flow+'&code=fake',{redirect:'manual',headers:{Cookie:cookie}});
+  if(response.status!==302)return {status:response.status};
+  const code=new URLSearchParams(new URL(response.headers.get('location')).hash.slice(1)).get('code');return f.request('/api/auth/redeem','POST',{code,verifier});
+ }
+ verified=false;assert.equal((await login()).status,401);assert.equal(sends,0);
+ verified=true;const auth=await login();assert.equal(auth.status,200);
+ const token=auth.data.token,me=(await f.request('/api/me','GET',undefined,token)).data;assert.equal(me.emailVerified,true);assert.equal(me.emailEnabled,true);
+ assert.equal((await f.request('/api/settings','PATCH',{emailEnabled:true},token)).status,200);
+ assert.equal(sends,1);assert.match(messages[0].subject,/Welcome/);assert.match(messages[0].html,/New &lt;Scout&gt;/);assert.match(messages[0].html,/Open your dashboard/);assert.equal(messages[0].to,'new@example.com');
+ const delivery=f.store.get('new-google-user','delivery','welcome:email');assert.equal(delivery.status,'retry');delivery.nextTry=0;f.store.put('new-google-user','delivery',delivery.id,delivery);
+ assert.equal(f.store.list('new-google-user','track').length,0);await f.engine.tick();assert.equal(sends,2);assert.equal(messages[0].id,messages[1].id);assert.equal(f.store.get('new-google-user','delivery',delivery.id).status,'accepted');
+ await f.request('/api/settings','PATCH',{emailEnabled:false},token);await login();assert.equal(sends,2);assert.equal(f.store.get('new-google-user','profile','me').emailEnabled,false);
+ assert.equal(f.store.list('new-google-user','delivery').length,1);
+});

@@ -71,8 +71,7 @@ async function renderSettings(){
   $('#google-help').textContent=me.googleError||(!config.googleConfigured?'Configure Supabase’s Google provider and server environment variables. Setup steps are in the README.':'Calendar events and Tasks are separate actions. Google access tokens stay on your backend.');
   $('#extension-id').textContent=isExtension?'Extension ID: '+chrome.runtime.id:'Web companion · install the extension for active-tab tracking and browser alerts.';
   $('#email-mode').textContent=config.email==='brevo'?'Live · Brevo':'Demo · no emails sent';
-  $('#email-alerts').checked=!!me.emailEnabled;$('#recipient-status').textContent=me.email?`${me.email} · ${config.email==='demo'&&me.local?'local demo recipient':me.emailVerified?'verified':'not verified'}`:'Verify an address to enable.';
-  $('#email-address').placeholder=me.email||'you@example.com';
+  $('#email-alerts').checked=!!me.emailEnabled;$('#recipient-status').textContent=me.email?`${me.email}${config.email==='demo'&&me.local?' · local demo recipient':''}`:'Sign in with Google to receive email alerts.';
   $('#backend-url').value=(await settings()).backendUrl;
   $('#model-status').textContent=config.model?'Optional Gemini fallback enabled. Model extractions require review.':'Rule-based extraction · optional Gemini fallback not configured.';
   $('#demo-controls').hidden=connected&&!['localhost','127.0.0.1'].includes(new URL(config.base).hostname);
@@ -329,8 +328,6 @@ $('#test-browser-alert').onclick=e=>run(e.currentTarget,async()=>{
   $('#browser-alerts-status').textContent='Test sent. If no banner appears, check Windows notification settings and Do not disturb.';
 });
 $('#email-alerts').onchange=e=>run(null,async()=>{try{await api('/api/settings','PATCH',{emailEnabled:e.target.checked});await refresh();}catch(error){e.target.checked=!e.target.checked;throw error;}});
-$('#request-code').onclick=e=>run(e.currentTarget,async()=>{const r=await api('/api/email/verify/request','POST',{email:$('#email-address').value.trim()});toast(r.mode==='brevo'?'Verification code sent.':'Demo verification only: inspect the code in Email activity. Live email remains unverified.');await renderOutbox();});
-$('#confirm-code').onclick=e=>run(e.currentTarget,async()=>{const r=await api('/api/email/verify/confirm','POST',{code:$('#email-code').value});toast(r.demo?'Demo code confirmed. Use Brevo or Google sign-in to verify a real recipient.':'Email verified. Alerts enabled.');await refresh();});
 $('#test-email').onclick=e=>run(e.currentTarget,async()=>{const d=await api('/api/email/test','POST',{});toast(d.label);await renderOutbox();});
 $('#save-backend').onclick=e=>run(e.currentTarget,async()=>{
   const u=new URL($('#backend-url').value);if(!['https:','http:'].includes(u.protocol)||u.pathname!=='/'||u.username||u.password)throw new Error('Enter a backend origin, such as https://api.example.com.');
