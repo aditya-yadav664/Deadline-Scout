@@ -55,3 +55,17 @@ body{background:#070c10;color:var(--ink);padding:24px 0;min-width:320px}
 /* Compact event summaries and a single action line. */
 .domain{display:inline-flex}.track-identity>.badge{display:inline-block;margin-left:9px}.track-identity:has(.change-chip)>.badge{display:none}.change-chip{display:flex;width:max-content}.source-link{display:block;width:max-content}.track-row{padding-top:14px;padding-bottom:14px}.featured-track{position:relative;padding-top:24px;padding-bottom:12px}.featured-track .row-actions{position:absolute;bottom:11px;right:83px;margin:0}.featured-track .card-foot{min-height:36px;align-items:center}.featured-track.is-open .row-actions{bottom:11px}
 @media(max-width:800px){.featured-track .row-actions{position:static;grid-column:1/-1;margin:0}.featured-track .card-foot{min-height:0}.featured-track{padding:20px}.track-identity>.badge{margin-left:0;display:block}}
+
+/* Review dates above the workspace; the native dialog traps focus and supports Escape. */
+#draft-dialog{width:min(850px,calc(100vw - 40px));max-width:850px;max-height:88dvh;padding:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-color:#405c6d #11202b;box-shadow:0 28px 100px #0009}
+#draft-dialog::backdrop{background:#02070bc7;backdrop-filter:blur(6px)}
+#draft-dialog .draft{margin:0;max-width:none;border:0;border-radius:0;padding:0 28px 24px}
+#draft-dialog .card-heading{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:18px;background:#111f29;border-bottom:1px solid #304653;padding:23px 0 18px;margin-bottom:18px}
+#draft-review-title{font-size:21px;line-height:1.4;margin:0;letter-spacing:-.5px}
+#cancel-draft{flex-shrink:0;min-height:38px;padding:8px 12px;border:1px solid #3b5362;border-radius:8px;color:#c4dae6;background:#192c38}
+#save-draft{position:sticky;bottom:0;z-index:1;box-shadow:0 0 0 8px #111f29,0 -12px 28px #111f29}
+#draft-dialog #toast{z-index:3;max-width:calc(100vw - 48px)}
+@media(max-width:650px){#draft-dialog{width:calc(100vw - 24px);max-height:92dvh;border-radius:14px}#draft-dialog .draft{padding:0 18px 20px}#draft-dialog .card-heading{padding:18px 0 14px;gap:12px}#draft-review-title{font-size:18px}.draft-intro{font-size:12px}}
+
+body:has(#draft-dialog[open]){overflow:hidden}
+
