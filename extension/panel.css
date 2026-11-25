@@ -80,3 +80,6 @@ body:has(#draft-dialog[open]){overflow:hidden}
 .profile-identity{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:12px 0 5px}.profile-identity strong{font-size:20px;line-height:1.4;overflow-wrap:anywhere}.profile-identity .text-button{flex-shrink:0}.profile-identity~#profile-email{font-size:13px;color:#b0c4d1;margin:0 0 10px}#profile-name-form .form-row{flex-wrap:wrap}#profile-name-form input{flex:1;min-width:150px}
 
 .calendar-entry-card{padding:17px 19px;background:#182d3b;border:1px solid #34556a;border-radius:12px;margin:12px 0 22px}.calendar-entry-card h3{font-size:18px;line-height:1.5;margin:0 0 6px;color:#eff8fc}.calendar-entry-card p{margin:0;font-size:13px;color:#a8c4d7}#calendar-reminder-note{font-size:12px;line-height:1.6}
+
+/* Timeline follows the active watchlist; change history is secondary. */
+.timeline-heading{font-size:18px;margin:6px 0 24px;color:var(--text,#f1f7fb)}.schedule-event:before{background:#00cede}.schedule-event h3{margin-top:8px}.past-milestones{margin:8px 0 32px}.past-milestones summary{cursor:pointer;color:#9fb7c7;padding:12px 0 20px}.past-milestones .event{opacity:.8}#history-heading{margin-top:36px}
