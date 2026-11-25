@@ -1,13 +1,29 @@
 import { hash } from './security.js';
-import { instant, validateMilestone } from '../extension/shared/dates.js';
+import { instant, validateMilestone, DEFAULT_TIMEZONE, validDate } from '../extension/shared/dates.js';
 const calendarBase='https://www.googleapis.com/calendar/v3';
 const taskBase='https://tasks.googleapis.com/tasks/v1';
+const html=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function milestoneDate(m){
+  const date=validDate(m.date)?new Intl.DateTimeFormat('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}).format(new Date(m.date+'T12:00:00Z')):String(m.date||'');
+  if(!m.time)return date+' · All day';
+  const match=/^(\d{2}):(\d{2})$/.exec(m.time),clock=match?`${+match[1]%12||12}:${match[2]} ${+match[1]>=12?'PM':'AM'}`:m.time;
+  const zone=['Asia/Kolkata','Asia/Calcutta','IST'].includes(m.zone||DEFAULT_TIMEZONE)?'IST':m.zone;
+  return date+' · '+clock+' '+zone;
+}
+export function calendarDescription(track,m){
+  const parts=[`<b>${html(track.title)}</b>`,`${html(m.label)}`,html(milestoneDate(m))];
+  const others=(track.milestones||[]).filter(other=>other.id&&m.id?other.id!==m.id:other.kind!==m.kind||other.date!==m.date||(other.time||'')!==(m.time||'')||other.label!==m.label);
+  if(others.length)parts.push('','<b>Other milestones</b>',...others.map(other=>`${html(other.label)} — ${html(milestoneDate(other))}`));
+  if(validDate(track.plan))parts.push('','<b>Your plan</b>','Register on '+html(new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'long',year:'numeric',timeZone:'UTC'}).format(new Date(track.plan+'T12:00:00Z'))));
+  try{const url=new URL(track.url);if(['https:','http:'].includes(url.protocol)&&!url.username&&!url.password)parts.push('',`<a href="${html(url.href)}">View event page</a>`);}catch{}
+  return parts.join('<br>');
+}
 export function calendarPayload(track,m,minutes,zone) {
   validateMilestone(m);
   const dateAfter=new Date(Date.parse(m.date+'T12:00:00Z')+86400000).toISOString().slice(0,10);
   const start=m.time?{dateTime:instant(m)}:{date:m.date};
   const end=m.time?{dateTime:new Date(Date.parse(instant(m))+1800000).toISOString()}:{date:dateAfter};
-  return {summary:`${track.title} · ${m.label}`,description:`${m.label}\n${m.quote||''}\nRegistration: ${track.url}\nSource: ${m.sourceUrl}`,start,end,reminders:{useDefault:false,overrides:[{method:'popup',minutes}]},extendedProperties:{private:{deadlineDiff:track.id,kind:m.kind}}};
+  return {summary:`${track.title} — ${m.label}`.replace(/\s+/g,' ').trim(),description:calendarDescription(track,m),start,end,reminders:{useDefault:false,overrides:[{method:'popup',minutes}]},extendedProperties:{private:{deadlineDiff:track.id,kind:m.kind}}};
 }
 export function taskPayload(track,m,marker) {return {title:`${m.label}: ${track.title}`,notes:`Registration: ${track.url}\nSource: ${m.sourceUrl}\n${m.quote||''}\n${marker}`,due:`${m.date}T00:00:00.000Z`};}
 export class Google {

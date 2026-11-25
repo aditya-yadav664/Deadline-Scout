@@ -257,3 +257,10 @@ test('a failed timeline cleanup rolls back registration deletion',async t=>{
  const remove=f.store.remove.bind(f.store);f.store.remove=(owner,kind,id)=>{if(kind==='change')throw Error('simulated cleanup failure');return remove(owner,kind,id);};
  assert.equal((await f.request('/api/tracks/'+track.id,'DELETE')).status,400);assert.ok(f.store.get('local-demo','track',track.id));assert.equal((await f.request('/api/changes')).data.length,1);
 });
+
+test('Calendar approval works directly without requesting a reminder preview',async t=>{
+ const calls=[];const f=await fixture(t,{google:{perform:async(owner,track,m,channel,minutes)=>{calls.push({owner,milestone:m.id,channel,minutes});return {googleId:'test-calendar-id'};},preview:async()=>{throw Error('Reminder preview must not be required');}}});
+ const track=await f.track();const r=await f.request('/api/tracks/'+track.id+'/google','POST',{milestoneId:track.milestones[0].id,channel:'calendar',minutes:60,approved:true});
+ assert.equal(r.status,200);assert.equal(r.data.googleId,'test-calendar-id');assert.equal(calls.length,1);assert.equal(calls[0].minutes,60);
+ assert.equal((await f.request('/api/tracks/'+track.id+'/google','POST',{milestoneId:track.milestones[0].id,channel:'calendar',minutes:60})).status,400);assert.equal(calls.length,1);
+});

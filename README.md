@@ -80,7 +80,7 @@ New Google sign-in uses a separate user namespace; local-demo registrations do n
 ## Calendar and Tasks behavior
 
 - The two buttons are separate actions. Select a milestone and approve the action.
-- Calendar date-only deadlines become all-day events with an exclusive end date the following day. Preview shows the reminder time using your primary Google Calendar timezone. A one-hour reminder for an all-day deadline is one hour before midnight at the start of that date; choose a timed deadline if you want a different cutoff.
+- Calendar date-only deadlines become all-day events with an exclusive end date the following day. Choose the milestone and reminder, then use Add to Calendar or Update Calendar directly; no reminder preview is required. All-day reminders use your primary Google Calendar timezone. A one-hour reminder for an all-day deadline is one hour before midnight at the start of that date; choose a timed deadline if you want a different cutoff.
 - Timed events use the confirmed timezone. Ambiguous daylight-saving clock times require an explicit UTC offset.
 - Tasks contain a due **date** and registration/source links. Use Calendar when you need a reminder at a specific time. The [Tasks resource documentation](https://developers.google.com/workspace/tasks/reference/rest/v1/tasks) describes the due field's date-only behavior.
 - Calendar uses a deterministic event ID. Tasks persist creation intent and a unique note marker. Retrying an uncertain Task creation searches for that marker before considering any other operation.
@@ -171,3 +171,5 @@ Profile → Settings → Email activity initially shows the newest three entries
 ## Email layout
 
 Date-change alerts include a responsive HTML email and a plain-text fallback. Red/green cards show the previous and new dates with their source timezones, followed by the impact, other tracked milestones, source evidence, and a direct event-page link. Page and profile text are escaped, links are restricted to HTTP(S), and the HTML is retained through queued retries. [Open the fictional design preview](docs/email-preview.html). The preview contains sample data and does not send an email. Visual checks cover desktop and phone-width browser rendering; inbox-specific rendering can vary by mail client.
+
+Calendar entries use a clean title and a formatted description with the selected milestone, other event dates, and the signup plan when present. There is one event-page link; evidence quotes and per-milestone source links are omitted. Existing linked events are patched in place.
