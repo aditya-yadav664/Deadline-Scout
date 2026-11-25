@@ -221,11 +221,11 @@ export function createApp(options={}) {
             return send(enrich(owner,await engine.check(owner,id)));
           }
           if(!action&&req.method==='DELETE'){
-            if(engine.locks.has(owner+':'+id)||engine.delivering.has(owner))throw fail('Wait for the current check or delivery.',409);
+            if(engine.delivering.has(owner)||(engine.locks.has(owner+':'+id)&&!engine.reading.has(owner+':'+id)))throw fail('A Google update or email delivery is already in progress. Retry removal when it finishes.',409);
             store.transaction(()=>{
               const related=store.list(owner,'change').filter(c=>c.trackId===id),changeIds=new Set(related.map(c=>c.id));
               store.remove(owner,'track',id);for(const c of related)store.remove(owner,'change',c.id);
-              for(const d of store.list(owner,'delivery').filter(d=>changeIds.has(d.changeId))){if(d.channel==='browser')store.remove(owner,'delivery',d.id);else if(['queued','retry','sending'].includes(d.status))store.put(owner,'delivery',d.id,{...d,status:'cancelled',error:'Registration removed; alert cancelled.'});}
+              for(const d of store.list(owner,'delivery').filter(d=>d.trackId===id||changeIds.has(d.changeId))){if(d.channel==='browser')store.remove(owner,'delivery',d.id);else if(['queued','retry','sending'].includes(d.status))store.put(owner,'delivery',d.id,{...d,status:'cancelled',error:'Registration removed; alert cancelled.'});}
               for(const link of store.list(owner,'googleLink').filter(l=>l.trackId===id))store.remove(owner,'googleLink',link.id);
             });return send({ok:true});
           }
@@ -247,8 +247,8 @@ export function createApp(options={}) {
             t.resolutions||={};t.resolutions[m.id]={observation:observationKey(reviewCandidates),chosen:scheduleKey(chosen),sourceUrl:chosen.sourceUrl};
             Object.assign(m,change.after);t.conflicts=t.conflicts.filter(c=>c.milestoneId?c.milestoneId!==m.id:c.kind!==m.kind);t.uncertain=t.uncertain.filter(c=>c.milestoneId?c.milestoneId!==m.id:c.kind!==m.kind);t.status=t.conflicts.length?'conflict':t.uncertain.length?'needs_review':'watching';
             store.transaction(()=>{store.put(owner,'track',id,t);if(scheduleKey(change.before)!==scheduleKey(change.after)){
-              store.put(owner,'change',change.id,change);store.put(owner,'delivery',change.id+':browser',{id:change.id+':browser',changeId:change.id,channel:'browser',status:'queued',at:change.at});
-              const p=profileFor(owner);if(p.emailEnabled&&(p.emailVerified||email.mode==='demo'&&p.local))store.put(owner,'delivery',change.id+':email',{id:change.id+':email',changeId:change.id,channel:'email',status:'queued',to:p.email,...changeEmail(t,change,p),attempts:0,createdAt:Date.now(),nextTry:Date.now(),at:change.at});
+              store.put(owner,'change',change.id,change);store.put(owner,'delivery',change.id+':browser',{id:change.id+':browser',changeId:change.id,trackId:t.id,channel:'browser',status:'queued',at:change.at});
+              const p=profileFor(owner);if(p.emailEnabled&&(p.emailVerified||email.mode==='demo'&&p.local))store.put(owner,'delivery',change.id+':email',{id:change.id+':email',changeId:change.id,trackId:t.id,channel:'email',status:'queued',to:p.email,...changeEmail(t,change,p),attempts:0,createdAt:Date.now(),nextTry:Date.now(),at:change.at});
             }});const lock=owner+':'+id;engine.locks.add(lock);
             try{await engine.syncGoogle(owner,t,true);await engine.deliver(owner);return send(enrich(owner,t));}finally{engine.locks.delete(lock);}
           }

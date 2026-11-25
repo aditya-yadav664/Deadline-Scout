@@ -5,14 +5,14 @@ import { scheduleKey } from '../extension/shared/dates.js';
 import { changeEmail } from './email.js';
 import { hash } from './security.js';
 export class Engine {
-  constructor({store,readPage,email,google}){Object.assign(this,{store,readPage,email,google});this.locks=new Set();this.delivering=new Set();}
+  constructor({store,readPage,email,google}){Object.assign(this,{store,readPage,email,google});this.locks=new Set();this.reading=new Set();this.delivering=new Set();}
   async check(owner,id) {
     const lock=owner+':'+id;if(this.locks.has(lock))throw new Error('A check or update is already in progress.');this.locks.add(lock);
     try {
       const t=this.store.get(owner,'track',id);if(!t)throw new Error('Tracking record not found.');
       if(t.milestones.every(m=>m.manual)){t.status='manual';t.lastAttempt=new Date().toISOString();this.store.put(owner,'track',id,t);return t;}
       const observations=[],errors=[];
-      for(const url of t.sources){try{observations.push(await this.readPage(url));}catch(e){errors.push({url,message:e.message});}}
+      for(const url of t.sources){if(!this.store.get(owner,'track',id))throw new Error('Tracked page was removed. Check cancelled.');try{this.reading.add(lock);observations.push(await this.readPage(url));}catch(e){errors.push({url,message:e.message});}finally{this.reading.delete(lock);}if(!this.store.get(owner,'track',id))throw new Error('Tracked page was removed. Check cancelled.');}
       const now=new Date().toISOString();t.lastAttempt=now;t.nextCheck=Date.now()+t.intervalMinutes*60000;t.errors=errors;
       // Do not adopt a one-sided change if an approved source could not be read.
       if(errors.length){if(errors.some(e=>/ENOTFOUND|EAI_AGAIN|ETIMEOUT|timed out|ECONNRESET|busy|HTTP (?:429|50[234])/i.test(e.message)))t.nextCheck=Date.now()+60000;t.status='check_failed';this.store.put(owner,'track',id,t);return t;}
@@ -24,9 +24,9 @@ export class Engine {
         this.store.put(owner,'track',id,t);
         for(const c of changes){
           this.store.put(owner,'change',c.id,c);
-          this.store.put(owner,'delivery',c.id+':browser',{id:c.id+':browser',changeId:c.id,channel:'browser',status:'queued',at:now});
+          this.store.put(owner,'delivery',c.id+':browser',{id:c.id+':browser',changeId:c.id,trackId:id,channel:'browser',status:'queued',at:now});
           const p=this.store.get(owner,'profile','me');
-          if(p?.emailEnabled&&(p.emailVerified||this.email.mode==='demo'&&p.local))this.store.put(owner,'delivery',c.id+':email',{id:c.id+':email',changeId:c.id,channel:'email',status:'queued',to:p.email,...changeEmail(t,c,p),attempts:0,createdAt:Date.now(),nextTry:Date.now(),at:now});
+          if(p?.emailEnabled&&(p.emailVerified||this.email.mode==='demo'&&p.local))this.store.put(owner,'delivery',c.id+':email',{id:c.id+':email',changeId:c.id,trackId:id,channel:'email',status:'queued',to:p.email,...changeEmail(t,c,p),attempts:0,createdAt:Date.now(),nextTry:Date.now(),at:now});
         }
       });
       await this.syncGoogle(owner,t,changes.length>0);
@@ -36,20 +36,23 @@ export class Engine {
   async syncGoogle(owner,t,detailsChanged=false) {
     // Linking an entry authorizes keeping that existing entry in sync. Never
     // create entries for unlinked milestones, or write an unverified date.
+    if(!this.store.get(owner,'track',t.id))return;
     if(t.conflicts?.length||t.uncertain?.length||t.missing?.length)return;
     const errors=[];
     for(const link of this.store.list(owner,'googleLink').filter(l=>l.trackId===t.id&&l.state==='linked')) {
+      if(!this.store.get(owner,'track',t.id))return;
       const m=t.milestones.find(m=>m.id===link.milestoneId);
       if(!m||m.manual||(!detailsChanged&&scheduleKey(m)===scheduleKey(link)))continue;
       try{await this.google.perform(owner,t,m,link.channel,link.minutes);}catch(e){errors.push(e.message);}
     }
     if(errors.length)t.googleError='Google sync pending: '+[...new Set(errors)].join(' ');else delete t.googleError;
-    this.store.put(owner,'track',t.id,t);
+    if(this.store.get(owner,'track',t.id))this.store.put(owner,'track',t.id,t);
   }
   async deliver(owner) {
     if(this.delivering.has(owner))return;this.delivering.add(owner);
     try{for(const d of this.store.list(owner,'delivery').filter(d=>d.channel==='email'&&['queued','retry','sending'].includes(d.status)&&d.nextTry<=Date.now())) {
-      if(d.changeId){const change=this.store.get(owner,'change',d.changeId);if(!change||!this.store.get(owner,'track',change.trackId)){d.status='cancelled';d.error='Registration removed; alert cancelled.';this.store.put(owner,'delivery',d.id,d);continue;}}
+      const change=d.changeId&&this.store.get(owner,'change',d.changeId),trackId=d.trackId||change?.trackId;
+      if(d.type!=='welcome'&&(!trackId||!this.store.get(owner,'track',trackId)||d.changeId&&!change)){d.status='cancelled';d.error='Tracked page removed or alert no longer linked; delivery cancelled.';this.store.put(owner,'delivery',d.id,d);continue;}
       const p=this.store.get(owner,'profile','me');
       if(!p||(!p.emailEnabled&&d.type!=='welcome')||!(p.emailVerified||this.email.mode==='demo'&&p.local)||p.email!==d.to){d.status='cancelled';this.store.put(owner,'delivery',d.id,d);continue;}
       // Brevo's idempotency window is 15 minutes. Never auto-retry an

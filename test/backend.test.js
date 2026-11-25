@@ -347,3 +347,19 @@ test('reviewing one custom milestone does not resolve a different custom milesto
  const checked=(await f.request('/api/tracks/'+saved.id+'/check','POST',{})).data;assert.equal(checked.conflicts.length,2);assert.ok(checked.conflicts.every(c=>c.milestoneId));
  const resolved=await f.request('/api/tracks/'+saved.id+'/resolve','POST',{milestoneId:saved.milestones[0].id,date:'2027-09-14',sourceUrl:url,approved:true});assert.equal(resolved.status,200);assert.equal(resolved.data.conflicts.length,1);assert.equal(resolved.data.conflicts[0].milestoneId,saved.milestones[1].id);assert.equal(resolved.data.milestones[0].label,'Essay submission');
 });
+
+test('removing a page during a source fetch stops further reads and cannot recreate it or send alerts',async t=>{
+ let release,started;const ready=new Promise(r=>started=r),gate=new Promise(r=>release=r);let reads=0,sends=0;
+ const f=await fixture(t,{readPage:async url=>{reads++;started();await gate;return {milestones:extract('Registration closes November 26, 2026',url)};},email:{mode:'demo',send:async()=>{sends++;return {status:'demo'};}}}),track=await f.track();
+ const checking=f.engine.check('local-demo',track.id);await ready;
+ assert.equal((await f.request('/api/tracks/'+track.id,'DELETE')).status,200);release();await assert.rejects(checking,/removed/);
+ await f.engine.tick();assert.equal(reads,1);assert.equal(sends,0);assert.equal(f.store.get('local-demo','track',track.id),null);assert.equal(f.store.list('local-demo','change').length,0);assert.equal(f.store.list('local-demo','delivery').length,0);
+});
+
+test('removed-page and unbound legacy email jobs never reach the sender',async t=>{
+ let sent=0;const f=await fixture(t,{email:{mode:'demo',send:async()=>{sent++;return {status:'demo'};}}}),track=await f.track();
+ f.store.put('local-demo','delivery','direct',{id:'direct',trackId:track.id,channel:'email',status:'retry',nextTry:0,to:'demo@localhost'});
+ f.store.put('local-demo','delivery','legacy',{id:'legacy',channel:'email',status:'queued',nextTry:0,to:'demo@localhost'});
+ assert.equal((await f.request('/api/tracks/'+track.id,'DELETE')).status,200);assert.equal(f.store.get('local-demo','delivery','direct').status,'cancelled');
+ await f.engine.tick();assert.equal(sent,0);assert.equal(f.store.get('local-demo','delivery','legacy').status,'cancelled');
+});
