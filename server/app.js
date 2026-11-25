@@ -158,10 +158,18 @@ export function createApp(options={}) {
         if(path==='/api/account/clear-data'&&req.method==='POST'){
           const b=await body(req);if(b.action!=='clear-account-data')throw fail('Choose Clear account data to continue.');
           if([...engine.locks].some(key=>key.startsWith(owner+':'))||engine.delivering.has(owner))throw fail('A check or delivery is running. Try again when it finishes.',409);
-          const deleted=store.transaction(()=>{for(const r of store.list('_system','demoSignup'))if(r.owner===owner&&r.key)store.remove('_system','demoSignup',r.key);return store.clearKinds(owner,['track','change','delivery','googleLink','signup','signupFile','signupProfile']);});return send({ok:true,deleted});
+          const deleted=store.transaction(()=>{for(const r of store.list('_system','demoSignup'))if(r.owner===owner&&r.key)store.remove('_system','demoSignup',r.key);return store.clearKinds(owner,['track','change','delivery','googleLink','signup','signupFile','signupProfile','dashboard']);});return send({ok:true,deleted});
         }
         if(path==='/api/logout'&&req.method==='POST'){store.remove('_system','session',hash(token));return send({ok:true});}
-        if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {const p=profileFor(owner),me={displayName:p.displayName||p.googleName||'',email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local};return send(path==='/api/me'?me:{me,tracks:store.list(owner,'track').map(t=>enrich(owner,t)),changes:changesFor(owner)});}
+        if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {const p=profileFor(owner),me={displayName:p.displayName||p.googleName||'',email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local};return send(path==='/api/me'?me:{me,tracks:store.list(owner,'track').map(t=>enrich(owner,t)),changes:changesFor(owner),dashboard:store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]}});}
+        if(path==='/api/dashboard'&&req.method==='PATCH'){
+          const b=await body(req),p=store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]},active=new Set(store.list(owner,'track').map(t=>t.id));
+          if(b.groups!==undefined){if(!Array.isArray(b.groups)||b.groups.length>50)throw fail('Maximum 50 groups.');const names=new Set(),ids=new Set();p.groups=b.groups.map(g=>{const name=String(g.name||'').trim().slice(0,80),id=String(g.id||'');if(!name||names.has(name.toLowerCase())||!id||ids.has(id)||id.length>100||!Array.isArray(g.trackIds))throw fail('Each group needs a unique name.');names.add(name.toLowerCase());ids.add(id);return {id,name,trackIds:[...new Set(g.trackIds)].filter(id=>active.has(id))};});}
+          if(b.pinnedIds!==undefined){if(!Array.isArray(b.pinnedIds))throw fail('Invalid pins.');p.pinnedIds=[...new Set(b.pinnedIds)].filter(id=>active.has(id));}store.put(owner,'dashboard','preferences',p);return send(p);
+        }
+        if(path==='/api/dashboard/seen'&&req.method==='POST'){
+          const b=await body(req),p=store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]},active=new Set(changesFor(owner).map(c=>c.id));if(!Array.isArray(b.ids)||b.ids.length>100)throw fail('Invalid notification list.');p.seenChangeIds=[...new Set([...(p.seenChangeIds||[]),...b.ids.filter(id=>active.has(id))])].slice(-2000);store.put(owner,'dashboard','preferences',p);return send({ok:true});
+        }
         if(path==='/api/profile/google-name'&&req.method==='POST'){
           let p=profileFor(owner);if(!p.googleName&&p.google){const info=await google.api(owner,'https://openidconnect.googleapis.com/v1/userinfo');p=profileFor(owner);if(typeof info.name==='string'){p.googleName=info.name.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,80);store.put(owner,'profile','me',p);}}
           return send({displayName:p.displayName||p.googleName||''});

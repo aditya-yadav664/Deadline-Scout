@@ -363,3 +363,12 @@ test('removed-page and unbound legacy email jobs never reach the sender',async t
  assert.equal((await f.request('/api/tracks/'+track.id,'DELETE')).status,200);assert.equal(f.store.get('local-demo','delivery','direct').status,'cancelled');
  await f.engine.tick();assert.equal(sent,0);assert.equal(f.store.get('local-demo','delivery','legacy').status,'cancelled');
 });
+
+test('dashboard groups, pins and seen changes persist and ignore missing or other-owner pages',async t=>{
+ const f=await fixture(t),track=await f.track();const prefs={groups:[{id:'g',name:'Hackathons',trackIds:[track.id,'missing']}],pinnedIds:[track.id,'missing']};
+ assert.equal((await f.request('/api/dashboard','PATCH',prefs,'wrong')).status,401);
+ assert.equal((await f.request('/api/dashboard','PATCH',prefs)).status,200);let workspace=(await f.request('/api/workspace')).data;assert.deepEqual(workspace.dashboard.pinnedIds,[track.id]);assert.deepEqual(workspace.dashboard.groups[0].trackIds,[track.id]);
+ await f.request('/api/demo','POST',{mode:'changed'});await f.request('/api/tracks/'+track.id+'/check','POST',{});const change=(await f.request('/api/changes')).data[0];assert.equal((await f.request('/api/dashboard/seen','POST',{ids:[change.id,'not-mine']})).status,200);
+ workspace=(await f.request('/api/workspace')).data;assert.deepEqual(workspace.dashboard.seenChangeIds,[change.id]);
+ assert.equal((await f.request('/api/dashboard','PATCH',{groups:[{id:'g',name:'Same',trackIds:[]},{id:'g2',name:'same',trackIds:[]}]})).status,400);
+});
