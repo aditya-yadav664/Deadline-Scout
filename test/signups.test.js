@@ -62,3 +62,21 @@ test('deleting a signup hides it, cancels reminders and prevents execution; undo
  await f.s.route('alice','/api/signups/'+d.id,'DELETE',{});assert.equal(f.s.list('alice').length,0);await f.s.tick();assert.equal(f.store.list('_system','demoSignup').length,0);assert.ok(f.store.list('alice','delivery').every(x=>x.status==='cancelled'));
  const restored=await f.s.route('alice','/api/signups/'+d.id+'/restore','POST',{});assert.equal(restored.status,'Draft');assert.equal(restored.reviewedAll,false);assert.equal(restored.steps.length,1);
 });
+import {resumePlan,fillPendingSignup} from '../extension/shared/signup-resume.js';
+test('manual execution restores matching pages and skips already-filled steps, changed terms and other sites',async t=>{
+ const f=fixture(t),first=f.s.capture({url:'https://example.org/form?page=1',terms:'Terms A',fields:[{key:'id:name',id:'name',label:'Name',type:'text',required:true}]}),second=f.s.capture({url:'https://example.org/form?page=2',terms:'Terms A',fields:[{key:'id:repo',id:'repo',label:'Repository URL',type:'url',required:true}]});
+ const d={formUrl:first.url,reviewedAll:true,steps:[{...first,answers:{'id:name':'Test User'}},{...second,answers:{'id:repo':'https://github.com/test/repo'}}]};
+ assert.equal(resumePlan(d,second).index,1);assert.match(resumePlan(d,{...second,terms:'New terms'}).error,/Terms/);
+ let pending={draft:d,tabId:1,expires:Date.now()+60000,filled:[]},live=first,restores=0,permission=false;
+ const storage={get:async()=>pending,set:async(_key,v)=>pending=v};
+ const browser={tabs:{get:async()=>({url:live.url})},permissions:{contains:async()=>permission},scripting:{executeScript:async o=>{if(o.func.name==='captureSignupForm')return [{result:live}];if(o.func.name==='restoreSignupAnswers'){restores++;assert.ok(o.args[0].answers);return [{result:['Restored saved answers']}];}return [{result:null}];}}};
+ assert.equal((await fillPendingSignup({browser,storage,tabId:1})).needsPermission,true);assert.equal(restores,0);
+ permission=true;assert.equal((await fillPendingSignup({browser,storage,tabId:1})).ok,true);await fillPendingSignup({browser,storage,tabId:1});assert.equal(restores,1);
+ live=second;await fillPendingSignup({browser,storage,tabId:1});assert.equal(restores,2);
+ live={...second,url:'https://other.example/form'};assert.equal((await fillPendingSignup({browser,storage,tabId:1})).ok,false);assert.equal(restores,2);
+});
+
+test('Register now manually invokes only the demo organizer and produces a receipt without waiting',async t=>{
+ const f=fixture(t),d=await draft(f);const result=await f.s.route('alice','/api/signups/'+d.id+'/submit-now','POST',{approved:true,milestoneId:'deadline'});assert.equal(result.status,'Confirmed');assert.match(result.receipt,/DEMO-/);
+ const ordinary=await draft(f,{mode:'reminder'});ordinary.formUrl='https://example.org/form';ordinary.steps[0].url=ordinary.formUrl;f.s.save('alice',ordinary);await assert.rejects(f.s.route('alice','/api/signups/'+ordinary.id+'/submit-now','POST',{approved:true,milestoneId:'deadline'}),/demo organizer/);
+});

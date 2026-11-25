@@ -53,3 +53,11 @@ When you capture another form page, choose its existing draft in Continue a sign
 Browser checks on a disposable local account covered save, arming, opening the form, cancellation, close, reordering across reload, and capturing a third page into the same draft across reload. Installed Edge extension messaging remains a separate manual validation boundary.
 
 Delete draft removes a signup from Your drafts and stops its scheduled backup and queued signup alerts. Undo draft deletion restores it as an unarmed draft, requiring fresh review before it can run. Account data clearing also removes deleted draft records.
+
+## Fill now and event sections (1.8.0)
+
+Drafts are grouped by tracked event. Expanded dashboard event cards show links to the same drafts and their registration pages. Review answers uses Save & continue as the explicit snapshot review; the old review checkbox was removed. Navigation tabs are clickable, but unsaved answer edits must be saved before leaving Review answers. Saving is not submission.
+
+Fill form now opens the saved form through the installed extension immediately, independently of the backup time. The first time on a site, the extension must receive optional site permission: click its toolbar icon and Enable autofill on this site. During the resulting 30-minute session, matching steps in that tab fill as pages finish loading or as a single-page form changes. Each matching step is filled once so later user edits are not repeatedly overwritten. An on-page message lists the result and links to the next saved page; the extension does not blindly click Next or Submit. Files, consent, CAPTCHA, OTP and payment remain manual on ordinary websites. Missing or changed controls and terms require review.
+
+The demo form also has ?step=1 and ?step=2 variants for controlled multi-page testing. Register now on the full demo organizer runs the approved demo integration immediately and requires a real demo receipt before Confirmed. Ordinary-site registrations are never automatically submitted. Automated tests exercise manual fill dispatch across multiple steps, permission checks, site/terms mismatches, and immediate demo submission. The installed Edge flow and live multi-page browser execution could not be rechecked in this session because the browser connection was closed.

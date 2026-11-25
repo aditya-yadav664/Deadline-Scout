@@ -21,7 +21,7 @@ import {saveCapture,consumeCapture} from './captures.js';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const sha256url=s=>createHash('sha256').update(s).digest('base64url');
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
-export function isPublicFilePath(path){const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);return /^(?:panel\.(?:html|css|js)|dashboard\.js|backup\.(?:html|js|css)|signup-demo\.(?:html|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts|alert-connection|signup)\.js)$/.test(relative);}
+export function isPublicFilePath(path){const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);return /^(?:panel\.(?:html|css|js)|dashboard\.js|backup\.(?:html|js|css)|signup-demo\.(?:html|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts|alert-connection|signup|signup-resume)\.js)$/.test(relative);}
 export function createApp(options={}) {
   const env=options.env||process.env;
   const port=Number(env.PORT||4317),host=env.HOST||'127.0.0.1';
@@ -61,7 +61,7 @@ export function createApp(options={}) {
   async function body(req) {let bytes=0,chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>300000)throw fail('Request too large.',413);chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{throw fail('Invalid JSON.');}}
   function profileFor(owner) {return store.get(owner,'profile','me')||{email:'',emailEnabled:false,emailVerified:false};}
   function changesFor(owner){const active=new Set(store.list(owner,'track').map(t=>t.id));return store.list(owner,'change').filter(c=>active.has(c.trackId)).sort((a,b)=>b.at.localeCompare(a.at));}
-  function enrich(owner,t) {return {...t,googleLinks:store.list(owner,'googleLink').filter(l=>l.trackId===t.id)};}
+  function enrich(owner,t) {return {...t,signupDrafts:signups.list(owner).filter(d=>d.trackId===t.id).map(d=>({id:d.id,title:d.title,status:d.status,formUrl:d.formUrl})),googleLinks:store.list(owner,'googleLink').filter(l=>l.trackId===t.id)};}
   const buckets=new Map();
   const server=http.createServer(async(req,res)=>{
     const origin=req.headers.origin;

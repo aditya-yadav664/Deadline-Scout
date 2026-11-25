@@ -51,10 +51,11 @@ export class Signups {
    if(!steps.length||steps.some(s=>new URL(s.url).origin!==new URL(steps[0].url).origin))throw fail('Capture steps from one form site.');
    if(old)this.cancelNotices(owner,old.id);const d={...old,revision:(old?.revision||0)+1,id:old?.id||randomUUID(),trackId:b.trackId,title:String(b.title||'Signup').slice(0,200),steps,extensionId:/^[a-p]{32}$/.test(b.extensionId)?b.extensionId:old?.extensionId||null,formUrl:steps[0].url,status:'Draft',mode:'reminder',createdAt:old?.createdAt||new Date().toISOString(),reviewedAll:!!b.reviewedAll};return this.save(owner,d);
   }
-  const match=path.match(/^\/api\/signups\/([\w-]+)(?:\/(arm|cancel|registered|steps|reorder|restore))?$/);if(!match)throw fail('Signup route not found.',404);
+  const match=path.match(/^\/api\/signups\/([\w-]+)(?:\/(arm|cancel|registered|steps|reorder|restore|submit-now))?$/);if(!match)throw fail('Signup route not found.',404);
   const d=this.read(owner,match[1]);if(method==='DELETE'&&!match[2]){this.cancelNotices(owner,d.id);d.status='Deleted';d.reviewedAll=false;d.revision=(d.revision||0)+1;return this.save(owner,d);}
   if(method==='POST'&&match[2]==='restore'){if(d.status!=='Deleted')throw fail('This draft was not deleted.');d.status='Draft';d.reviewedAll=false;d.revision=(d.revision||0)+1;return this.save(owner,d);}
   if(d.status==='Deleted')throw fail('Draft was deleted.',404);if(method==='GET'&&!match[2])return d;if(method!=='POST')throw fail('Method not allowed.',405);
+  if(match[2]==='submit-now'){if(!b.approved)throw fail('Approve demo submission.');const armed=await this.route(owner,'/api/signups/'+d.id+'/arm','POST',{...b,mode:'demo-auto',rule:'fixed',backupAt:Date.now()+1000,approved:true});armed.backupAt=Date.now()-1;this.save(owner,armed);await this.tick(owner);return this.read(owner,d.id);}
   if(match[2]==='reorder'){
    if(['Confirmed','Already registered'].includes(d.status))throw fail('Completed signups cannot be reordered.');
    if(b.revision!==(d.revision||0))throw fail('Draft changed in another tab. Refresh before reordering.',409);
