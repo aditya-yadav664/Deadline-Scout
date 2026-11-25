@@ -83,7 +83,7 @@ test('Register now manually invokes only the demo organizer and produces a recei
 
 import {advanceSignup} from '../extension/shared/signup-resume.js';
 test('approved submission dispatch requires complete files, consent, validity and one submit control',()=>{
- const previous=globalThis.document;let submits=0,valid=true,files=[],checks=[],buttons=[{type:'submit',innerText:'Register',disabled:false,getClientRects:()=>[{}]}];
+ const previousStyle=globalThis.getComputedStyle;globalThis.getComputedStyle=()=>({visibility:'visible'});const previous=globalThis.document;let submits=0,valid=true,files=[],checks=[],buttons=[{type:'submit',innerText:'Register',disabled:false,getClientRects:()=>[{}]}];
  const form={innerText:'Your registration',getClientRects:()=>[{}],querySelector:()=>({}),querySelectorAll:s=>s==='input[type=file]'?files:s==='input[type=checkbox]'?checks:s==='button,input[type=submit]'?buttons:[],checkValidity:()=>valid,requestSubmit:()=>submits++};
  globalThis.document={forms:[form],querySelectorAll:()=>[]};try{
   files=[{required:true,files:[]}];assert.equal(advanceSignup({finalStep:true}).paused,true);assert.equal(submits,0);
@@ -92,11 +92,20 @@ test('approved submission dispatch requires complete files, consent, validity an
   assert.equal(advanceSignup({finalStep:true}).attempted,true);assert.equal(submits,1);
   assert.equal(advanceSignup({finalStep:false}).paused,true);assert.equal(submits,1);
   buttons=[{type:'button',innerText:'Next',getClientRects:()=>[{}],click:()=>{}}];assert.equal(advanceSignup({finalStep:false}).advanced,true);assert.equal(submits,1);
- }finally{globalThis.document=previous;}
+ }finally{globalThis.document=previous;globalThis.getComputedStyle=previousStyle;}
 });
 
 test('an uncertain ordinary-site submit attempt is persisted and never automatically repeated',async t=>{
  const f=fixture(t),step=f.s.capture({url:'https://example.org/register',terms:'',fields:[{key:'id:name',id:'name',label:'Name',type:'text'}]});let pending={draft:{formUrl:step.url,steps:[{...step,answers:{'id:name':'Test'}}]},tabId:1,expires:Date.now()+100000,autoSubmit:true},attempts=0;
  const storage={get:async()=>pending,set:async(_k,v)=>pending=v},browser={tabs:{get:async()=>({url:step.url})},permissions:{contains:async()=>true},scripting:{executeScript:async o=>{if(o.func.name==='captureSignupForm')return [{result:step}];if(o.func.name==='restoreSignupAnswers')return [{result:['Name restored']}];if(o.func.name==='advanceSignup'){attempts++;throw Error('Navigation interrupted response');}return [{result:null}];}}};
  await assert.rejects(fillPendingSignup({browser,storage,tabId:1}),/interrupted/);await fillPendingSignup({browser,storage,tabId:1,force:true});assert.equal(attempts,1);
+});
+
+test('paused automation resumes after a manual attachment without overwriting answers',async()=>{
+ const step={url:'https://example.org/register',terms:'',stepToken:'project-panel',fields:[{key:'id:project',id:'project',label:'Project',type:'text'}]};
+ let pending={draft:{formUrl:step.url,steps:[{...step,answers:{'id:project':'Test'}}]},tabId:1,expires:Date.now()+100000,autoSubmit:true},restores=0,attempts=0,attached=false;
+ const storage={get:async()=>pending,set:async(_k,v)=>pending=v},browser={tabs:{get:async()=>({url:step.url})},permissions:{contains:async()=>true},scripting:{executeScript:async o=>{if(o.func.name==='captureSignupForm')return [{result:step}];if(o.func.name==='restoreSignupAnswers'){restores++;return [{result:['Project restored']}];}if(o.func.name==='advanceSignup'){attempts++;return [{result:attached?{attempted:true}:{paused:true,message:'Attach required file'}}];}return [{result:null}];}}};
+ await fillPendingSignup({browser,storage,tabId:1});assert.equal(pending.attempted.length,0);
+ attached=true;await fillPendingSignup({browser,storage,tabId:1});assert.equal(attempts,2);assert.equal(restores,1);
+ await fillPendingSignup({browser,storage,tabId:1});assert.equal(attempts,2);
 });

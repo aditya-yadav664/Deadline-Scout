@@ -20,6 +20,7 @@ export class Signups {
   const step={url,formIndex:Number.isInteger(input.formIndex)&&input.formIndex>=0&&input.formIndex<100?input.formIndex:0,title:String(input.title||'Signup').slice(0,200),capturedAt:typeof input.capturedAt==='string'&&Number.isFinite(Date.parse(input.capturedAt))?input.capturedAt:new Date().toISOString(),terms:String(input.terms||'').slice(0,8000),warnings:(input.warnings||[]).slice(0,30).map(String),fields:input.fields.map(f=>{
    if(!f.key||!['text','email','tel','url','textarea','select','radio','file','number','date'].includes(f.type))throw fail('Unsupported captured field.');
    return {key:String(f.key).slice(0,300),id:String(f.id||'').slice(0,200),name:String(f.name||'').slice(0,200),label:String(f.label||'Field').slice(0,300),help:String(f.help||'').slice(0,1500),type:f.type,required:!!f.required,options:(f.options||[]).slice(0,100).map(o=>({value:String(o.value).slice(0,500),label:String(o.label).slice(0,500)})),accept:String(f.accept||'').slice(0,200),multiple:!!f.multiple,maxBytes:Number(f.maxBytes)||null,maxLength:Number(f.maxLength)||null,pattern:String(f.pattern||'').slice(0,500),min:String(f.min||''),max:String(f.max||'')};})};
+  step.stepToken=String(input.stepToken||'').slice(0,300);
   if(new Set(step.fields.map(f=>f.key)).size!==step.fields.length)throw fail('Ambiguous fields. Capture a smaller step.');return {...step,signature:hash(formSignature(step))};
  }
  validate(owner,d){
@@ -65,7 +66,7 @@ export class Signups {
   if(match[2]==='steps'){
    if(['Confirmed','Already registered','Cancelled'].includes(d.status))throw fail('Choose an active signup draft.');
    const incoming=this.capture(b.step);if(new URL(incoming.url).origin!==new URL(d.formUrl).origin)throw fail('This form is on another site. Start a separate signup.');
-   const identity=s=>JSON.stringify([s.url,s.formIndex||0,s.fields.map(f=>f.key).sort()]),index=d.steps.findIndex(s=>identity(s)===identity(incoming));
+   const identity=s=>JSON.stringify([s.url,s.formIndex||0,s.fields.map(f=>f.key).sort()]),index=d.steps.findIndex(s=>identity(s)===identity(incoming)&&(!s.stepToken||!incoming.stepToken||s.stepToken===incoming.stepToken));
    const step={...incoming,answers:b.step.answers||{},sources:b.step.sources||{},files:{},sharing:{}};
    if(index>=0){const old=d.steps[index];for(const f of step.fields){if(!validateAnswer(f,old.answers?.[f.key]))step.answers[f.key]=old.answers?.[f.key]||'';if(f.type==='file'&&!validateFiles(f,old.files?.[f.key]||[]))step.files[f.key]=old.files?.[f.key]||[];}d.steps[index]=step;}else{if(d.steps.length>=12)throw fail('Maximum 12 captured steps.');d.steps.push(step);}
    if(/^[a-p]{32}$/.test(b.extensionId))d.extensionId=b.extensionId;d.status='Draft';d.reviewedAll=false;d.revision=(d.revision||0)+1;this.cancelNotices(owner,d.id);return this.save(owner,d);

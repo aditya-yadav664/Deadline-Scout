@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Deadline Scout",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "description": "Track registration deadlines, see what changed, and keep your plans in sync.",
   "minimum_chrome_version": "120",
   "permissions": [
@@ -53,5 +53,18 @@
       "http://localhost/*",
       "http://127.0.0.1/*"
     ]
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://deadline-scout.vercel.app/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "website-bridge.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }

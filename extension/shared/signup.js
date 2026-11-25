@@ -49,7 +49,10 @@ export function captureSignupForm(formIndex=0){
  }
  for(const frame of document.querySelectorAll('iframe'))if(visible(frame))warnings.push('Embedded form: open it directly and capture it separately if you have access.');
  const terms=[...root.querySelectorAll('label,a')].filter(visible).filter(n=>/terms|consent|privacy|agree/i.test(n.innerText)).map(n=>(n.innerText+' '+(n.href||'')).trim()).join('\n').slice(0,8000);
- return {formIndex,formChoices:forms.map((f,i)=>({index:i,label:(f.getAttribute('aria-label')||f.id||'Form '+(i+1))+' · '+f.querySelectorAll('input,textarea,select').length+' controls'})),url:location.href,title:document.title,fields:fields.slice(0,100),terms,warnings,capturedAt:new Date().toISOString()};
+ const active=[...root.querySelectorAll('[role=tabpanel], [aria-labelledby], [id]')].filter(visible).find(el=>el.getAttribute('role')==='tabpanel'||/step.*panel|panel.*step/i.test(el.id));
+ const selected=[...document.querySelectorAll('[role=tab][aria-selected=true], [aria-current=step]')].find(visible);
+ const stepToken=active?.id||selected?.id||selected?.textContent?.trim()||'';
+ return {formIndex,stepToken,formChoices:forms.map((f,i)=>({index:i,label:(f.getAttribute('aria-label')||f.id||'Form '+(i+1))+' · '+f.querySelectorAll('input,textarea,select').length+' controls'})),url:location.href,title:document.title,fields:fields.slice(0,100),terms,warnings,capturedAt:new Date().toISOString()};
 }
 export function restoreSignupAnswers({step,answers}){
  const forms=[...document.forms].filter(f=>!!f.getClientRects().length&&f.querySelector('input,textarea,select')).sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length),root=forms[step.formIndex||0]||document;
