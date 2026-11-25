@@ -70,3 +70,17 @@ test('receipt observer requires organizer confirmation and an identifier, not a 
  await page.setContent('<h1>Review registration</h1><p>Receipt ID: TEST-123</p><button type="submit">Submit</button>');assert.equal(await page.evaluate(inspectSignupReceipt),null);
  await page.setContent('<h1>Registration failed</h1><p>Try again</p>');assert.equal(await page.evaluate(inspectSignupReceipt),null);
 });
+
+import {finalReviewPlan} from '../extension/shared/signup-resume.js';
+test('uncaptured button-only review and JavaScript Submit controls submit after all saved fields are visited', {skip:!executablePath},async t=>{
+ const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());const page=await browser.newPage();
+ await page.setContent('<form><label>Name<input id="name" required></label></form>');const step=await page.evaluate(captureSignupForm);const pending={autoSubmit:true,visited:[0],draft:{steps:[{...step,answers:{"id:name":"Fictional tester"}}]}};
+ await page.setContent('<h1>Review registration</h1><form><button type="submit">Submit Registration →</button></form><script>window.submits=0;document.forms[0].onsubmit=e=>{e.preventDefault();window.submits++}</script>');
+ const live=await page.evaluate(captureSignupForm);assert.equal(live.fields.length,0);assert.equal(finalReviewPlan(pending,live,live).review,true);
+ assert.equal((await page.evaluate(advanceSignup,{finalStep:true,allowSubmit:false})).paused,true);assert.equal(await page.evaluate(()=>window.submits),0);
+ assert.equal((await page.evaluate(advanceSignup,{finalStep:true})).attempted,true);assert.equal(await page.evaluate(()=>window.submits),1);
+ await page.setContent('<h1>Review registration</h1><button type="button" onclick="window.submits++">Submit registration</button><script>window.submits=0</script>');
+ assert.equal((await page.evaluate(advanceSignup,{finalStep:true})).attempted,true);assert.equal(await page.evaluate(()=>window.submits),1);
+ await page.setContent('<form><label>Unanswered<input required></label><button type="button">Submit registration</button></form>');assert.equal((await page.evaluate(advanceSignup,{finalStep:true})).paused,true);
+ await page.setContent('<button type="button">Submit</button><button type="button">Submit registration</button>');assert.equal((await page.evaluate(advanceSignup,{finalStep:true})).paused,true);
+});

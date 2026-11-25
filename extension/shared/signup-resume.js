@@ -4,7 +4,7 @@ export function finalReviewPlan(pending,live,all){
  if(!pending.autoSubmit||live.fields.length||!pending.draft.steps.every((s,i)=>!s.fields.length||pending.visited?.includes(i)))return null;
  if(all.warnings?.some(w=>/Unfamiliar control|Ambiguous control|Multiple forms/.test(w)))return null;
  const known=pending.draft.steps.flatMap(s=>s.fields),constraints=f=>JSON.stringify([f.key,f.type,!!f.required,f.options||[],f.accept||'',!!f.multiple,f.maxLength||null,f.pattern||'',f.min||'',f.max||'']);
- if(!known.length||known.filter(f=>f.required).some(f=>!all.fields.some(n=>n.key===f.key)))return null;
+ if(!known.length||all.fields.length&&known.filter(f=>f.required).some(f=>!all.fields.some(n=>n.key===f.key)))return null;
  if(all.fields.some(f=>!known.some(k=>constraints(f)===constraints(k))))return null;
  if(live.terms&&!pending.draft.steps.some(s=>s.terms===live.terms))return null;
  return {index:pending.draft.steps.length,review:true,step:{...live,fields:[]},answers:{},signature:formSignature(live),warnings:[]};
@@ -31,22 +31,23 @@ export function showSignupProgress({message,nextUrl}){
  let panel=document.getElementById('deadline-scout-fill-status');if(!panel){panel=document.createElement('aside');panel.id='deadline-scout-fill-status';panel.setAttribute('role','status');panel.style.cssText='position:fixed;bottom:16px;right:16px;z-index:2147483647;background:#102b37;color:white;padding:16px;border:1px solid #00dce9;border-radius:12px;max-width:340px;font:14px/1.5 system-ui;box-shadow:0 8px 30px #0007';document.body.append(panel);}
  panel.replaceChildren(document.createTextNode(message));if(nextUrl){const a=document.createElement('a');a.href=nextUrl;a.textContent='Open next captured page →';a.style.cssText='display:block;color:#66edff;margin-top:10px';panel.append(a);}const close=document.createElement('button');close.textContent='Dismiss';close.style.cssText='display:block;margin-top:10px';close.onclick=()=>panel.remove();panel.append(close);
 }
-export function advanceSignup({finalStep,formIndex=0}){
+export function advanceSignup({finalStep,formIndex=0,allowSubmit=true}){
  const visible=el=>!!el.getClientRects().length&&getComputedStyle(el).visibility!=='hidden';
- const forms=[...document.forms].filter(f=>visible(f)&&f.querySelector('input,textarea,select')).sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length),form=forms[formIndex];
- if(!form)return {paused:true,message:'No unique form is available. Finish this page manually.'};
- const buttons=[...form.querySelectorAll('button,input[type=submit]')].filter(b=>visible(b)&&!b.disabled);
+ const forms=[...document.forms].filter(f=>visible(f)&&f.querySelector('input,textarea,select,button')).sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length),form=forms[formIndex],root=form||document;
+ if(!form&&!finalStep)return {paused:true,message:'No unique form is available. Finish this page manually.'};
+ const buttons=[...new Set([...root.querySelectorAll('button,input[type=submit]'),...root.querySelectorAll('[role=button]')])].filter(b=>visible(b)&&!b.disabled&&b.getAttribute?.('aria-disabled')!=='true');
  const next=buttons.filter(b=>b.type==='button'&&(/^(?:next|continue)(?:\s+(?:(?:to\s+)?(?:[\w &-]+)))?\s*[→›]?$/i.test((b.innerText||b.value||'').trim())&&!/pay|checkout|submit|register|purchase/i.test(b.innerText||b.value||'')||/^review(?:\s+(?:submission|answers|details|application))?$/i.test((b.innerText||b.value||'').trim())));
  if(next.length)finalStep=false;
- if([...form.querySelectorAll('input[type=password],input[autocomplete=one-time-code],iframe[src*=captcha],input[name*=captcha],textarea[name*=captcha]')].some(visible)||[...document.querySelectorAll('iframe[src*=recaptcha],iframe[src*=hcaptcha],.g-recaptcha,.h-captcha')].some(visible))return {paused:true,message:'Sign-in, OTP or CAPTCHA requires your action.'};
- if(/\b(?:checkout|pay now|payment required|registration fee|card number|credit card)\b/i.test(form.innerText))return {paused:true,message:'Payment or a fee needs your review.'};
- if([...form.querySelectorAll('input[type=file]')].some(f=>(finalStep||visible(f))&&f.required&&!f.files?.length))return {paused:true,message:'Attach the required files before submission.'};
- if([...form.querySelectorAll('input[type=checkbox]')].some(c=>(finalStep||visible(c))&&!c.checked&&(c.required||/agree|consent|terms/i.test(c.labels?.[0]?.innerText||''))))return {paused:true,message:'Review and complete consent yourself.'};
- if(finalStep?!form.checkValidity():[...form.querySelectorAll('input,textarea,select')].filter(visible).some(el=>el.willValidate&&!el.checkValidity()))return {paused:true,message:'The site reports incomplete or invalid answers. Review the highlighted fields.'};
+ if([...root.querySelectorAll('input[type=password],input[autocomplete=one-time-code],iframe[src*=captcha],input[name*=captcha],textarea[name*=captcha]')].some(visible)||[...document.querySelectorAll('iframe[src*=recaptcha],iframe[src*=hcaptcha],.g-recaptcha,.h-captcha')].some(visible))return {paused:true,message:'Sign-in, OTP or CAPTCHA requires your action.'};
+ if(/\b(?:checkout|pay now|payment required|registration fee|card number|credit card)\b/i.test(root.innerText||document.body?.innerText||''))return {paused:true,message:'Payment or a fee needs your review.'};
+ if([...root.querySelectorAll('input[type=file]')].some(f=>(finalStep||visible(f))&&f.required&&!f.files?.length))return {paused:true,message:'Attach the required files before submission.'};
+ if([...root.querySelectorAll('input[type=checkbox]')].some(c=>(finalStep||visible(c))&&!c.checked&&(c.required||/agree|consent|terms/i.test(c.labels?.[0]?.innerText||''))))return {paused:true,message:'Review and complete consent yourself.'};
+ if(finalStep&&form?!form.checkValidity():[...root.querySelectorAll('input,textarea,select')].filter(visible).some(el=>el.willValidate&&!el.checkValidity()))return {paused:true,message:'The site reports incomplete or invalid answers. Review the highlighted fields.'};
  if(!finalStep||next.length){if(next.length!==1)return {paused:true,message:'Use the site’s Next button. Deadline Scout will fill the next matching step.'};next[0].click();return {advanced:true,message:'Moved to the next form step.'};}
- const submit=buttons.filter(b=>b.type==='submit'&&/^(?:register|register now|submit|submit registration|submit application|sign up|complete registration)$/i.test((b.innerText||b.value||'').trim()));
+ if(!allowSubmit)return {paused:true,message:'Some captured answer pages have not been filled yet.'};
+ const submit=buttons.filter(b=>/^(?:register(?: now)?|submit(?: (?:registration|application|form))?|sign up|(?:complete|finish|confirm) (?:registration|application))$/i.test((b.innerText||b.value||b.getAttribute?.('aria-label')||'').replace(/[→›✓✔]/g,'').replace(/\s+/g,' ').trim()));
  if(submit.length!==1)return {paused:true,message:'No unique registration Submit button was found. Submit manually.'};
- form.requestSubmit(submit[0]);return {attempted:true,message:'Submission requested once. Verify the organizer’s confirmation; Deadline Scout has not confirmed registration.'};
+ if(form&&submit[0].type==='submit')form.requestSubmit(submit[0]);else submit[0].click();return {attempted:true,message:'Submission requested once. Verify the organizer’s confirmation; Deadline Scout has not confirmed registration.'};
 }
 const filling=new Set();
 export async function fillPendingSignup({browser,storage,tabId,force=false,preferredIndex}){
@@ -75,7 +76,7 @@ export async function fillPendingSignup({browser,storage,tabId,force=false,prefe
  if(!alreadyFilled)pending.lastProgressAt=Date.now();pending.filled=[...new Set([...pending.filled,key])];await storage.set('signupResume',pending);
  if(!plan.warnings.length&&!attachmentResult.blocked&&!result.result.some(line=>/ambiguous or missing/.test(line))){pending.visited=[...new Set([...(pending.visited||[]),plan.index])];await storage.set('signupResume',pending);}
  let execution;
- if(pending.autoSubmit&&!plan.warnings.length&&!attachmentResult.blocked&&!result.result.some(line=>/ambiguous or missing/.test(line))){pending.attempted||=[];if(!pending.attempted.includes(key)&&!pending.submissionRequested){pending.attempted.push(key);pending.dispatching=true;await storage.set('signupResume',pending);const [attempt]=await browser.scripting.executeScript({target:{tabId},func:advanceSignup,args:[{finalStep:plan.review||plan.index===pending.draft.steps.length-1,formIndex:plan.step.formIndex||0}]});execution=attempt.result;pending.dispatching=false;if(execution?.paused){pending.attempted=pending.attempted.filter(k=>k!==key);}if(execution?.attempted){pending.submissionRequested=true;pending.submittedAt=Date.now();}await storage.set('signupResume',pending);}}
+ if(pending.autoSubmit&&!plan.warnings.length&&!attachmentResult.blocked&&!result.result.some(line=>/ambiguous or missing/.test(line))){pending.attempted||=[];if(!pending.attempted.includes(key)&&!pending.submissionRequested){pending.attempted.push(key);pending.dispatching=true;await storage.set('signupResume',pending);const [attempt]=await browser.scripting.executeScript({target:{tabId},func:advanceSignup,args:[{finalStep:plan.review||plan.index===pending.draft.steps.length-1,allowSubmit:pending.draft.steps.every((s,i)=>!s.fields.length||pending.visited?.includes(i)),formIndex:plan.step.formIndex||0}]});execution=attempt.result;pending.dispatching=false;if(execution?.paused){pending.attempted=pending.attempted.filter(k=>k!==key);}if(execution?.attempted){pending.submissionRequested=true;pending.submittedAt=Date.now();}await storage.set('signupResume',pending);}}
  await browser.scripting.executeScript({target:{tabId},func:watchSignupStep});
  const nextUrl=pending.draft.steps[plan.index+1]?.url;
  await browser.scripting.executeScript({target:{tabId},func:showSignupProgress,args:[{message:'Deadline Scout · '+(plan.review?'Final review':('step '+(plan.index+1)+' of '+pending.draft.steps.length))+'. '+[...result.result,...plan.warnings].join(' ')+' '+(execution?.message||'Finish consent, attachments and submission yourself.'),nextUrl:nextUrl!==tab.url?nextUrl:undefined}]});return {ok:true,execution,report:[...result.result,...plan.warnings,...(execution?.message?[execution.message]:[])]};

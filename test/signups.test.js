@@ -137,7 +137,7 @@ test('background jobs claim once, stop after deletion or reapproval, and report 
 test('final review needs all approved steps visited and rejects new fields or changed terms',()=>{
  const field={key:'id:name',type:'text',required:true},step={url:'https://example.org/form',fields:[field],terms:''},pending={autoSubmit:true,draft:{steps:[step]},visited:[0]},live={...step,fields:[]};
  assert.equal(finalReviewPlan(pending,live,step).review,true);assert.equal(finalReviewPlan({...pending,visited:[]},live,step),null);
- assert.equal(finalReviewPlan(pending,live,{...step,fields:[field,{key:'id:new',type:'text'}]}),null);assert.equal(finalReviewPlan(pending,{...live,terms:'New agreement'},step),null);assert.equal(finalReviewPlan(pending,live,{...step,fields:[]}),null);
+ assert.equal(finalReviewPlan(pending,live,{...step,fields:[field,{key:'id:new',type:'text'}]}),null);assert.equal(finalReviewPlan(pending,{...live,terms:'New agreement'},step),null);assert.equal(finalReviewPlan(pending,live,{...step,fields:[]}).review,true);
 });
 
 import {startSignupSession,pollSignupJobs} from '../extension/shared/signup-background.js';
