@@ -37,7 +37,8 @@ async function refresh(){
     }else{tracks=[];me={};}
     await storage.set('cachedTracks',tracks);
   }catch(e){connected=false;tracks=(await storage.get('cachedTracks')||[]).map(t=>({...t,cached:true}));}
-  changes=[...new Map([...changes,...await storage.get('localChanges')||[]].map(c=>[c.id,c])).values()].sort((a,b)=>b.at.localeCompare(a.at));render();
+  const activeTrackIds=new Set([...tracks,...localTracks].map(t=>t.id));
+  changes=[...new Map([...changes,...await storage.get('localChanges')||[]].filter(c=>activeTrackIds.has(c.trackId)).map(c=>[c.id,c])).values()].sort((a,b)=>b.at.localeCompare(a.at));render();
 }
 const statusLabels={watching:['Watching',''],changed:['Date updated','warn'],conflict:['Sources disagree','warn'],needs_review:['Review date','warn'],check_failed:['Check failed','warn'],date_missing:['Date missing','warn'],manual:['Manual reminder','neutral']};
 function render(){
@@ -187,7 +188,12 @@ function manageDialog(t){
     if(t.local){Object.assign(t,changes);await storage.set('localTracks',localTracks);}else await api('/api/tracks/'+t.id,'PATCH',changes);
     closeDialog();await refresh();toast('Preferences saved.');
   });
-  $('#delete-track').onclick=e=>run(e.currentTarget,async()=>{if(t.local){localTracks=localTracks.filter(l=>l.id!==t.id);await storage.set('localTracks',localTracks);}else await api('/api/tracks/'+t.id,'DELETE');closeDialog();await refresh();});
+  $('#delete-track').onclick=e=>run(e.currentTarget,async()=>{
+    workspaceEpoch++;if(!t.local)await api('/api/tracks/'+t.id,'DELETE');workspaceEpoch++;
+    tracks=tracks.filter(track=>track.id!==t.id);localTracks=localTracks.filter(track=>track.id!==t.id);changes=changes.filter(change=>change.trackId!==t.id);openTracks.delete(t.id);
+    await storage.set('localTracks',localTracks);await storage.set('localChanges',(await storage.get('localChanges')||[]).filter(change=>change.trackId!==t.id));await storage.set('cachedTracks',(await storage.get('cachedTracks')||[]).filter(track=>track.id!==t.id));
+    closeDialog();render();await refresh();
+  });
 }
 async function localCheck(t,button){
   if(!isExtension)throw new Error('Local checks are available in the browser extension.');

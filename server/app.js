@@ -57,6 +57,7 @@ export function createApp(options={}) {
   function session(owner) {const token=randomToken();store.put('_system','session',hash(token),{owner,expires:Date.now()+30*86400000});return token;}
   async function body(req) {let bytes=0,chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>300000)throw fail('Request too large.',413);chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{throw fail('Invalid JSON.');}}
   function profileFor(owner) {return store.get(owner,'profile','me')||{email:'',emailEnabled:false,emailVerified:false};}
+  function changesFor(owner){const active=new Set(store.list(owner,'track').map(t=>t.id));return store.list(owner,'change').filter(c=>active.has(c.trackId)).sort((a,b)=>b.at.localeCompare(a.at));}
   function enrich(owner,t) {return {...t,googleLinks:store.list(owner,'googleLink').filter(l=>l.trackId===t.id)};}
   const buckets=new Map();
   const server=http.createServer(async(req,res)=>{
@@ -136,7 +137,7 @@ export function createApp(options={}) {
           const deleted=store.transaction(()=>store.clearKinds(owner,['track','change','delivery','googleLink']));return send({ok:true,deleted});
         }
         if(path==='/api/logout'&&req.method==='POST'){store.remove('_system','session',hash(token));return send({ok:true});}
-        if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {const p=profileFor(owner),me={displayName:p.displayName||p.googleName||'',email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local};return send(path==='/api/me'?me:{me,tracks:store.list(owner,'track').map(t=>enrich(owner,t)),changes:store.list(owner,'change').sort((a,b)=>b.at.localeCompare(a.at))});}
+        if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {const p=profileFor(owner),me={displayName:p.displayName||p.googleName||'',email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local};return send(path==='/api/me'?me:{me,tracks:store.list(owner,'track').map(t=>enrich(owner,t)),changes:changesFor(owner)});}
         if(path==='/api/profile/google-name'&&req.method==='POST'){
           let p=profileFor(owner);if(!p.googleName&&p.google){const info=await google.api(owner,'https://openidconnect.googleapis.com/v1/userinfo');p=profileFor(owner);if(typeof info.name==='string'){p.googleName=info.name.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,80);store.put(owner,'profile','me',p);}}
           return send({displayName:p.displayName||p.googleName||''});
@@ -204,7 +205,15 @@ export function createApp(options={}) {
             }finally{engine.locks.delete(lock);}
             return send(enrich(owner,await engine.check(owner,id)));
           }
-          if(!action&&req.method==='DELETE'){if(engine.locks.has(owner+':'+id))throw fail('Wait for the current check.');store.remove(owner,'track',id);return send({ok:true});}
+          if(!action&&req.method==='DELETE'){
+            if(engine.locks.has(owner+':'+id)||engine.delivering.has(owner))throw fail('Wait for the current check or delivery.',409);
+            store.transaction(()=>{
+              const related=store.list(owner,'change').filter(c=>c.trackId===id),changeIds=new Set(related.map(c=>c.id));
+              store.remove(owner,'track',id);for(const c of related)store.remove(owner,'change',c.id);
+              for(const d of store.list(owner,'delivery').filter(d=>changeIds.has(d.changeId))){if(d.channel==='browser')store.remove(owner,'delivery',d.id);else if(['queued','retry','sending'].includes(d.status))store.put(owner,'delivery',d.id,{...d,status:'cancelled',error:'Registration removed; alert cancelled.'});}
+              for(const link of store.list(owner,'googleLink').filter(l=>l.trackId===id))store.remove(owner,'googleLink',link.id);
+            });return send({ok:true});
+          }
           if(!action&&req.method==='PATCH'){
             if(engine.locks.has(owner+':'+id))throw fail('Wait for the current operation.');const b=await body(req);
             if(b.intervalMinutes!==undefined){if(!Number.isInteger(b.intervalMinutes)||b.intervalMinutes<5||b.intervalMinutes>10080)throw fail('Choose an interval between 5 minutes and 7 days.');t.intervalMinutes=b.intervalMinutes;t.nextCheck=Date.now()+b.intervalMinutes*60000;}
@@ -237,9 +246,9 @@ export function createApp(options={}) {
             try{return send(await google.perform(owner,t,m,b.channel,minutes));}finally{engine.locks.delete(lock);}
           }
         }
-        if(path==='/api/changes'&&req.method==='GET')return send(store.list(owner,'change').sort((a,b)=>b.at.localeCompare(a.at)));
+        if(path==='/api/changes'&&req.method==='GET')return send(changesFor(owner));
         if(path==='/api/deliveries'&&req.method==='GET')return send(store.list(owner,'delivery'));
-        if(path==='/api/alerts'&&req.method==='GET')return send(store.list(owner,'delivery').filter(d=>d.channel==='browser'&&d.status==='queued').map(d=>({...d,change:store.get(owner,'change',d.changeId)})));
+        if(path==='/api/alerts'&&req.method==='GET'){const active=new Map(changesFor(owner).map(c=>[c.id,c]));return send(store.list(owner,'delivery').filter(d=>d.channel==='browser'&&d.status==='queued'&&active.has(d.changeId)).map(d=>({...d,change:active.get(d.changeId)})));}
         if(path==='/api/alerts/ack'&&req.method==='POST'){const b=await body(req),d=store.get(owner,'delivery',b.id);if(d?.channel==='browser'){d.status='shown';store.put(owner,'delivery',d.id,d);}return send({ok:true});}
         if(path==='/api/demo'&&req.method==='POST'){
           if(!loopback||env.ENABLE_DEMO==='false')throw fail('Demo fixtures are disabled.',403);const b=await body(req);if(!['original','changed','conflict','failed','reworded'].includes(b.mode))throw fail('Invalid demo state.');store.put('_system','demo','state',{mode:b.mode});return send({ok:true});

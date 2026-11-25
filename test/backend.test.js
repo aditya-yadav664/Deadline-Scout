@@ -229,3 +229,31 @@ test('existing accounts inherit the Google name without overriding an edited pro
  await f.request('/api/me','PATCH',{displayName:''});assert.equal((await f.request('/api/me')).data.displayName,'Google Default Name');
  assert.equal((await f.request('/api/profile/google-name','POST',{},'wrong')).status,401);
 });
+
+test('removing a registration deletes its timeline and pending browser alerts without touching other events or accounts',async t=>{
+ const f=await fixture(t),track=await f.track();await f.request('/api/demo','POST',{mode:'changed'});await f.request('/api/tracks/'+track.id+'/check','POST',{});
+ const change=(await f.request('/api/changes')).data[0];assert.ok(change);
+ const kept=(await f.request('/api/tracks','POST',{title:'Keep this event',url:'https://example.com/keep',milestones:[{kind:'event',date:'2027-06-12',quote:'Event date 12 June 2027',sourceUrl:'https://example.com/keep'}]})).data;
+ f.store.put('local-demo','change','keep-change',{...change,id:'keep-change',trackId:kept.id});
+ f.store.put('local-demo','delivery','pending-email',{id:'pending-email',changeId:change.id,channel:'email',status:'queued',nextTry:0,to:'demo@localhost'});
+ f.store.put('local-demo','googleLink','removed-link',{id:'removed-link',trackId:track.id});
+ f.store.put('other-account','change',change.id,change);
+ f.engine.delivering.add('local-demo');assert.equal((await f.request('/api/tracks/'+track.id,'DELETE')).status,409);f.engine.delivering.delete('local-demo');
+ assert.equal((await f.request('/api/tracks/'+track.id,'DELETE',undefined,'wrong')).status,401);
+ assert.equal((await f.request('/api/tracks/'+track.id,'DELETE')).status,200);
+ assert.deepEqual((await f.request('/api/changes')).data.map(c=>c.id),['keep-change']);assert.deepEqual((await f.request('/api/workspace')).data.changes.map(c=>c.id),['keep-change']);assert.equal((await f.request('/api/alerts')).data.length,0);
+ assert.equal(f.store.get('local-demo','change',change.id),null);assert.equal(f.store.get('local-demo','googleLink','removed-link'),null);assert.equal(f.store.get('local-demo','delivery','pending-email').status,'cancelled');
+ assert.ok(f.store.get('local-demo','track',kept.id));assert.ok(f.store.get('other-account','change',change.id));assert.ok(f.store.list('local-demo','delivery').some(d=>d.channel==='email'&&d.status==='demo'));
+});
+test('legacy orphan timeline entries and alerts stay hidden when a deleted event is tracked again',async t=>{
+ let sent=0;const f=await fixture(t,{email:{mode:'demo',send:async()=>{sent++;return {status:'demo'};}}});
+ const c={id:'old-change',trackId:'deleted-track',title:'Orbit Hack 2026',at:new Date().toISOString()};f.store.put('local-demo','change',c.id,c);
+ f.store.put('local-demo','delivery','old-browser',{id:'old-browser',channel:'browser',status:'queued',changeId:c.id});f.store.put('local-demo','delivery','old-email',{id:'old-email',channel:'email',status:'queued',changeId:c.id,nextTry:0,to:'demo@localhost'});
+ await f.track();assert.deepEqual((await f.request('/api/changes')).data,[]);assert.deepEqual((await f.request('/api/workspace')).data.changes,[]);assert.deepEqual((await f.request('/api/alerts')).data,[]);
+ await f.engine.deliver('local-demo');assert.equal(sent,0);assert.equal(f.store.get('local-demo','delivery','old-email').status,'cancelled');
+});
+test('a failed timeline cleanup rolls back registration deletion',async t=>{
+ const f=await fixture(t),track=await f.track();await f.request('/api/demo','POST',{mode:'changed'});await f.request('/api/tracks/'+track.id+'/check','POST',{});
+ const remove=f.store.remove.bind(f.store);f.store.remove=(owner,kind,id)=>{if(kind==='change')throw Error('simulated cleanup failure');return remove(owner,kind,id);};
+ assert.equal((await f.request('/api/tracks/'+track.id,'DELETE')).status,400);assert.ok(f.store.get('local-demo','track',track.id));assert.equal((await f.request('/api/changes')).data.length,1);
+});

@@ -40,6 +40,7 @@ export class Engine {
   async deliver(owner) {
     if(this.delivering.has(owner))return;this.delivering.add(owner);
     try{for(const d of this.store.list(owner,'delivery').filter(d=>d.channel==='email'&&['queued','retry','sending'].includes(d.status)&&d.nextTry<=Date.now())) {
+      if(d.changeId){const change=this.store.get(owner,'change',d.changeId);if(!change||!this.store.get(owner,'track',change.trackId)){d.status='cancelled';d.error='Registration removed; alert cancelled.';this.store.put(owner,'delivery',d.id,d);continue;}}
       const p=this.store.get(owner,'profile','me');
       if(!p?.emailEnabled||!(p.emailVerified||this.email.mode==='demo'&&p.local)||p.email!==d.to){d.status='cancelled';this.store.put(owner,'delivery',d.id,d);continue;}
       // Brevo's idempotency window is 15 minutes. Never auto-retry an
