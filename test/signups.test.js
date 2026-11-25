@@ -109,3 +109,13 @@ test('paused automation resumes after a manual attachment without overwriting an
  attached=true;await fillPendingSignup({browser,storage,tabId:1});assert.equal(attempts,2);assert.equal(restores,1);
  await fillPendingSignup({browser,storage,tabId:1});assert.equal(attempts,2);
 });
+
+test('saved PDF downloads require the owner, reviewed active draft and immutable file reference',async t=>{
+ const f=fixture(t),d=await draft(f),ref=d.steps[0].files['id:proposal'][0],path='/api/signups/'+d.id+'/files/'+ref.id;
+ const file=await f.s.route('alice',path,'GET',{});assert.equal(file.name,'proposal.pdf');assert.ok(Buffer.from(file.data,'base64').subarray(0,5).equals(Buffer.from('%PDF-')));
+ await assert.rejects(f.s.route('bob',path,'GET',{}),/not found/);
+ const other=f.s.file('alice',{name:'other.pdf',data:Buffer.from('%PDF-test other').toString('base64')});await assert.rejects(f.s.route('alice','/api/signups/'+d.id+'/files/'+other.id,'GET',{}),/missing/);
+ d.reviewedAll=false;f.s.save('alice',d);await assert.rejects(f.s.route('alice',path,'GET',{}),/review/);
+ d.reviewedAll=true;f.s.save('alice',d);const saved=f.store.get('alice','signupFile',ref.id);saved.expires=0;f.store.put('alice','signupFile',ref.id,saved);await assert.rejects(f.s.route('alice',path,'GET',{}),/expired/);
+ assert.throws(()=>f.s.file('alice',{name:'bad.pdf',data:Buffer.alloc(2*1024*1024+1).toString('base64')}),/2 MB/);
+});

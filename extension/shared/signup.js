@@ -58,7 +58,7 @@ export function restoreSignupAnswers({step,answers}){
  const forms=[...document.forms].filter(f=>!!f.getClientRects().length&&f.querySelector('input,textarea,select')).sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length),root=forms[step.formIndex||0]||document;
  const controls=[...root.querySelectorAll('input,textarea,select')].filter(el=>!!el.getClientRects().length),report=[];
  for(const field of step.fields){
-  if(field.type==='file'){report.push(field.label+': attach the approved file manually.');continue;}
+  if(field.type==='file'){report.push(field.label+': checking saved attachment; files not saved as PDFs need manual attachment.');continue;}
   let matches=controls.filter(el=>field.id?el.id===field.id:field.name?el.name===field.name:(el.labels?.[0]?.innerText||el.getAttribute('aria-label')||el.placeholder||'').trim()===field.label);
   matches=matches.filter(el=>(el.tagName==='TEXTAREA'?'textarea':el.tagName==='SELECT'?'select':el.type)===field.type&&!el.disabled&&!el.readOnly);
   if(field.type==='radio')matches=matches.filter(el=>el.value===String(answers[field.key]||''));

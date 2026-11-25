@@ -30,7 +30,9 @@ export class Signups {
   if(!d.reviewedAll)throw fail('Confirm that every step and any manual actions have been reviewed.');
  }
  file(owner,input){
-  const bytes=Buffer.from(input.data||'','base64');if(bytes.length>200*1024||!bytes.length||!bytes.subarray(0,5).equals(Buffer.from('%PDF-'))||!String(input.name).toLowerCase().endsWith('.pdf'))throw fail('Demo uploads require a valid PDF, up to 200 KB.');
+  const bytes=Buffer.from(input.data||'','base64');if(bytes.length>2*1024*1024||!bytes.length||!bytes.subarray(0,5).equals(Buffer.from('%PDF-'))||!String(input.name).toLowerCase().endsWith('.pdf'))throw fail('Choose a PDF up to 2 MB.');
+  for(const old of this.store.list(owner,'signupFile'))if(old.expires<Date.now())this.store.remove(owner,'signupFile',old.id);
+  if(this.store.list(owner,'signupFile').reduce((sum,f)=>sum+f.size,0)+bytes.length>20*1024*1024)throw fail('Saved PDF storage is full (20 MB). Existing files expire after 7 days.');
   const id=randomUUID(),file={id,name:String(input.name).slice(0,200),size:bytes.length,type:'application/pdf',sha256:hash(bytes),version:id,expires:Date.now()+7*86400000};
   this.store.put(owner,'signupFile',id,{...file,sealed:this.secrets.seal({data:bytes.toString('base64')})});return file;
  }
@@ -43,6 +45,14 @@ export class Signups {
    const profile={name:String(b.name||'').slice(0,100),phone:String(b.phone||'').slice(0,80),college:String(b.college||'').slice(0,200),links:(b.links||[]).slice(0,30).map(l=>({kind:['github','repository','portfolio','video','deck'].includes(l.kind)?l.kind:'portfolio',name:String(l.name||l.kind).slice(0,80),url:safeUrl(l.url).href}))};this.store.put(owner,'signupProfile','me',{sealed:this.secrets.seal(profile)});return profile;
   }
   if(path==='/api/signup-files'&&method==='POST')return this.file(owner,b);
+  const fileMatch=path.match(/^\/api\/signups\/([\w-]+)\/files\/([\w-]+)$/);
+  if(fileMatch&&method==='GET'){
+   const d=this.read(owner,fileMatch[1]);if(!d.reviewedAll||['Deleted','Cancelled','Confirmed','Already registered'].includes(d.status))throw fail('Save and review this draft before attaching files.');
+   const ref=d.steps.flatMap(s=>s.fields.filter(f=>f.type==='file').flatMap(f=>s.files?.[f.key]||[])).find(f=>f.id===fileMatch[2]);
+   const file=ref&&this.store.get(owner,'signupFile',ref.id);if(!file||file.expires<Date.now()||file.sha256!==ref.sha256||file.version!==ref.version)throw fail('Saved PDF missing or expired. Choose it again.',404);
+   const {data}=this.secrets.open(file.sealed);if(hash(Buffer.from(data,'base64'))!==file.sha256)throw fail('Saved PDF integrity check failed.');
+   return {name:file.name,type:file.type,size:file.size,sha256:file.sha256,data};
+  }
   if(path==='/api/signups/run'&&method==='POST'){await this.tick(owner);return {ok:true};}
   if(path==='/api/signups'&&method==='GET')return this.list(owner);
   if(path==='/api/signups'&&method==='POST'){

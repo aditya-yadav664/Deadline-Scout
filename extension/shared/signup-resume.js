@@ -1,4 +1,5 @@
 import {captureSignupForm,restoreSignupAnswers,formSignature} from './signup.js';
+import {attachSignupPdfs} from './signup-files.js';
 export function resumePlan(draft,live,preferredIndex){
  const normalize=url=>{const u=new URL(url);for(const key of [...u.searchParams.keys()])if(/^utm_|^(gclid|fbclid)$/i.test(key))u.searchParams.delete(key);return u.href;};
  const same=draft.steps.map((step,index)=>({step,index})).filter(x=>preferredIndex!==undefined?x.index===preferredIndex&&new URL(x.step.url).origin===new URL(live.url).origin&&new URL(x.step.url).pathname===new URL(live.url).pathname:normalize(x.step.url)===normalize(live.url));
@@ -25,7 +26,7 @@ export function advanceSignup({finalStep,formIndex=0}){
  const forms=[...document.forms].filter(f=>visible(f)&&f.querySelector('input,textarea,select')).sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length),form=forms[formIndex];
  if(!form)return {paused:true,message:'No unique form is available. Finish this page manually.'};
  const buttons=[...form.querySelectorAll('button,input[type=submit]')].filter(b=>visible(b)&&!b.disabled);
- const next=buttons.filter(b=>b.type==='button'&&/^(?:next|continue)(?:\s+(?:(?:to\s+)?(?:[\w &-]+)))?\s*[→›]?$/i.test((b.innerText||b.value||'').trim())&&!/pay|checkout|submit|register|purchase/i.test(b.innerText||b.value||''));
+ const next=buttons.filter(b=>b.type==='button'&&(/^(?:next|continue)(?:\s+(?:(?:to\s+)?(?:[\w &-]+)))?\s*[→›]?$/i.test((b.innerText||b.value||'').trim())&&!/pay|checkout|submit|register|purchase/i.test(b.innerText||b.value||'')||/^review(?:\s+(?:submission|answers|details|application))?$/i.test((b.innerText||b.value||'').trim())));
  if(next.length)finalStep=false;
  if([...form.querySelectorAll('input[type=password],input[autocomplete=one-time-code],iframe[src*=captcha],input[name*=captcha],textarea[name*=captcha]')].some(visible)||[...document.querySelectorAll('iframe[src*=recaptcha],iframe[src*=hcaptcha],.g-recaptcha,.h-captcha')].some(visible))return {paused:true,message:'Sign-in, OTP or CAPTCHA requires your action.'};
  if(/\b(?:checkout|pay now|payment required|registration fee|card number|credit card)\b/i.test(form.innerText))return {paused:true,message:'Payment or a fee needs your review.'};
@@ -51,9 +52,16 @@ export async function fillPendingSignup({browser,storage,tabId,force=false,prefe
  const alreadyFilled=pending.filled.includes(key);
  if(!force&&alreadyFilled&&!pending.autoSubmit)return {ok:true};
  const [result]=force||!alreadyFilled?await browser.scripting.executeScript({target:{tabId},func:restoreSignupAnswers,args:[{step:plan.step,answers:plan.answers}]}):[{result:[]}];
+ let attachmentResult={report:[],blocked:false};
+ if(pending.fileSession&&(!alreadyFilled||force)){
+  const cache=(await browser.storage.session.get('signupFiles')).signupFiles;
+  const attachments=cache?.id===pending.fileSession&&cache.expires>Date.now()?cache.files.filter(f=>f.stepIndex===plan.index):[];
+  if(attachments.length){const [attached]=await browser.scripting.executeScript({target:{tabId},func:attachSignupPdfs,args:[{step:plan.step,attachments}]});attachmentResult=attached.result;}
+ }
+ result.result.push(...attachmentResult.report);
  pending.filled=[...new Set([...pending.filled,key])];await storage.set('signupResume',pending);
  let execution;
- if(pending.autoSubmit&&!plan.warnings.length){pending.attempted||=[];if(!pending.attempted.includes(key)){pending.attempted.push(key);await storage.set('signupResume',pending);const [attempt]=await browser.scripting.executeScript({target:{tabId},func:advanceSignup,args:[{finalStep:plan.index===pending.draft.steps.length-1,formIndex:plan.step.formIndex||0}]});execution=attempt.result;if(execution?.paused){pending.attempted=pending.attempted.filter(k=>k!==key);await storage.set('signupResume',pending);}}}
+ if(pending.autoSubmit&&!plan.warnings.length&&!attachmentResult.blocked){pending.attempted||=[];if(!pending.attempted.includes(key)){pending.attempted.push(key);await storage.set('signupResume',pending);const [attempt]=await browser.scripting.executeScript({target:{tabId},func:advanceSignup,args:[{finalStep:plan.index===pending.draft.steps.length-1,formIndex:plan.step.formIndex||0}]});execution=attempt.result;if(execution?.paused){pending.attempted=pending.attempted.filter(k=>k!==key);await storage.set('signupResume',pending);}}}
  await browser.scripting.executeScript({target:{tabId},func:watchSignupStep});
  const nextUrl=pending.draft.steps[plan.index+1]?.url;
  await browser.scripting.executeScript({target:{tabId},func:showSignupProgress,args:[{message:'Deadline Scout · step '+(plan.index+1)+' of '+pending.draft.steps.length+'. '+[...result.result,...plan.warnings].join(' ')+' '+(execution?.message||'Finish consent, attachments and submission yourself.'),nextUrl:nextUrl!==tab.url?nextUrl:undefined}]});return {ok:true,report:[...result.result,...plan.warnings,...(execution?.message?[execution.message]:[])]};

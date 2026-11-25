@@ -1,3 +1,4 @@
+import {approvedSessionFiles} from './shared/signup-files.js';
 import {fillPendingSignup} from './shared/signup-resume.js';
 import {handleAlertConnection} from './shared/alert-connection.js';
 import {deliverBrowserAlerts} from './shared/browser-alerts.js';
@@ -28,10 +29,12 @@ registerNotificationClick();chrome.permissions.onAdded.addListener(permissions=>
 
 chrome.runtime.onMessageExternal.addListener((message,sender,respond)=>{
   if(message?.type==='scout-signup-resume'){
-    (async()=>{const backend=(await settings()).backendUrl;if(new URL(sender.url||sender.tab?.url).origin!==new URL(backend).origin)throw Error('Untrusted resume page.');const d=message.draft;if(!d?.reviewedAll||!Array.isArray(d.steps)||d.steps.length>12)throw Error('Review the draft first.');const url=new URL(d.formUrl);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid form URL.');const tab=await chrome.tabs.create({url:url.href});await storage.set('signupResume',{draft:d,tabId:tab.id,expires:Date.now()+30*60000,filled:[],autoSubmit:message.autoSubmit===true,attempted:[]});const allowed=await chrome.permissions.contains({origins:[url.origin+'/*']});if(allowed)void fillPendingSignup({browser:chrome,storage,tabId:tab.id}).catch(()=>{});return {ok:true,needsPermission:!allowed};})().then(respond).catch(e=>respond({ok:false,error:e.message}));return true;
+    (async()=>{const backend=(await settings()).backendUrl;if(new URL(sender.url||sender.tab?.url).origin!==new URL(backend).origin)throw Error('Untrusted resume page.');const d=message.draft;if(!d?.reviewedAll||!Array.isArray(d.steps)||d.steps.length>12)throw Error('Review the draft first.');const url=new URL(d.formUrl);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid form URL.');const files=approvedSessionFiles(d,message.filePayload),fileSession=crypto.randomUUID();await chrome.storage.session.set({signupFiles:{id:fileSession,files,expires:Date.now()+30*60000}});const tab=await chrome.tabs.create({url:url.href});await storage.set('signupResume',{draft:d,fileSession,tabId:tab.id,expires:Date.now()+30*60000,filled:[],autoSubmit:message.autoSubmit===true,attempted:[]});const allowed=await chrome.permissions.contains({origins:[url.origin+'/*']});if(allowed)void fillPendingSignup({browser:chrome,storage,tabId:tab.id}).catch(()=>{});return {ok:true,needsPermission:!allowed};})().then(respond).catch(e=>respond({ok:false,error:e.message}));return true;
   }
   if(!['scout-alerts-status','scout-alerts-connect','scout-alerts-test'].includes(message?.type))return false;
   (async()=>{const s=await settings();return handleAlertConnection(message,sender,{browser:chrome,storage,api,backend:s.backendUrl});})().then(result=>{respond(result);if(message.type==='scout-alerts-connect')void surfaceAlerts();}).catch(error=>respond({ok:false,error:error.message}));return true;
 });
 
 chrome.tabs.onUpdated.addListener((tabId,change)=>{if(change.status==='complete')void fillPendingSignup({browser:chrome,storage,tabId}).catch(()=>{});});
+
+chrome.tabs.onRemoved.addListener(async tabId=>{const pending=await storage.get('signupResume');if(pending?.tabId===tabId){await storage.set('signupResume',null);await chrome.storage.session.remove('signupFiles');}});

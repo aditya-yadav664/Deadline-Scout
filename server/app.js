@@ -58,7 +58,7 @@ export function createApp(options={}) {
   const engine=options.engine||new Engine({store,readPage:options.readPage||readPage,email,google});
   engine.backups=signups;
   function session(owner,scope,parentSession) {const token=randomToken();store.put('_system','session',hash(token),{owner,...(scope?{scope}:{}),...(parentSession?{parentSession}:{}),expires:Date.now()+30*86400000});return token;}
-  async function body(req) {let bytes=0,chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>300000)throw fail('Request too large.',413);chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{throw fail('Invalid JSON.');}}
+  async function body(req,limit=300000) {let bytes=0,chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>limit)throw fail('Request too large.',413);chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{throw fail('Invalid JSON.');}}
   function profileFor(owner) {return store.get(owner,'profile','me')||{email:'',emailEnabled:false,emailVerified:false};}
   function changesFor(owner){const active=new Set(store.list(owner,'track').map(t=>t.id));return store.list(owner,'change').filter(c=>active.has(c.trackId)).sort((a,b)=>b.at.localeCompare(a.at));}
   function enrich(owner,t) {return {...t,signupDrafts:signups.list(owner).filter(d=>d.trackId===t.id).map(d=>({id:d.id,title:d.title,status:d.status,formUrl:d.formUrl})),googleLinks:store.list(owner,'googleLink').filter(l=>l.trackId===t.id)};}
@@ -153,7 +153,7 @@ export function createApp(options={}) {
         }
         if(path.startsWith('/api/signup')||path.startsWith('/api/signups')){
           if(path.startsWith('/api/signup-captures/')&&req.method==='GET'){const key=hash(path.split('/').at(-1)),c=store.get('_system','signupCapture',key);if(!c||c.expires<Date.now())throw fail('Capture expired. Scan the form again.',404);store.remove('_system','signupCapture',key);return send(secrets.open(c.sealed));}
-          return send(await signups.route(owner,path,req.method,req.method==='GET'?{}:await body(req)));
+          return send(await signups.route(owner,path,req.method,req.method==='GET'?{}:await body(req,path==='/api/signup-files'?2900000:300000)));
         }
         if(path==='/api/account/clear-data'&&req.method==='POST'){
           const b=await body(req);if(b.action!=='clear-account-data')throw fail('Choose Clear account data to continue.');
