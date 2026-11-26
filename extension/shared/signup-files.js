@@ -84,18 +84,38 @@ export async function attachSignupPdfs({step,attachments,autoSubmit=false}){
   const transfer=new win.DataTransfer();
   for(const pdf of pdfs)transfer.items.add(new win.File([pdf.bytes],pdf.name,{type:'application/pdf'}));
   const drag=type=>browse.dispatchEvent(new win.DragEvent(type,{bubbles:true,cancelable:true,dataTransfer:transfer}));
-  drag('dragenter');
-  if(!drag('dragover')){
-   drag('drop');
-  }else if(input?.isConnected&&!input.files.length){
-   drag('dragleave');
-   attach(input,pdfs);
-  }else throw Error('The picker did not accept a file drop or expose an upload input.');
-  if(!await waitFor(()=>!pickerFrames().length&&matches(),45000)){
-   const picker=pickerFrames()[0]?.contentDocument;
-   const error=[...(picker?.querySelectorAll('[role=alert]')||[])].find(node=>visible(node)&&node.textContent.trim());
-   throw Error(error?'Google reported: '+error.textContent.trim().slice(0,200):picker?'Google’s picker stayed open without confirming the PDF.':'The picker closed without the draft PDF appearing on the question.');
-  }
+  // Google can clear an upload error when the picker returns to Browse.
+  // Keep its explanation until the form acknowledges the file or the attempt times out.
+  const pickerDoc=browse.ownerDocument;
+  let pickerError='';
+  const readError=node=>{
+   if(node.nodeType!==1)return;
+   for(const alert of [node,...node.querySelectorAll('[role=alert],[aria-live=assertive]')]){
+    if(!alert.matches('[role=alert],[aria-live=assertive]'))continue;
+    const message=alert.textContent.trim();
+    if(message)pickerError=message.slice(0,200);
+   }
+  };
+  const observer=new MutationObserver(records=>{
+   for(const record of records){
+    const target=record.target.parentElement?.closest('[role=alert],[aria-live=assertive]')||record.target;
+    readError(target);
+    for(const node of [...record.addedNodes,...record.removedNodes])readError(node);
+   }
+  });
+  observer.observe(pickerDoc.body,{childList:true,subtree:true,characterData:true});
+  try{
+   drag('dragenter');
+   if(!drag('dragover')){
+    drag('drop');
+   }else if(input?.isConnected&&!input.files.length){
+    drag('dragleave');
+    attach(input,pdfs);
+   }else throw Error('The picker did not accept a file drop or expose an upload input.');
+   if(!await waitFor(()=>!pickerFrames().length&&matches(),45000)){
+    throw Error(pickerError?'Google’s upload message: '+pickerError:pickerFrames().length?'Google’s picker stayed open without confirming the PDF.':'The picker closed without the draft PDF appearing on the question.');
+   }
+  }finally{observer.disconnect();}
   confirmedPickers.set(card,approval);
  }
  for(const field of step.fields.filter(f=>f.type==='file')){
