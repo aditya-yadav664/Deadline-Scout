@@ -208,7 +208,11 @@ test('a reviewed PDF is uploaded through the matching Google picker and confirme
   <button id="uploadButtonId">Browse</button><input type="file" accept="application/pdf" hidden>
   <script>document.querySelector('input').onchange=async e=>{
    const file=e.target.files[0];parent.postMessage({name:file.name,bytes:await file.text()},location.origin);
-  };</script>`}));
+  };
+  if(parent.uploads.length){
+   document.querySelector('input').remove();const browse=document.querySelector('button');browse.ondragover=e=>e.preventDefault();
+   browse.ondrop=async e=>{e.preventDefault();const file=e.dataTransfer.files[0];parent.postMessage({name:file.name,bytes:await file.text()},location.origin)};
+  }</script>`}));
  await page.route(url,route=>route.fulfill({contentType:'text/html',body:`
   <form action="formResponse">
    <div role="listitem"><div data-params="%.@.[7,"><button type="button">Add file</button></div><ul aria-label="Selected files"></ul></div>

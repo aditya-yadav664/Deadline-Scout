@@ -69,17 +69,33 @@ export async function attachSignupPdfs({step,attachments,autoSubmit=false}){
   const buttons=[...card.querySelectorAll('button,[role=button]')].filter(button=>visible(button)&&!button.matches(':disabled,[aria-disabled=true]')&&[button.textContent.trim(),button.getAttribute('aria-label')].includes('Add file'));
   if(buttons.length!==1)throw Error('The Google picker button could not be identified.');
   buttons[0].click();
-  const pickerInput=await waitFor(()=>{
+  const controls=await waitFor(()=>{
    const frames=pickerFrames();
    if(frames.length!==1)return null;
    const picker=frames[0].contentDocument;
    if(!picker||!/^\/picker\/?$/.test(new URL(picker.URL).pathname))return null;
+   const browse=picker.getElementById('uploadButtonId');
+   if(!browse||!visible(browse))return null;
    const inputs=picker.querySelectorAll('input[type=file]:not(:disabled)');
-   return inputs.length===1&&inputs[0].files.length===0?inputs[0]:null;
+   return {browse,input:inputs.length===1?inputs[0]:null};
   },12000);
-  if(!card.isConnected||!pickerInput?.isConnected)throw Error('The Google picker upload input was unavailable.');
-  attach(pickerInput,pdfs);
-  if(!await waitFor(()=>!pickerFrames().length&&matches(),45000))throw Error('Google Forms did not confirm the attachment.');
+  if(!card.isConnected||!controls?.browse.isConnected)throw Error('The Google picker upload tab was unavailable.');
+  const {browse,input}=controls,win=browse.ownerDocument.defaultView;
+  const transfer=new win.DataTransfer();
+  for(const pdf of pdfs)transfer.items.add(new win.File([pdf.bytes],pdf.name,{type:'application/pdf'}));
+  const drag=type=>browse.dispatchEvent(new win.DragEvent(type,{bubbles:true,cancelable:true,dataTransfer:transfer}));
+  drag('dragenter');
+  if(!drag('dragover')){
+   drag('drop');
+  }else if(input?.isConnected&&!input.files.length){
+   drag('dragleave');
+   attach(input,pdfs);
+  }else throw Error('The picker did not accept a file drop or expose an upload input.');
+  if(!await waitFor(()=>!pickerFrames().length&&matches(),45000)){
+   const picker=pickerFrames()[0]?.contentDocument;
+   const error=[...(picker?.querySelectorAll('[role=alert]')||[])].find(node=>visible(node)&&node.textContent.trim());
+   throw Error(error?'Google reported: '+error.textContent.trim().slice(0,200):picker?'Google’s picker stayed open without confirming the PDF.':'The picker closed without the draft PDF appearing on the question.');
+  }
   confirmedPickers.set(card,approval);
  }
  for(const field of step.fields.filter(f=>f.type==='file')){
