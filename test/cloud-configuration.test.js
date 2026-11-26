@@ -9,8 +9,10 @@ test('Supabase database connections enforce the supplied CA and reject insecure 
 test('extension migrates the old localhost default once and clears its obsolete session',async t=>{
  const old=globalThis.chrome;t.after(()=>{globalThis.chrome=old;});
  const values={settings:{backendUrl:'http://localhost:4317'},token:'old-local-token'};
- globalThis.chrome={runtime:{id:'test-extension'},storage:{local:{get:async key=>({[key]:values[key]}),set:async updates=>Object.assign(values,updates)}}};
+ globalThis.chrome={runtime:{id:'test-extension'},storage:{local:{get:async keys=>Object.fromEntries([keys].flat().map(key=>[key,values[key]])),set:async updates=>Object.assign(values,updates)}}};
  const {settings}=await import('../extension/api.js?cloud-migration-test');
- assert.equal((await settings()).backendUrl,'https://deadline-scout.vercel.app');assert.equal(values.token,null);
+ assert.equal((await settings()).backendUrl,'https://deadline-scout-test.vercel.app');assert.equal(values.token,null);
+ values.settings={backendUrl:'https://deadline-scout.vercel.app'};values.token='old-host-token';
+ assert.equal((await settings()).backendUrl,'https://deadline-scout-test.vercel.app');assert.equal(values.token,null);
  values.settings={backendUrl:'http://localhost:4317'};assert.equal((await settings()).backendUrl,'http://localhost:4317');
 });

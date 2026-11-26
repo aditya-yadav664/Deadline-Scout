@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Deadline Scout",
-  "version": "1.9.5",
+  "version": "1.9.6",
   "description": "Track registration deadlines, see what changed, and keep your plans in sync.",
   "minimum_chrome_version": "120",
   "permissions": [
@@ -18,6 +18,7 @@
   "host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*",
+    "https://deadline-scout-test.vercel.app/*",
     "https://deadline-scout.vercel.app/*"
   ],
   "optional_host_permissions": [
@@ -49,7 +50,7 @@
   },
   "externally_connectable": {
     "matches": [
-      "https://deadline-scout.vercel.app/*",
+      "https://deadline-scout-test.vercel.app/*",
       "http://localhost/*",
       "http://127.0.0.1/*"
     ]
@@ -57,7 +58,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://deadline-scout.vercel.app/*",
+        "https://deadline-scout-test.vercel.app/*",
         "http://localhost/*",
         "http://127.0.0.1/*"
       ],

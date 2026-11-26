@@ -9,4 +9,5 @@ export function backendOrigin(value,fallback=LOCAL_BACKEND){
   return fallback;
 }
 
-export const HOSTED_BACKEND='https://deadline-scout.vercel.app';
+export const PREVIOUS_HOSTED_BACKEND='https://deadline-scout.vercel.app';
+export const HOSTED_BACKEND='https://deadline-scout-test.vercel.app';
