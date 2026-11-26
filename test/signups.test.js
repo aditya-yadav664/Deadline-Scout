@@ -128,6 +128,11 @@ test('paused automation resumes after a manual attachment without overwriting an
 test('saved PDF downloads require the owner, reviewed active draft and immutable file reference',async t=>{
  const f=fixture(t),d=await draft(f),ref=d.steps[0].files['id:proposal'][0],path='/api/signups/'+d.id+'/files/'+ref.id;
  const file=await f.s.route('alice',path,'GET',{});assert.equal(file.name,'proposal.pdf');assert.ok(Buffer.from(file.data,'base64').subarray(0,5).equals(Buffer.from('%PDF-')));
+ await assert.rejects(f.s.route('alice','/api/signups/'+d.id+'/arm','POST',{approved:true,mode:'browser-auto',runNow:true,milestoneId:'deadline',revision:d.revision-1}),/saved draft changed/);
+ await assert.rejects(f.s.route('alice','/api/signups/'+d.id+'/cancel','POST',{revision:d.revision-1}),/already changed/);
+ const cancelled=await f.s.route('alice','/api/signups/'+d.id+'/cancel','POST',{revision:d.revision});
+ assert.equal(cancelled.status,'Cancelled');
+ assert.equal((await f.s.route('alice',path,'GET',{})).name,'proposal.pdf');
  await assert.rejects(f.s.route('bob',path,'GET',{}),/not found/);
  const other=f.s.file('alice',{name:'other.pdf',data:Buffer.from('%PDF-test other').toString('base64')});await assert.rejects(f.s.route('alice','/api/signups/'+d.id+'/files/'+other.id,'GET',{}),/missing/);
  d.reviewedAll=false;f.s.save('alice',d);await assert.rejects(f.s.route('alice',path,'GET',{}),/review/);

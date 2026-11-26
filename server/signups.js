@@ -80,7 +80,8 @@ export class Signups {
   if(path==='/api/signup-files'&&method==='POST')return this.file(owner,b);
   const fileMatch=path.match(/^\/api\/signups\/([\w-]+)\/files\/([\w-]+)$/);
   if(fileMatch&&method==='GET'){
-   const d=this.read(owner,fileMatch[1]);if(!d.reviewedAll||['Deleted','Cancelled','Confirmed','Already registered'].includes(d.status))throw fail('Save and review this draft before attaching files.');
+   // Cancelling a schedule leaves the owner's reviewed answers available for manual fill.
+   const d=this.read(owner,fileMatch[1]);if(!d.reviewedAll||['Deleted','Confirmed','Already registered'].includes(d.status))throw fail('Save and review this draft before attaching files.');
    const ref=d.steps.flatMap(s=>s.fields.filter(f=>f.type==='file').flatMap(f=>s.files?.[f.key]||[])).find(f=>f.id===fileMatch[2]);
    const file=ref&&this.store.get(owner,'signupFile',ref.id);if(!file||file.expires<Date.now()||file.sha256!==ref.sha256||file.version!==ref.version)throw fail('Saved PDF missing or expired. Choose it again.',404);
    const {data}=this.secrets.open(file.sealed);if(hash(Buffer.from(data,'base64'))!==file.sha256)throw fail('Saved PDF integrity check failed.');
@@ -117,8 +118,12 @@ export class Signups {
    if(/^[a-p]{32}$/.test(b.extensionId))d.extensionId=b.extensionId;d.status='Draft';d.reviewedAll=false;d.revision=(d.revision||0)+1;this.cancelNotices(owner,d.id);return this.save(owner,d);
   }
   if(match[2]==='registered'){this.cancelNotices(owner,d.id);d.status='Already registered';d.notice='You marked this signup as already registered. Backup stopped.';return this.save(owner,d);}
-  if(match[2]==='cancel'){this.cancelNotices(owner,d.id);d.status='Cancelled';return this.save(owner,d);}
+  if(match[2]==='cancel'){
+   if(b.revision!==undefined&&(d.revision!==b.revision||!['Armed','Waiting for browser'].includes(d.status)))throw fail('The backup already changed.',409);
+   this.cancelNotices(owner,d.id);d.status='Cancelled';return this.save(owner,d);
+  }
   if(match[2]!=='arm')throw fail('Action not found.',404);if(['Browser running','Submission requested'].includes(d.status))throw fail('This signup already started. Check the organizer before saving a new approval.');this.validate(owner,d);
+  if(b.revision!==undefined&&b.revision!==d.revision)throw fail('The saved draft changed. Review the latest answers before starting a backup.',409);
   const track=this.store.get(owner,'track',d.trackId),milestone=track.milestones.find(m=>m.id===b.milestoneId);if(!milestone)throw fail('Choose a tracked deadline.');
   if(track.conflicts?.length||track.uncertain?.length||track.missing?.length)throw fail('Resolve the tracked deadline before arming.');
   if(!b.approved)throw fail('Approve the exact snapshot and backup time.');

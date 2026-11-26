@@ -92,9 +92,15 @@ function groupDraftCards(){const box=$('#signup-list'),cards=[...box.querySelect
 const NEW_EVENT='new-custom-event';
 function readEditor(){
   if(!editing)return;
-  editing.title=$('#signup-name').value;
+  const title=$('#signup-name').value;
   const track=$('#signup-track').value;
-  editing.trackId=track===NEW_EVENT?'':track;
+  const trackId=track===NEW_EVENT?'':track;
+  if(editing.id&&(editing.title!==title||editing.trackId!==trackId)){
+    answersDirty=true;
+    editing.reviewedAll=false;
+  }
+  editing.title=title;
+  editing.trackId=trackId;
   $('#signup-steps').querySelectorAll('[data-step]').forEach(box=>{
     const step=editing.steps[+box.dataset.step];
     for(const input of box.querySelectorAll('[data-key]')){
@@ -185,7 +191,38 @@ $('#close-signup').onclick=closeEditor;
 for(let i=1;i<=3;i++)$('#flow-'+i).onclick=()=>{readEditor();if(stage===2&&answersDirty){status('Save your answers before leaving Review answers.');return;}if(i>1&&!tracks.some(t=>t.id===$('#signup-track').value)){showStage(1);status('Choose an event or use Continue to answers to create one.');return;}if(i===3&&!editing.reviewedAll){showStage(2);status('Save answers in Review answers before setting a backup.');return;}showStage(i);};
 
 $('#next-review').onclick=()=>action(async()=>{const saved=await saveDraft(false);if(saved){showStage(2);openDraft(saved);status('Captured page saved. Review the answers below; you can add the next form page later.');}});$('#back-event').onclick=()=>{$('#flow-1').onclick();};$('#back-answers').onclick=()=>{readEditor();showStage(2);};
-async function saveDraft(requireReview){readEditor();if(requireReview){for(const s of editing.steps)for(const f of s.fields){const error=f.type==='file'?validateFiles(f,s.files?.[f.key]||[]):validateAnswer(f,s.answers?.[f.key]);if(error)throw Error(f.label+': '+error);}}await ensureDraftEvent();editing.reviewedAll=!!requireReview;const token=epoch;const saved=await api('/api/signups','POST',editing);await refresh();if(token===epoch){editing=saved;return saved;}return null;}
+function updateSavedDraft(saved){
+ drafts=drafts.some(d=>d.id===saved.id)?drafts.map(d=>d.id===saved.id?saved:d):[...drafts,saved];
+ paintList();groupDraftCards();
+}
+async function saveDraft(requireReview){
+ readEditor();
+ const token=epoch;
+ if(requireReview){for(const s of editing.steps)for(const f of s.fields){
+  const error=f.type==='file'?validateFiles(f,s.files?.[f.key]||[]):validateAnswer(f,s.answers?.[f.key]);
+  if(error)throw Error(f.label+': '+error);
+ }}
+ await ensureDraftEvent();
+ if(token!==epoch)return null;
+ const saved=await api('/api/signups','POST',{...editing,reviewedAll:requireReview});
+ if(token===epoch){editing=saved;answersDirty=false;}
+ updateSavedDraft(saved);
+ return token===epoch?saved:null;
+}
+async function reviewedDraft(){
+ if(!editing?.id||answersDirty||!editing.reviewedAll){
+  showStage(2);
+  throw Error('Save & continue in Review answers first.');
+ }
+ const token=epoch;
+ const current=await api('/api/signups/'+editing.id);
+ if(token!==epoch)return null;
+ if(!current.reviewedAll||current.revision!==editing.revision){
+  showStage(2);openDraft(current);
+  throw Error('The saved draft changed. Review the latest answers and click Save & continue.');
+ }
+ return current;
+}
 $('#draft-form').onsubmit=e=>{e.preventDefault();action(async()=>{const saved=await saveDraft(true);if(saved){showStage(3);openDraft(saved);status('Answers saved. Choose when to send your backup reminder.');}});};
 $('#save-progress').onclick=()=>action(async()=>{const saved=await saveDraft(false);if(saved){openDraft(saved);status('Progress saved. You can return to finish the answers later.');}});
 async function connectScheduledSignup(d){
@@ -195,21 +232,29 @@ async function connectScheduledSignup(d){
  await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Extension did not respond. Reload it and try again.')),10000);chrome.runtime.sendMessage(extensionId,{type:'scout-signup-schedule',...grant,formUrl:d.formUrl},reply=>{clearTimeout(timer);if(chrome.runtime.lastError||!reply?.ok)reject(Error(reply?.error||'Reload the extension and try again.'));else resolve(reply);});});
 }
 async function armBrowserSignup(immediate=false){
- const saved=immediate?await api('/api/signups/'+editing.id):await saveDraft(true);if(!saved)return;
- if(!saved.reviewedAll||answersDirty)throw Error('Save your answers once before approving background signup. The empty final review page needs no capture.');
+ const saved=await reviewedDraft();if(!saved)return;
  const timing=immediate?{mode:'browser-auto',runNow:true}:{
   mode:$('#signup-mode').value,rule:$('#signup-rule').value,
   offsetMinutes:+$('#signup-offset').value,backupAt:+new Date($('#signup-time').value),
  };
- const token=epoch,d=await api('/api/signups/'+saved.id+'/arm','POST',{approved:true,milestoneId:$('#signup-milestone').value,...timing});
- if(d.mode==='browser-auto'){try{await connectScheduledSignup(d);}catch(error){await api('/api/signups/'+d.id+'/cancel','POST',{}).catch(()=>{});throw error;}}
- await refresh();if(token===epoch){openDraft(d);status(d.mode==='browser-auto'?(immediate?'Background signup queued now. It runs in an inactive tab; keep your browser open.':'Background signup approved for '+new Date(d.backupAt).toLocaleString()+'. Keep your browser running with the extension enabled, and stay signed in on the organizer’s site.'):('Backup reminder is on for '+new Date(d.backupAt).toLocaleString()+'.'));}
+ const token=epoch,d=await api('/api/signups/'+saved.id+'/arm','POST',{approved:true,revision:saved.revision,milestoneId:$('#signup-milestone').value,...timing});
+ if(token===epoch)editing=d;
+ if(d.mode==='browser-auto'){
+  try{await connectScheduledSignup(d);}
+  catch(error){
+   const latest=await api('/api/signups/'+d.id+'/cancel','POST',{revision:d.revision}).catch(()=>api('/api/signups/'+d.id).catch(()=>null));
+   if(latest){if(token===epoch)editing=latest;updateSavedDraft(latest);}
+   throw error;
+  }
+ }
+ updateSavedDraft(d);
+ if(token===epoch){openDraft(d);status(d.mode==='browser-auto'?(immediate?'Background signup queued now. It runs in an inactive tab; keep your browser open.':'Background signup approved for '+new Date(d.backupAt).toLocaleString()+'. Keep your browser running with the extension enabled, and stay signed in on the organizer’s site.'):('Backup reminder is on for '+new Date(d.backupAt).toLocaleString()+'.'));}
 }
 $('#arm-signup').onclick=()=>action(()=>armBrowserSignup(false));
 $('#submit-demo-now').onclick=()=>action(async()=>{const saved=await saveDraft(true);if(!saved)return;const result=await api('/api/signups/'+saved.id+'/submit-now','POST',{approved:true,milestoneId:$('#signup-milestone').value});await refresh();openDraft(result);status(result.status+': '+(result.receipt||result.notice||'Review required'));});
 async function stop(kind){if(!editing?.id){closeEditor();return;}const id=editing.id,token=epoch;await api('/api/signups/'+id+'/'+kind,'POST',{});await refresh();if(token===epoch)closeEditor();status(kind==='cancel'?'Backup cancelled. No future signup reminders will be sent.':'Marked already registered. Backup stopped.');}
 $('#cancel-signup').onclick=()=>action(()=>stop('cancel'));$('#registered-signup').onclick=()=>action(()=>stop('registered'));
-function startFormFill(autoSubmit=false){return action(async()=>{if(!editing?.id)throw Error('Save answers first.');if(answersDirty||!editing.reviewedAll){showStage(2);throw Error('Save your answers before filling the form.');}const current=await api('/api/signups/'+editing.id),id=liveExtensionId||captured?.extensionId||current.extensionId||await storage.get('backgroundExtensionId');if(!id||!globalThis.chrome?.runtime?.sendMessage)throw Error('Open this page in the browser where you installed Deadline Scout. Reload the extension, prepare this form once, and save its draft. Autofill needs that extension connection.');const filePayload=[];let fileBytes=0;for(const [stepIndex,step]of current.steps.entries())for(const field of step.fields.filter(f=>f.type==='file'))for(const ref of step.files?.[field.key]||[]){if(!ref.id)continue;const file=await api('/api/signups/'+current.id+'/files/'+ref.id);fileBytes+=file.size;if(fileBytes>4*1024*1024)throw Error('Attach at most 4 MB of saved PDFs per session.');filePayload.push({stepIndex,key:field.key,id:ref.id,...file});}const result=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Extension did not respond. Reload it from your browser’s extensions page and try again.')),10000);chrome.runtime.sendMessage(id,{type:'scout-signup-resume',draft:current,autoSubmit,filePayload},r=>{clearTimeout(timer);if(chrome.runtime.lastError||!r?.ok)reject(Error(r?.error||'Reload the extension and try again.'));else resolve(r);});});status(result.needsPermission?(autoSubmit?'Form opened for approved filling and submission. Click the extension and enable this site; missing files, consent or CAPTCHA will pause it.':'Form opened. Click the extension → Enable autofill on this site once. Saved steps and approved PDFs will fill as you navigate.'):(autoSubmit?'Approved fill-and-submit session started. Verify the organizer’s confirmation; no automatic retry after a submission attempt.':'Form opened. Saved answers fill now and on matching subsequent steps. Saved PDFs attach automatically; finish other attachments, consent and submission on the site.'));});}
+function startFormFill(autoSubmit=false){return action(async()=>{const current=await reviewedDraft();if(!current)return;const id=liveExtensionId||captured?.extensionId||current.extensionId||await storage.get('backgroundExtensionId');if(!id||!globalThis.chrome?.runtime?.sendMessage)throw Error('Open this page in the browser where you installed Deadline Scout. Reload the extension, prepare this form once, and save its draft. Autofill needs that extension connection.');const filePayload=[];let fileBytes=0;for(const [stepIndex,step]of current.steps.entries())for(const field of step.fields.filter(f=>f.type==='file'))for(const ref of step.files?.[field.key]||[]){if(!ref.id)continue;const file=await api('/api/signups/'+current.id+'/files/'+ref.id);fileBytes+=file.size;if(fileBytes>4*1024*1024)throw Error('Attach at most 4 MB of saved PDFs per session.');filePayload.push({stepIndex,key:field.key,id:ref.id,...file});}const result=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Extension did not respond. Reload it from your browser’s extensions page and try again.')),10000);chrome.runtime.sendMessage(id,{type:'scout-signup-resume',draft:current,autoSubmit,filePayload},r=>{clearTimeout(timer);if(chrome.runtime.lastError||!r?.ok)reject(Error(r?.error||'Reload the extension and try again.'));else resolve(r);});});status(result.needsPermission?(autoSubmit?'Form opened for approved filling and submission. Click the extension and enable this site; missing files, consent or CAPTCHA will pause it.':'Form opened. Click the extension → Enable autofill on this site once. Saved steps and approved PDFs will fill as you navigate.'):(autoSubmit?'Approved fill-and-submit session started. Verify the organizer’s confirmation; no automatic retry after a submission attempt.':'Form opened. Saved answers fill now and on matching subsequent steps. Saved PDFs attach automatically; finish other attachments, consent and submission on the site.'));});}
 $('#resume-signup').onclick=()=>startFormFill(false);
 $('#fill-submit-signup').onclick=()=>action(()=>armBrowserSignup(true));
 

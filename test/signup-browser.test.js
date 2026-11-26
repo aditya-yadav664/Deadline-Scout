@@ -1,12 +1,71 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {existsSync} from 'node:fs';
+import {createServer} from 'node:net';
 import {chromium} from 'playwright-core';
 import {captureSignupForm,restoreSignupAnswers} from '../extension/shared/signup.js';
 import {advanceSignup,resumePlan} from '../extension/shared/signup-resume.js';
 import {isGoogleForms,googleFormsSignup} from '../extension/shared/google-forms.js';
 import {collectSignupPage} from '../extension/shared/signup-collection.js';
+import {Store} from '../server/store.js';
+import {createApp} from '../server/app.js';
+import {hash,vault} from '../server/security.js';
 const executablePath=[process.env.BROWSER_EXECUTABLE,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','/usr/bin/chromium'].find(p=>p&&existsSync(p));
+test('Backup Signup can save, retry a denied backup, and fill with a reviewed PDF', {skip:!executablePath},async t=>{
+ const store=new Store(':memory:');
+ const reservation=createServer();
+ await new Promise(resolve=>reservation.listen(0,'127.0.0.1',resolve));
+ const port=reservation.address().port;
+ await new Promise(resolve=>reservation.close(resolve));
+ const host='http://127.0.0.1:'+port;
+ const app=createApp({env:{HOST:'127.0.0.1',APP_URL:host},store,vault:vault('.',Buffer.alloc(32,7).toString('base64'))});
+ await new Promise((resolve,reject)=>app.server.once('error',reject).listen(port,'127.0.0.1',resolve));
+ t.after(()=>app.close());
+ const token='fixture-browser-token';
+ store.put('_system','session',hash(token),{owner:'alice',expires:Date.now()+120000});
+ store.put('alice','profile','me',{email:'fixture@example.test'});
+ store.put('alice','track','track',{id:'track',title:'Controlled event',url:host,milestones:[{id:'deadline',date:'2099-09-12'}]});
+ const file=app.signups.file('alice',{name:'fixture.pdf',data:Buffer.from('%PDF-1.4\nFictional PDF').toString('base64')});
+ const extensionId='a'.repeat(32);
+ const draft=await app.signups.route('alice','/api/signups','POST',{
+  trackId:'track',title:'Fixture',extensionId,reviewedAll:false,steps:[{
+   url:host+'/signup-demo.html',fields:[{key:'pdf',type:'file',label:'Resume',required:true,accept:'.pdf'}],
+   files:{pdf:[file]},
+  }],
+ });
+ const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());
+ const page=await browser.newPage();
+ page.setDefaultTimeout(10000);
+ await page.addInitScript(({token,extensionId})=>{
+  localStorage.setItem('dd:token',JSON.stringify(token));
+  localStorage.setItem('dd:backgroundExtensionId',JSON.stringify(extensionId));
+  window.allowSignup=false;
+  window.chrome.runtime={sendMessage(_id,message,reply){
+   window.lastSignupMessage=message;
+   reply(message.type==='scout-signup-schedule'&&!window.allowSignup?{ok:false,error:'Grant site access first.'}:{ok:true});
+  }};
+ },{token,extensionId});
+ await page.goto(host+'/backup.html#draft='+draft.id);
+ await page.locator('#signup-editor:visible, #backup-feedback:not(:empty)').first().waitFor();
+ assert.equal(await page.locator('#backup-feedback').textContent(),'');
+ await page.locator('#flow-2').click();
+ await page.getByRole('button',{name:'Save & continue'}).click();
+ await page.locator('#stage-3').waitFor();
+ const reviewed=app.signups.read('alice',draft.id);
+ await page.locator('#signup-mode').selectOption('browser-auto');
+ await page.locator('#arm-signup').click();
+ await page.getByText('Grant site access first.',{exact:true}).waitFor();
+ const cancelled=app.signups.read('alice',draft.id);
+ assert.equal(cancelled.status,'Cancelled');
+ assert.equal(cancelled.revision,reviewed.revision+1);
+ await page.locator('#resume-signup').click();
+ await page.waitForFunction(()=>window.lastSignupMessage?.type==='scout-signup-resume');
+ assert.equal(await page.evaluate(()=>window.lastSignupMessage.filePayload[0].name),'fixture.pdf');
+ await page.evaluate(()=>{window.allowSignup=true;});
+ await page.locator('#arm-signup').click();
+ await page.getByText(/Background signup approved for/).waitFor();
+ assert.equal(app.signups.read('alice',draft.id).revision,cancelled.revision+1);
+});
 test('capture preserves answers and checkbox limits across native and Google Forms controls', {skip:!executablePath},async t=>{
  const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());
  const page=await browser.newPage();
