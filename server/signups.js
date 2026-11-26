@@ -122,9 +122,12 @@ export class Signups {
   const track=this.store.get(owner,'track',d.trackId),milestone=track.milestones.find(m=>m.id===b.milestoneId);if(!milestone)throw fail('Choose a tracked deadline.');
   if(track.conflicts?.length||track.uncertain?.length||track.missing?.length)throw fail('Resolve the tracked deadline before arming.');
   if(!b.approved)throw fail('Approve the exact snapshot and backup time.');
-  d.milestoneId=milestone.id;d.deadline=milestone;d.mode=['demo-auto','browser-auto'].includes(b.mode)?b.mode:'reminder';d.rule=b.rule==='relative'?'relative':'fixed';d.offsetMinutes=Number(b.offsetMinutes??15);
+  const runNow=b.mode==='browser-auto'&&b.runNow===true;
+  const now=Date.now();
+  d.milestoneId=milestone.id;d.deadline=milestone;d.mode=['demo-auto','browser-auto'].includes(b.mode)?b.mode:'reminder';d.rule=!runNow&&b.rule==='relative'?'relative':'fixed';d.offsetMinutes=runNow?0:Number(b.offsetMinutes??15);
   if(!Number.isInteger(d.offsetMinutes)||d.offsetMinutes<0||d.offsetMinutes>10080)throw fail('Choose an offset between 0 and 10080 minutes.');
-  d.backupAt=d.rule==='relative'?this.deadlineTime(milestone)-d.offsetMinutes*60000:Number(b.backupAt);if(!Number.isFinite(d.backupAt)||d.backupAt<=Date.now())throw fail('Choose a future backup time.');
+  d.backupAt=runNow?now:d.rule==='relative'?this.deadlineTime(milestone)-d.offsetMinutes*60000:Number(b.backupAt);
+  if(!runNow&&(!Number.isFinite(d.backupAt)||d.backupAt<=now))throw fail('Choose a future backup time.');
   if(d.backupAt>=this.deadlineTime(milestone))throw fail('Backup time must be before the confirmed deadline.');
   if(d.mode==='demo-auto'){
    if(d.steps.some(s=>s.warnings?.length))throw fail('Resolve manual controls before automatic submission.');

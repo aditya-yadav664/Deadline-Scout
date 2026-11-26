@@ -197,7 +197,11 @@ async function connectScheduledSignup(d){
 async function armBrowserSignup(immediate=false){
  const saved=immediate?await api('/api/signups/'+editing.id):await saveDraft(true);if(!saved)return;
  if(!saved.reviewedAll||answersDirty)throw Error('Save your answers once before approving background signup. The empty final review page needs no capture.');
- const token=epoch,d=await api('/api/signups/'+saved.id+'/arm','POST',{approved:true,mode:immediate?'browser-auto':$('#signup-mode').value,rule:immediate?'fixed':$('#signup-rule').value,milestoneId:$('#signup-milestone').value,offsetMinutes:+$('#signup-offset').value,backupAt:immediate?Date.now()+1500:+new Date($('#signup-time').value)});
+ const timing=immediate?{mode:'browser-auto',runNow:true}:{
+  mode:$('#signup-mode').value,rule:$('#signup-rule').value,
+  offsetMinutes:+$('#signup-offset').value,backupAt:+new Date($('#signup-time').value),
+ };
+ const token=epoch,d=await api('/api/signups/'+saved.id+'/arm','POST',{approved:true,milestoneId:$('#signup-milestone').value,...timing});
  if(d.mode==='browser-auto'){try{await connectScheduledSignup(d);}catch(error){await api('/api/signups/'+d.id+'/cancel','POST',{}).catch(()=>{});throw error;}}
  await refresh();if(token===epoch){openDraft(d);status(d.mode==='browser-auto'?(immediate?'Background signup queued now. It runs in an inactive tab; keep your browser open.':'Background signup approved for '+new Date(d.backupAt).toLocaleString()+'. Keep your browser running with the extension enabled, and stay signed in on the organizer’s site.'):('Backup reminder is on for '+new Date(d.backupAt).toLocaleString()+'.'));}
 }

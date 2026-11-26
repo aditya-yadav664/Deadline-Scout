@@ -149,6 +149,17 @@ test('background jobs claim once, stop after deletion or reapproval, and report 
  await f.s.route('alice','/api/signups/'+next.id+'/arm','POST',{approved:true,mode:'browser-auto',milestoneId:'deadline',backupAt:Date.now()+70000});await assert.rejects(f.s.browserPoll('alice',a.id,a.revision),/approval changed/);
  const removed=await draft(f,{mode:'reminder'}),b=await f.s.route('alice','/api/signups/'+removed.id+'/arm','POST',{approved:true,mode:'browser-auto',milestoneId:'deadline',backupAt:Date.now()+60000});f.store.remove('alice','track','track');assert.equal((await f.s.browserPoll('alice',b.id,b.revision)).status,'Cancelled');
 });
+test('run now is ready on the first browser poll without a client clock or a future backup time',async t=>{
+ const f=fixture(t),d=await draft(f,{mode:'reminder'});
+ const path='/api/signups/'+d.id+'/arm';
+ const request={approved:true,mode:'browser-auto',milestoneId:'deadline'};
+ await assert.rejects(f.s.route('alice',path,'POST',{...request,backupAt:0}),/future backup time/);
+ const armed=await f.s.route('alice',path,'POST',{...request,runNow:true});
+ const run=await f.s.browserPoll('alice',d.id,armed.revision);
+ assert.equal(run.draft.status,'Browser running');
+ assert.ok(run.runId);
+ assert.equal((await f.s.browserPoll('alice',d.id,armed.revision)).stop,true);
+});
 test('final review needs all approved steps visited and rejects new fields or changed terms',()=>{
  const field={key:'id:name',type:'text',required:true},step={url:'https://example.org/form',fields:[field],terms:''},pending={autoSubmit:true,draft:{steps:[step]},visited:[0]},live={...step,fields:[]};
  assert.equal(finalReviewPlan(pending,live,step).review,true);assert.equal(finalReviewPlan({...pending,visited:[]},live,step),null);
