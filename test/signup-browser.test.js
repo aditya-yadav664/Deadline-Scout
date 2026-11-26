@@ -29,7 +29,7 @@ test('Backup Signup can save, retry a denied backup, and fill with a reviewed PD
  const extensionId='a'.repeat(32);
  const draft=await app.signups.route('alice','/api/signups','POST',{
   trackId:'track',title:'Fixture',extensionId,reviewedAll:false,steps:[{
-   url:host+'/signup-demo.html',fields:[{key:'pdf',type:'file',label:'Resume',required:true,accept:'.pdf'}],
+   url:'https://docs.google.com/forms/d/e/fixture/viewform',fields:[{key:'pdf',type:'file',label:'Resume',required:true,accept:'.pdf',manualUpload:true}],
    files:{pdf:[file]},
   }],
  });
@@ -58,6 +58,14 @@ test('Backup Signup can save, retry a denied backup, and fill with a reviewed PD
  const cancelled=app.signups.read('alice',draft.id);
  assert.equal(cancelled.status,'Cancelled');
  assert.equal(cancelled.revision,reviewed.revision+1);
+ const [download]=await Promise.all([
+  page.waitForEvent('download'),
+  page.getByRole('button',{name:'Download fixture.pdf for Resume'}).click(),
+ ]);
+ assert.equal(download.suggestedFilename(),'fixture.pdf');
+ const chunks=[];
+ for await(const chunk of await download.createReadStream())chunks.push(chunk);
+ assert.equal(Buffer.concat(chunks).toString(),'%PDF-1.4\nFictional PDF');
  await page.locator('#resume-signup').click();
  await page.waitForFunction(()=>window.lastSignupMessage?.type==='scout-signup-resume');
  assert.equal(await page.evaluate(()=>window.lastSignupMessage.filePayload[0].name),'fixture.pdf');
