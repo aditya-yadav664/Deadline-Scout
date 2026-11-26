@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {hash,safeUrl,randomToken} from './security.js';
 import {formSignature,validateAnswer,validateFiles} from '../extension/shared/signup.js';
-import {sameSignupForm} from '../extension/shared/google-forms.js';
+import {isGoogleForms,sameSignupForm} from '../extension/shared/google-forms.js';
 import {instant} from '../extension/shared/dates.js';
 import {renderSignupEmail} from './email-template.js';
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
@@ -17,11 +17,20 @@ export class Signups {
  save(owner,d){const {sealed,...plain}=d;this.store.put(owner,'signup',d.id,{id:d.id,trackId:d.trackId,status:d.status,backupAt:d.backupAt,sealed:this.secrets.seal(plain)});return d;}
  list(owner){return this.store.list(owner,'signup').filter(r=>r.status!=='Deleted').map(r=>this.read(owner,r.id));}
  schema(){const s=this.store.get('_system','demoOrganizer','schema')||demoSignupSchema();return {...s,fields:this.capture({url:this.base+'/signup-demo.html',fields:s.fields}).fields};}
- capture(input){safeUrl(input.url);const url=new URL(input.url).href;if(!Array.isArray(input.fields)||input.fields.length>100)throw fail('Invalid form capture.');
+ capture(input,{withAnswers=false}={}){safeUrl(input.url);const url=new URL(input.url).href;if(!Array.isArray(input.fields)||input.fields.length>100)throw fail('Invalid form capture.');
+  const choiceLimit=value=>Number.isInteger(value)&&value>=0&&value<=100?value:undefined;
   const step={url,formIndex:Number.isInteger(input.formIndex)&&input.formIndex>=0&&input.formIndex<100?input.formIndex:0,title:String(input.title||'Signup').slice(0,200),capturedAt:typeof input.capturedAt==='string'&&Number.isFinite(Date.parse(input.capturedAt))?input.capturedAt:new Date().toISOString(),terms:String(input.terms||'').slice(0,8000),warnings:(input.warnings||[]).slice(0,30).map(String),fields:input.fields.map(f=>{
    if(!f.key||!['text','email','tel','url','textarea','select','radio','checkbox','file','number','date'].includes(f.type))throw fail('Unsupported captured field.');
-   return {key:String(f.key).slice(0,300),id:String(f.id||'').slice(0,200),name:String(f.name||'').slice(0,200),label:String(f.label||'Field').slice(0,300),help:String(f.help||'').slice(0,1500),type:f.type,required:!!f.required,options:(f.options||[]).slice(0,100).map(o=>({value:String(o.value).slice(0,500),label:String(o.label).slice(0,500)})),accept:String(f.accept||'').slice(0,200),multiple:!!f.multiple,maxBytes:Number(f.maxBytes)||null,maxLength:Number(f.maxLength)||null,pattern:String(f.pattern||'').slice(0,500),min:String(f.min||''),max:String(f.max||'')};})};
+   return {key:String(f.key).slice(0,300),id:String(f.id||'').slice(0,200),name:String(f.name||'').slice(0,200),label:String(f.label||'Field').slice(0,300),help:String(f.help||'').slice(0,1500),type:f.type,required:!!f.required,options:(f.options||[]).slice(0,100).map(o=>({value:String(o.value).slice(0,500),label:String(o.label).slice(0,500)})),accept:String(f.accept||'').slice(0,200),multiple:!!f.multiple,maxBytes:Number(f.maxBytes)||null,maxLength:Number(f.maxLength)||null,pattern:String(f.pattern||'').slice(0,500),min:String(f.min||''),max:String(f.max||''),...(f.type==='checkbox'?{minChoices:choiceLimit(f.minChoices),maxChoices:choiceLimit(f.maxChoices)}:{}),...(f.type==='file'&&f.manualUpload===true&&isGoogleForms(url)?{manualUpload:true}:{})};})};
   step.stepToken=String(input.stepToken||'').slice(0,300);
+  if(withAnswers&&input.capturedAnswers&&typeof input.capturedAnswers==='object'){
+   step.capturedAnswers=Object.fromEntries(step.fields.flatMap(field=>{
+    const value=Object.hasOwn(input.capturedAnswers,field.key)?input.capturedAnswers[field.key]:undefined;
+    if(field.type==='file'||typeof value!=='string'||!value.trim()||value.length>10000||
+       /\b(?:password|passcode|otp|verification code|card number|cvv|cvc)\b/i.test(field.label+' '+field.name))return [];
+    return [[field.key,value]];
+   }));
+  }
   if(new Set(step.fields.map(f=>f.key)).size!==step.fields.length)throw fail('Ambiguous fields. Capture a smaller step.');return {...step,signature:hash(formSignature(step))};
  }
  validate(owner,d){
@@ -59,7 +68,7 @@ export class Signups {
   if(d.status==='Browser running'&&d.browserStartedAt<Date.now()-30*60000){d.status='Needs review';d.notice='The browser run did not report an outcome. Check the organizer before trying again.';this.save(owner,d);}
   if(d.status!=='Waiting for browser')return {stop:true,status:d.status};
   d.status='Browser running';d.browserStartedAt=Date.now();d.browserRunId=randomToken();d.notice='Claimed by your extension. Edge must remain running; uncertain attempts are not automatically repeated.';this.save(owner,d);
-  const filePayload=[];let bytes=0;for(const [stepIndex,step]of d.steps.entries())for(const field of step.fields.filter(f=>f.type==='file'))for(const ref of step.files?.[field.key]||[]){const file=await this.route(owner,'/api/signups/'+id+'/files/'+ref.id,'GET',{});bytes+=file.size;if(bytes>4*1024*1024)throw fail('Saved PDFs exceed the 4 MB session limit.');filePayload.push({stepIndex,key:field.key,id:ref.id,...file});}
+  const filePayload=[];let bytes=0;for(const [stepIndex,step]of d.steps.entries())for(const field of step.fields.filter(f=>f.type==='file'&&!f.manualUpload))for(const ref of step.files?.[field.key]||[]){const file=await this.route(owner,'/api/signups/'+id+'/files/'+ref.id,'GET',{});bytes+=file.size;if(bytes>4*1024*1024)throw fail('Saved PDFs exceed the 4 MB session limit.');filePayload.push({stepIndex,key:field.key,id:ref.id,...file});}
   return {draft:d,filePayload,runId:d.browserRunId};
  }
  async route(owner,path,method,b){
@@ -100,9 +109,11 @@ export class Signups {
   if(match[2]==='steps'){
    if(['Confirmed','Already registered','Cancelled'].includes(d.status))throw fail('Choose an active signup draft.');
    const incoming=this.capture(b.step);if(!sameSignupForm(incoming.url,d.formUrl))throw fail('This is a different form. Start a separate signup.');
-   const identity=s=>JSON.stringify([s.url,s.formIndex||0,s.fields.map(f=>f.key).sort()]),index=d.steps.findIndex(s=>identity(s)===identity(incoming)&&(!s.stepToken||!incoming.stepToken||s.stepToken===incoming.stepToken));
+   const identity=s=>JSON.stringify([s.url,s.formIndex||0,s.fields.map(f=>f.key).sort()]);
+   const index=d.steps.findIndex(s=>(isGoogleForms(incoming.url)&&incoming.stepToken&&s.stepToken===incoming.stepToken)||
+     identity(s)===identity(incoming)&&(!s.stepToken||!incoming.stepToken||s.stepToken===incoming.stepToken));
    const step={...incoming,answers:b.step.answers||{},sources:b.step.sources||{},files:{},sharing:{}};
-   if(index>=0){const old=d.steps[index];for(const f of step.fields){if(!validateAnswer(f,old.answers?.[f.key]))step.answers[f.key]=old.answers?.[f.key]||'';if(f.type==='file'&&!validateFiles(f,old.files?.[f.key]||[]))step.files[f.key]=old.files?.[f.key]||[];}d.steps[index]=step;}else{if(d.steps.length>=12)throw fail('Maximum 12 captured steps.');d.steps.push(step);}
+   if(index>=0){const old=d.steps[index];for(const f of step.fields){const prior=old.answers?.[f.key];if(typeof prior==='string'&&prior.trim()&&!validateAnswer(f,prior)){step.answers[f.key]=prior;step.sources[f.key]=old.sources?.[f.key]||'Saved draft';}if(f.type==='file'&&!validateFiles(f,old.files?.[f.key]||[]))step.files[f.key]=old.files?.[f.key]||[];}d.steps[index]=step;}else{if(d.steps.length>=12)throw fail('Maximum 12 captured steps.');d.steps.push(step);}
    if(/^[a-p]{32}$/.test(b.extensionId))d.extensionId=b.extensionId;d.status='Draft';d.reviewedAll=false;d.revision=(d.revision||0)+1;this.cancelNotices(owner,d.id);return this.save(owner,d);
   }
   if(match[2]==='registered'){this.cancelNotices(owner,d.id);d.status='Already registered';d.notice='You marked this signup as already registered. Backup stopped.';return this.save(owner,d);}

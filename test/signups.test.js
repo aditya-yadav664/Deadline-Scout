@@ -56,6 +56,21 @@ test('next form capture appends atomically, recapture keeps answers, and user or
  assert.equal(f.s.list('alice').length,1);
 });
 
+test('draft handoff keeps supported answers and enforces saved checkbox limits',t=>{
+ const {s}=fixture(t);
+ const input={url:'https://docs.google.com/forms/d/e/fixture/viewform',fields:[
+  {key:'topics',label:'Topics',type:'checkbox',required:true,maxChoices:2,options:['A','B','C'].map(value=>({value,label:value}))},
+  {key:'pdf',label:'Resume',type:'file',manualUpload:true},
+  {key:'otp',label:'Verification code',type:'text'},
+ ],capturedAnswers:{topics:'["A","B"]',pdf:'ignored',otp:'ignored',extra:'ignored'}};
+ const step=s.capture(input,{withAnswers:true});
+ assert.deepEqual(step.capturedAnswers,{topics:'["A","B"]'});
+ assert.equal(s.capture(input).capturedAnswers,undefined);
+ assert.equal(step.fields[1].manualUpload,true);
+ assert.equal(validateAnswer(step.fields[0],step.capturedAnswers.topics),'');
+ assert.match(validateAnswer(step.fields[0],'["A","B","C"]'),/at most 2/);
+});
+
 test('deleting a signup hides it, cancels reminders and prevents execution; undo restores an unarmed draft',async t=>{
  const f=fixture(t),d=await draft(f);f.s.notify('alice',d,'Test signup notice');due(f,d);
  await assert.rejects(f.s.route('bob','/api/signups/'+d.id,'DELETE',{}),/not found/);

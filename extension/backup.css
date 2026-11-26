@@ -144,6 +144,7 @@
 }
 #signup-steps .answer-option:hover { border-color: #87808b; }
 #signup-steps .answer-option:has(:checked) { background: #36242f; border-color: #ae6373; color: #ffdde3; }
+#signup-steps .answer-option:has(:disabled) { opacity: .55; cursor: default; }
 #signup-steps .answer-option input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--backup-red); }
 #signup-steps [data-remove-step] { margin: 0 0 10px; }
 #custom-event-fields { margin: 0 0 10px; padding: 14px; border: 1px solid var(--backup-red-line); border-radius: 10px; background: var(--backup-red-surface); }

@@ -18,7 +18,7 @@ export function isLegacyGoogleCapture(step) {
 }
 
 // Serialized into the browser tab. Keep all DOM helpers inside this function.
-export async function googleFormsSignup({step, answers} = {}) {
+export async function googleFormsSignup({step, answers, captureAnswers = false} = {}) {
   const page = new URL(location.href);
   const form = [...document.forms].find(node => /\/formResponse$/.test(new URL(node.action).pathname));
   const visible = node => node.getClientRects().length > 0 &&
@@ -29,7 +29,7 @@ export async function googleFormsSignup({step, answers} = {}) {
   const controls = form ? [...form.querySelectorAll('[data-params]')].filter(visible) : [];
   const consent = /\b(?:consent|waiver|terms and conditions|terms of (?:use|service)|privacy policy|I (?:agree|authorize|certify|acknowledge|accept))\b/i;
 
-  function addQuestion(key, label, help, required, type, optionNodes, control) {
+  function addQuestion(key, label, help, required, type, optionNodes, control, rules = {}) {
     const choices = new Map();
     const role = control?.getAttribute('role');
     for (const node of optionNodes) {
@@ -44,16 +44,19 @@ export async function googleFormsSignup({step, answers} = {}) {
     }
     const options = [...choices.keys()].sort().map(value => ({value, label:value}));
     questions.push({field:{
-      key, label, help, required, type, options, visible:true,
+      key, label, help, required, type, options, visible:true, accept:'',multiple:false,maxBytes:null,
       maxLength:control?.maxLength > 0 ? control.maxLength : null,
       pattern:control?.pattern || '',
-      min:control?.min || '', max:control?.max || '',
+      min:control?.min || '', max:control?.max || '', ...rules,
     }, control, choices});
   }
 
   for (const question of controls) {
-    const id = question.getAttribute('data-params').match(/^%\.@\.\[(-?\d+),/)?.[1];
+    const params = question.getAttribute('data-params');
+    const id = params.match(/^%\.@\.\[(-?\d+),/)?.[1];
     if (!id) continue;
+    let metadata;
+    try { [metadata] = JSON.parse('['+params.slice(4)); } catch { /* DOM fallback. */ }
     const card = question.closest('[role=listitem]') || question;
     const heading = card.querySelector('[role=heading]');
     const label = text(heading).replace(/\s*\*$/, '');
@@ -70,12 +73,24 @@ export async function googleFormsSignup({step, answers} = {}) {
         checks.some(node => node.hasAttribute('data-field-id')) ||
         question.querySelector('[role=table],[role=grid],table')) {
       warnings.push('Unfamiliar control: complete ' + (label || 'this question') + ' on Google Forms.');
+    } else if (metadata?.[3] === 13 || native.some(node => node.type === 'file')) {
+      const file = native.find(node => node.type === 'file');
+      addQuestion(key,label,help,required || metadata?.[4]?.[0]?.[2] === true,'file',[],file,
+        {accept:file?.accept || '',multiple:true,manualUpload:true});
     } else if (listbox.length === 1 && !radios.length && !checks.length && !native.length) {
       addQuestion(key,label,help,required,'select',listbox[0].querySelectorAll('[role=option]'),listbox[0]);
     } else if (radios.length && !checks.length && !listbox.length) {
       addQuestion(key,label,help,required,'radio',radios);
     } else if (checks.length && !radios.length && !listbox.length) {
-      addQuestion(key,label,help,required,'checkbox',checks);
+      const rules = {};
+      const validators = metadata?.[3] === 4 ? metadata?.[4]?.[0]?.[4] : null;
+      for (const rule of Array.isArray(validators) ? validators : []) {
+        if (rule?.[0] !== 7 || !/^\d{1,3}$/.test(String(rule[2]?.[0] ?? ''))) continue;
+        const count = Number(rule[2][0]);
+        if (rule[1] === 200 || rule[1] === 204) rules.minChoices = Math.max(rules.minChoices ?? 0,count);
+        if (rule[1] === 201 || rule[1] === 204) rules.maxChoices = Math.min(rules.maxChoices ?? Infinity,count);
+      }
+      addQuestion(key,label,help,required,'checkbox',checks,undefined,rules);
     } else if (native.length === 1 && ['text','email','tel','url','number','date','textarea'].includes(native[0].type)) {
       addQuestion(key,label,help,required,native[0].type,[],native[0]);
     } else {
@@ -98,10 +113,19 @@ export async function googleFormsSignup({step, answers} = {}) {
     page.search = '';
     page.hash = '';
     const fields = questions.map(question => question.field);
+    const capturedAnswers = {};
+    if (captureAnswers) for (const {field,control,choices} of questions.slice(0,100)) {
+      if (field.type === 'file' || /(?:^|\s)(?:one-time-code|current-password|new-password|cc-\S+)(?:\s|$)/i.test(control?.autocomplete || '') ||
+          /\b(?:password|passcode|otp|verification code|card number|cvv|cvc)\b/i.test(field.label)) continue;
+      const selected = [...choices].filter(([,node])=>node.getAttribute(field.type==='select'?'aria-selected':'aria-checked')==='true').map(([value])=>value);
+      const value = field.type === 'checkbox' ? (selected.length ? JSON.stringify(selected) : '') : choices.size ? selected[0] : control?.value;
+      if (value?.trim() && value.length <= 10000) capturedAnswers[field.key] = value;
+    }
     if (fields.length > 100) warnings.push('Unfamiliar control: this section exceeds the 100-question capture limit.');
     return {
       url:page.href, title:document.title, formIndex:0, formChoices:[],
-      fields:fields.slice(0,100), stepToken:fields.map(field => field.key).sort().join(',').slice(0,300),
+      fields:fields.slice(0,100), stepToken:fields.filter(field=>field.type!=='file').map(field => field.key).sort().join(',').slice(0,300) || fields.map(field=>field.key).join(',').slice(0,300),
+      ...(captureAnswers ? {capturedAnswers} : {}),
       terms:'', warnings, capturedAt:new Date().toISOString(),
     };
   }
@@ -113,6 +137,10 @@ export async function googleFormsSignup({step, answers} = {}) {
     return predicate();
   }
   for (const field of step.fields) {
+    if (field.manualUpload) {
+      report.push(field.label + ': upload this file on Google Forms; automatic attachment is unavailable.');
+      continue;
+    }
     const matches = questions.filter(question => question.field.key === field.key);
     let restored = false;
     if (matches.length === 1) {

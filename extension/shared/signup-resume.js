@@ -4,7 +4,7 @@ import {attachSignupPdfs} from './signup-files.js';
 export function finalReviewPlan(pending,live,all){
  if(!pending.autoSubmit||live.fields.length||!pending.draft.steps.every((s,i)=>!s.fields.length||pending.visited?.includes(i)))return null;
  if(all.warnings?.some(w=>/Unfamiliar control|Ambiguous control|Multiple forms/.test(w)))return null;
- const known=pending.draft.steps.flatMap(s=>s.fields),constraints=f=>JSON.stringify([f.key,f.type,!!f.required,f.options||[],f.accept||'',!!f.multiple,f.maxLength||null,f.pattern||'',f.min||'',f.max||'']);
+ const known=pending.draft.steps.flatMap(s=>s.fields),constraints=f=>JSON.stringify([f.key,f.type,!!f.required,f.options||[],f.accept||'',!!f.multiple,f.maxLength||null,f.pattern||'',f.min||'',f.max||'',f.minChoices??null,f.maxChoices??null,!!f.manualUpload]);
  if(!known.length||all.fields.length&&known.filter(f=>f.required).some(f=>!all.fields.some(n=>n.key===f.key)))return null;
  if(all.fields.some(f=>(f.visible!==false||f.required)&&!known.some(k=>constraints(f)===constraints(k))))return null;
  if(live.terms&&!pending.draft.steps.some(s=>s.terms===live.terms))return null;
@@ -72,8 +72,14 @@ export async function fillPendingSignup({browser,storage,tabId,force=false,prefe
  let attachmentResult={report:[],blocked:false};
  if(pending.fileSession&&(!alreadyFilled||force)){
   const cache=(await browser.storage.session.get('signupFiles')).signupFiles;
-  const attachments=cache?.id===pending.fileSession&&cache.expires>Date.now()?cache.files.filter(f=>f.stepIndex===plan.index):[];
+  const attachments=cache?.id===pending.fileSession&&cache.expires>Date.now()?cache.files.filter(f=>f.stepIndex===plan.index&&!plan.step.fields.some(field=>field.key===f.key&&field.manualUpload)):[];
   if(attachments.length){const [attached]=await browser.scripting.executeScript({target:{tabId},func:attachSignupPdfs,args:[{step:plan.step,attachments}]});attachmentResult=attached.result;}
+ }
+ const manualAttachment=plan.step.fields.find(field=>field.manualUpload&&(field.required||plan.step.files?.[field.key]?.length));
+ if(manualAttachment&&pending.autoSubmit){
+  const message='Upload '+manualAttachment.label+' on Google Forms and continue there.';
+  await browser.scripting.executeScript({target:{tabId},func:showSignupProgress,args:[{message}]});
+  return {ok:true,execution:{paused:true,message},report:[...result.result,message]};
  }
  result.result.push(...attachmentResult.report);
  if(!alreadyFilled)pending.lastProgressAt=Date.now();pending.filled=[...new Set([...pending.filled,key])];await storage.set('signupResume',pending);

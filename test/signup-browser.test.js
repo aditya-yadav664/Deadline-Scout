@@ -7,6 +7,32 @@ import {advanceSignup,resumePlan} from '../extension/shared/signup-resume.js';
 import {isGoogleForms,googleFormsSignup} from '../extension/shared/google-forms.js';
 import {collectSignupPage} from '../extension/shared/signup-collection.js';
 const executablePath=[process.env.BROWSER_EXECUTABLE,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','/usr/bin/chromium'].find(p=>p&&existsSync(p));
+test('capture preserves answers and checkbox limits across native and Google Forms controls', {skip:!executablePath},async t=>{
+ const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());
+ const page=await browser.newPage();
+ await page.setContent(`<form><label>Name<input name="name" value="Fictional tester"></label>
+ <input name="code" autocomplete="one-time-code" value="123456">
+ <fieldset><legend>Choose up to 2 topics</legend>
+ <label><input type="checkbox" name="topic" value="Code" checked>Code</label>
+ <label><input type="checkbox" name="topic" value="Design" checked>Design</label>
+ <label><input type="checkbox" name="topic" value="Other">Other</label></fieldset></form>`);
+ const native=await page.evaluate('('+captureSignupForm.toString()+')(0,false,true)');
+ const checkbox=native.fields.find(f=>f.type==='checkbox');
+ assert.equal(checkbox.maxChoices,2);
+ assert.deepEqual(native.capturedAnswers,{'name:name':'Fictional tester',[checkbox.key]:'["Code","Design"]'});
+ assert.equal((await page.evaluate(captureSignupForm)).capturedAnswers,undefined);
+ const googleUrl='https://docs.google.com/forms/d/e/limits-example/viewform';
+ await page.route(googleUrl,route=>route.fulfill({contentType:'text/html',body:`
+ <form action="formResponse">
+ <div role="listitem"><div data-params='%.@.[8,"Resume",null,13,[[50,null,true]]]]'><div role="heading">Resume *</div><button type="button">Add file</button></div></div>
+ <div role="listitem"><div data-params='%.@.[9,"Topics",null,4,[[51,null,true,null,[[7,201,["2"]]]]]]]'><div role="heading">Topics *</div><div role="checkbox" aria-label="Code" aria-checked="true"></div><div role="checkbox" aria-label="Design" aria-checked="false"></div></div></div>
+ </form>`}));
+ await page.goto(googleUrl);
+ const google=await page.evaluate(googleFormsSignup,{captureAnswers:true});
+ assert.equal(google.fields[0].type,'file');assert.equal(google.fields[0].manualUpload,true);
+ assert.equal(google.fields[1].maxChoices,2);
+ assert.deepEqual(google.capturedAnswers,{'google-forms:9':'["Code"]'});
+});
 test('Google Forms answers on a Submit section are capturable and fillable', {skip:!executablePath},async t=>{
  const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());
  const page=await browser.newPage();
