@@ -140,6 +140,8 @@ Put an HTTPS reverse proxy in front, set `APP_URL` to its external HTTPS origin,
 
 ## Project map
 
+For a current architecture overview, feature invariants, and a safe change workflow for future AI/developer contributors, start with [docs/AI-PROJECT-GUIDE.md](docs/AI-PROJECT-GUIDE.md).
+
 ```text
 extension/             Install this folder with Load unpacked
   panel.html/css/js    Side panel and web companion
