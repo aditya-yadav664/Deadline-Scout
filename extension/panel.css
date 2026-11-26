@@ -149,3 +149,67 @@ body:has(#draft-dialog[open]){overflow:hidden}
   .header .tab { flex: 1 1 auto; text-align: center; padding: 8px 6px; font-size: 12px; }
   .workspace-hero { margin: 15px 0 20px; padding: 16px; border-radius: 15px; }
 }
+
+/* Profile anchored to the workspace header. */
+.header .profile-trigger {
+  padding: 5px 9px 5px 5px; gap: 8px; border: 1px solid #354855;
+  border-radius: 12px; background: #14212a;
+}
+.header .profile-trigger:hover,
+.header:has(~ main #profile-popover:popover-open) .profile-trigger {
+  background: #203640; border-color: #53838e;
+}
+.header #profile-avatar {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: #22434d; color: #b8f7fa;
+}
+.header .profile-trigger > .ui-icon { width: 15px; height: 15px; }
+#profile-popover {
+  width: 460px; max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 112px); padding: 16px;
+  background: #111a22; border-color: #3a515d; border-radius: 17px;
+  box-shadow: 0 24px 65px #000b; overscroll-behavior: contain;
+}
+#profile-popover:focus-visible { outline: 2px solid #64e8ef; outline-offset: 2px; }
+#profile-popover .profile-heading { margin: 0 0 12px; }
+#profile-popover .profile-heading h2 { margin: 0; font-size: 1.1rem; }
+#profile-popover .profile-heading .icon-button { width: 34px; height: 34px; padding: 6px; }
+.profile-account {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 12px;
+  padding: 14px; border: 1px solid #41616d; border-radius: 12px;
+  background: radial-gradient(ellipse at 100% 0, #21414a, transparent 75%), #16252f;
+}
+.profile-account-icon {
+  display: grid; place-items: center; width: 38px; height: 38px;
+  background: #224550; border: 1px solid #466a75; border-radius: 10px;
+}
+.profile-account-copy .profile-identity { margin: 0 0 3px; gap: 8px; }
+.profile-account-copy .profile-identity strong { font-size: 1rem; }
+#profile-popover #profile-email { margin: 0; font-size: .81rem; color: #d7e5ec; }
+#profile-popover #profile-status { margin: 5px 0 0; color: #adc4ce; font-size: .75rem; line-height: 1.45; }
+#profile-popover #profile-name-form {
+  padding: 11px 13px; margin-top: 10px; border: 1px solid #364956;
+  border-radius: 10px; background: #17222c;
+}
+#profile-popover .profile-actions { gap: 8px 12px; margin: 12px 0 0; }
+#profile-popover #sign-out { margin-left: auto; color: #ffabb5; padding: 8px 4px; }
+#profile-popover #sign-out:hover { color: #ffd2d8; }
+#profile-popover .profile-settings {
+  align-items: center; gap: 12px; padding: 12px; margin-top: 14px;
+  border: 1px solid #684450; border-radius: 10px;
+  background: #2c202b; color: #ffe0e5;
+}
+#profile-popover .profile-settings:hover { background: #3c2834; }
+.profile-settings-copy { display: grid; gap: 3px; }
+.profile-settings-copy small { color: #d9bac3; font-size: .72rem; }
+.profile-settings[aria-expanded="true"] > .ui-icon { transform: rotate(180deg); }
+#profile-popover #settings-view { margin-top: 13px; }
+#profile-popover #settings-view .eyebrow { display: none; }
+#profile-popover #settings-view .section-heading { margin: 0 0 10px; }
+#profile-popover #settings-view .section-heading h2 { font-size: .95rem; }
+#profile-popover #settings-view .card { margin: 0 0 8px; border-color: #344754; background: #17242d; }
+#profile-popover #settings-view .card:last-child { margin-bottom: 0; }
+#profile-popover #settings-view .data-controls { border-color: #684450; }
+@media (max-width: 650px) {
+  #profile-popover { top: 72px; right: 12px; max-height: calc(100dvh - 84px); padding: 12px; }
+}
