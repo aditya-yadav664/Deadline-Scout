@@ -1,8 +1,74 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Deadline Scout</title><link rel="stylesheet" href="popup.css"></head><body>
-<header><span class="scout-brand" aria-label="Deadline Scout — Track & Sync"><img class="scout-emblem" src="assets/scout-symbol.svg" alt="" width="44" height="48"><span class="brand-lettering"><span class="brand-deadline">DEADLINE <span class="brand-scout">SCOUT</span></span></span></span><button id="dashboard-icon" class="icon" aria-label="Open dashboard"><img class="ui-icon" src="assets/icons/external-link.svg" alt=""></button></header>
-<main><h1>Stay a step ahead.</h1><p id="page-title" class="page">Open this popup on a page with dates.</p><button id="scan" class="primary"><img class="ui-icon" src="assets/icons/scan.svg" alt="">Scan this page</button><p id="status" role="status" aria-live="polite">Reads the visible page, including content loaded with JavaScript.</p><button id="allow" class="secondary" hidden>Allow access to this site</button>
-<section id="results" hidden><div class="section-title"><strong id="result-count"></strong><span>Review before tracking</span></div><div id="dates"></div><button id="review" class="primary">Review on website</button><small class="privacy">Only the page link and detected date evidence are sent for review. Nothing is tracked until you save.</small></section>
-<select id="signup-form-choice" aria-label="Form to capture" hidden></select><button id="prepare-signup" class="secondary">Prepare signup</button><p id="signup-collection-status" role="status"></p><button id="add-signup-page" class="secondary" hidden>Capture next page</button><button id="submit-signup-draft" class="secondary" hidden>Submit as draft</button><button id="discard-signup-capture" class="secondary" hidden>Discard captured pages</button><select id="resume-step" aria-label="Captured step to restore" hidden></select><button id="restore-signup" class="secondary" hidden>Enable autofill on this site</button><button id="track-copied" class="secondary copied-link"><img class="ui-icon" src="assets/icons/link.svg" alt="">Track copied link<img class="ui-icon" src="assets/icons/external-link.svg" alt=""></button>
-<div class="dashboard-link"><button id="dashboard">Open dashboard</button><span>History · calendar · email · settings</span><button id="setup-alerts" class="alerts-setup">Set up background alerts</button></div>
-</main>
-<footer>Default timezone: IST · Sources stay attached</footer><script type="module" src="popup.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Deadline Scout</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="popup-header">
+    <span class="scout-brand">
+      <img class="scout-emblem" src="assets/scout-symbol.svg" alt="" width="36" height="40">
+      <span>DEADLINE <em>SCOUT</em></span>
+    </span>
+    <button id="dashboard-icon" class="icon-button" aria-label="Open dashboard" title="Open dashboard">
+      <img class="ui-icon" src="assets/icons/external-link.svg" alt="">
+    </button>
+  </header>
+
+  <main>
+    <section class="scan-card" aria-labelledby="scan-title">
+      <div class="scan-heading">
+        <div>
+          <h1 id="scan-title">Track a deadline</h1>
+          <p id="page-title" class="page">Open this popup on a page with dates.</p>
+        </div>
+        <span class="scan-emblem" aria-hidden="true"><img src="assets/icons/scan.svg" alt=""></span>
+      </div>
+      <button id="scan" class="primary"><span>Scan this page</span><img class="ui-icon" src="assets/icons/arrow-right.svg" alt=""></button>
+      <button id="track-copied" class="copied-link">
+        <img class="ui-icon" src="assets/icons/link.svg" alt="">
+        <span>Track copied link</span>
+        <img class="ui-icon external-icon" src="assets/icons/external-link.svg" alt="">
+      </button>
+    </section>
+
+    <p id="status" role="status" aria-live="polite">Scans dates in the visible page.</p>
+    <button id="allow" class="secondary" hidden>Allow access to this site</button>
+
+    <section id="results" class="result-card" hidden aria-labelledby="result-count">
+      <div class="section-title"><h2 id="result-count"></h2><span>Review before tracking</span></div>
+      <div id="dates"></div>
+      <button id="review" class="primary">Review on website</button>
+      <small class="privacy">Only the page link and detected date evidence are sent for review. Nothing is tracked until you save.</small>
+    </section>
+
+    <section class="signup-card" aria-labelledby="signup-heading">
+      <div class="signup-heading">
+        <span class="signup-emblem" aria-hidden="true"><img class="ui-icon" src="assets/icons/list-details.svg" alt=""></span>
+        <div><h2 id="signup-heading">Backup Signup</h2><p>Capture a form to save your answers.</p></div>
+      </div>
+      <select id="signup-form-choice" aria-label="Form to capture" hidden></select>
+      <button id="prepare-signup" class="signup-primary">Prepare signup</button>
+      <p id="signup-collection-status" role="status"></p>
+      <div class="collection-actions">
+        <button id="add-signup-page" class="secondary" hidden>Capture next page</button>
+        <button id="submit-signup-draft" class="signup-primary" hidden>Submit as draft</button>
+      </div>
+      <button id="discard-signup-capture" class="quiet danger" hidden>Discard captured pages</button>
+      <div class="resume-tools">
+        <select id="resume-step" aria-label="Captured step to restore" hidden></select>
+        <button id="restore-signup" class="secondary" hidden>Enable autofill on this site</button>
+        <p class="resume-note">Gives the extension site access to resume an active signup.</p>
+      </div>
+    </section>
+
+    <nav class="popup-links" aria-label="Dashboard tools">
+      <button id="dashboard" class="quiet"><img class="ui-icon" src="assets/icons/external-link.svg" alt="">Open dashboard</button>
+      <button id="setup-alerts" class="quiet"><img class="ui-icon" src="assets/icons/clock.svg" alt="">Set up background alerts</button>
+    </nav>
+  </main>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
