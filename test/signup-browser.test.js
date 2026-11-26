@@ -199,6 +199,45 @@ test('a Google Forms upload tries only the approved question and pauses for a cu
 
 import {fillPendingSignup} from '../extension/shared/signup-resume.js';
 import {startSignupSession} from '../extension/shared/signup-background.js';
+test('a reviewed PDF is uploaded through the matching Google picker and confirmed on the form', {skip:!executablePath},async t=>{
+ const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());
+ const page=await browser.newPage();
+ const url='https://docs.google.com/forms/d/e/picker-pdf/viewform';
+ await page.route('https://docs.google.com/picker',route=>route.fulfill({contentType:'text/html',body:`
+  <button id="uploadButtonId">Browse</button><input type="file" accept="application/pdf" hidden>
+  <script>document.querySelector('input').onchange=async e=>{
+   const file=e.target.files[0];parent.postMessage({name:file.name,bytes:await file.text()},location.origin);
+  };</script>`}));
+ await page.route(url,route=>route.fulfill({contentType:'text/html',body:`
+  <form action="formResponse">
+   <div role="listitem"><div data-params="%.@.[7,"><button type="button">Add file</button></div><ul aria-label="Selected files"></ul></div>
+   <div role="listitem"><div data-params="%.@.[8,"><button type="button">Add file</button></div><ul aria-label="Selected files"></ul></div>
+  </form>
+  <script>window.uploads=[];
+  for(const card of document.querySelectorAll('[role=listitem]'))card.querySelector('button').onclick=()=>{
+   const frame=document.createElement('iframe');frame.src='/picker';document.body.append(frame);
+   const receive=e=>{
+    if(e.origin!==location.origin||e.source!==frame.contentWindow)return;
+    window.uploads.push(e.data);const item=document.createElement('li'),name=document.createElement('span');
+    name.textContent=e.data.name;item.append(name,name.cloneNode(true));card.querySelector('ul').append(item);
+    frame.remove();window.removeEventListener('message',receive);
+   };window.addEventListener('message',receive);
+  };</script>`}));
+ await page.goto(url);
+ const bytes=Buffer.from('%PDF-1.4\nFictional picker test');
+ const key='google-forms:7';
+ const pdf={id:'fixture',key,name:'approved.pdf',size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),data:bytes.toString('base64')};
+ const step={fields:[{key,type:'file',label:'Resume',required:true,manualUpload:true}],files:{[key]:[pdf]}};
+ const args={step,attachments:[pdf],autoSubmit:true};
+ assert.equal((await page.evaluate(attachSignupPdfs,args)).blocked,false);
+ assert.equal(await page.locator('ul').nth(1).locator('li').count(),0);
+ assert.deepEqual(await page.evaluate(()=>window.uploads),[{name:'approved.pdf',bytes:bytes.toString()}]);
+ assert.equal((await page.evaluate(attachSignupPdfs,args)).blocked,false);
+ assert.equal(await page.evaluate(()=>window.uploads.length),1);
+ await page.locator('ul li').evaluate(el=>{el.textContent='Different.pdf';});
+ assert.equal((await page.evaluate(attachSignupPdfs,args)).blocked,true);
+ assert.equal(await page.evaluate(()=>window.uploads.length),1);
+});
 test('inactive browser job fills two captured panels, attaches PDF and submits an uncaptured empty review exactly once', {skip:!executablePath},async t=>{
  const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());const page=await browser.newPage();let submissions=0;
  await page.route('https://background.test/**',route=>{

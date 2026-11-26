@@ -194,7 +194,7 @@ function showPickerFiles(draft){
  panel.hidden=!questions.length;
  if(panel.hidden)return;
  const help=document.createElement('p');
- help.textContent='If Google Forms opens an Add file picker, choose your PDF there and wait for its filename to appear on the form before continuing.';
+ help.textContent='Deadline Scout tries to attach your saved PDF through Google’s picker. If the form does not confirm it, download the PDF here and choose it under Add file.';
  panel.append(help);
  if(!draft.reviewedAll)return;
  const buttons=document.createElement('div');
