@@ -4,7 +4,45 @@ import {existsSync} from 'node:fs';
 import {chromium} from 'playwright-core';
 import {captureSignupForm,restoreSignupAnswers} from '../extension/shared/signup.js';
 import {advanceSignup,resumePlan} from '../extension/shared/signup-resume.js';
+import {isGoogleForms,googleFormsSignup} from '../extension/shared/google-forms.js';
+import {collectSignupPage} from '../extension/shared/signup-collection.js';
 const executablePath=[process.env.BROWSER_EXECUTABLE,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','/usr/bin/chromium'].find(p=>p&&existsSync(p));
+test('Google Forms answers on a Submit section are capturable and fillable', {skip:!executablePath},async t=>{
+ const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());
+ const page=await browser.newPage();
+ const form='https://docs.google.com/forms/d/e/test-form/';
+ const question=(id,label,body)=>`<div role="listitem"><div data-params="%.@.[${id},0]"><div role="heading">${label}</div>${body}</div></div>`;
+ const option=(role,value,attribute)=>`<div role="${role}" aria-label="${value}" ${attribute}="false" onclick="setTimeout(()=>this.setAttribute('${attribute}','true'),60)">${value}</div>`;
+ await page.route(form+'**',route=>{
+  const final=route.request().url().endsWith('formResponse');
+  const content=final?question(2,'Project summary *','<textarea aria-label="Your answer"></textarea>')+
+   question(3,'Format *',`<div role="radiogroup" aria-required="true">${option('radio','Remote','aria-checked')}</div>`)+
+   question(4,'Topics *',option('checkbox','Design','aria-checked')+option('checkbox','Code','aria-checked'))+
+   '<div role="button" onclick="window.submitCount++">Submit</div>':
+   question(1,'Participant name *','<input type="text" aria-label="Your answer">')+
+   '<div role="button" onclick="location.href=\'formResponse\'">Next</div>';
+  return route.fulfill({contentType:'text/html',body:`<form action="formResponse">${content}</form><script>window.submitCount=0;</script>`});
+ });
+ await page.goto(form+'viewform');
+ assert.equal(isGoogleForms(page.url()),true);
+ const first=await page.evaluate(googleFormsSignup);
+ assert.deepEqual(first.fields.map(f=>f.label),['Participant name']);
+ assert.equal((await page.evaluate(advanceSignup,{finalStep:false,googleForms:true})).advanced,true);
+ await page.waitForURL(form+'formResponse');
+ const final=await page.evaluate(googleFormsSignup);
+ assert.equal(final.url,first.url);
+ assert.equal(collectSignupPage(collectSignupPage(null,first),final).steps.length,2);
+ assert.deepEqual(final.fields.map(f=>[f.label,f.type,f.required]),[
+  ['Project summary','textarea',true],['Format','radio',true],['Topics','checkbox',true],
+ ]);
+ const answers={'google-forms:2':'Sample project','google-forms:3':'Remote','google-forms:4':'["Code","Design"]'};
+ const plan=resumePlan({steps:[first,{...final,answers}]},final);
+ assert.equal(plan.index,1);
+ assert.deepEqual(await page.evaluate(googleFormsSignup,plan),['Project summary: restored.','Format: restored.','Topics: restored.']);
+ assert.equal((await page.evaluate(advanceSignup,{finalStep:true,googleForms:true,allowSubmit:false})).paused,true);
+ assert.equal((await page.evaluate(advanceSignup,{finalStep:true,googleForms:true})).attempted,true);
+ assert.equal(await page.evaluate(()=>window.submitCount),1);
+});
 test('real browser: same-URL wizard fills each panel, advances past hidden requirements and pauses for files', {skip:!executablePath},async t=>{
  const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());const page=await browser.newPage();
  await page.setContent(`<form id="wizard"><section id="step-1-panel"><label>Name<input id="name" required></label><button type="button" onclick="one.hidden=true;two.hidden=false">Continue to Project Details</button></section><section id="step-2-panel" hidden><label>Project<input id="project" required></label><label>Proposal<input id="pdf" type="file" required></label><button type="button" onclick="two.hidden=true;three.hidden=false">Continue to Review</button></section><section id="step-3-panel" hidden><p>Review the registration</p><button type="submit">Submit registration</button></section></form><script>var one=document.getElementById('step-1-panel'),two=document.getElementById('step-2-panel'),three=document.getElementById('step-3-panel');window.submits=0;document.forms[0].onsubmit=e=>{e.preventDefault();window.submits++}</script>`);

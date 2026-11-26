@@ -2,16 +2,26 @@
 export function formSignature(step){return JSON.stringify({url:step.url,terms:step.terms,fields:step.fields.map(({key,label,type,required,options,accept,multiple,maxLength,pattern,min,max,maxBytes})=>({key,label,type,required,options,accept,multiple,maxLength,pattern,min,max,maxBytes}))});}
 export function suggestField(field,profile,links=[]){
  const text=(field.label+' '+(field.name||'')).toLowerCase();
+ if(field.options?.length)return {value:'',source:'Enter manually'};
  if(field.type==='file')return {value:'',source:'Chosen file'};
  const linkKind=/github.*(?:repo|repository)|(?:repo|repository).*github|project repository/.test(text)?'repository':/github/.test(text)?'github':/video|youtube|vimeo/.test(text)?'video':/deck|presentation/.test(text)?'deck':/portfolio|website/.test(text)?'portfolio':null;
  if(linkKind){const choices=links.filter(l=>l.kind===linkKind);return {value:choices.length===1?choices[0].url:'',source:choices.length===1?'Saved link':'Enter manually',choices};}
  const key=/email|e-mail/.test(text)?'email':/phone|mobile|telephone/.test(text)?'phone':/college|university|affiliation|institution/.test(text)?'college':/full.?name|participant name|your name|^name$/.test(text)?'name':null;
  return {value:key?profile[key]||'':'',source:key&&profile[key]?'Profile':'Enter manually'};
 }
+export function selectedChoices(value){
+ if(!value)return [];
+ try {const values=JSON.parse(value);return Array.isArray(values)?values:null;}catch{return null;}
+}
 export function validateAnswer(field,value){
+ if(field.type==='checkbox'){
+  const choices=selectedChoices(value);
+  if(!choices||new Set(choices).size!==choices.length||choices.some(choice=>!field.options?.some(option=>option.value===choice)))return 'Choose only listed options';
+  return field.required&&!choices.length?'Choose at least one option':'';
+ }
  const v=String(value||'');if(field.required&&!v.trim())return 'Required';if(!v)return '';
  if(field.type==='email'&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))return 'Enter a valid email';
- if(field.type==='url'||/url|link|github|portfolio|video|deck/i.test(field.label)){
+ if(field.type==='url'||!field.options?.length&&/url|link|github|portfolio|video|deck/i.test(field.label)){
   let u;try{u=new URL(v);}catch{return 'Enter a full HTTPS URL';}if(!['http:','https:'].includes(u.protocol)||u.username||u.password)return 'Use an HTTP(S) URL without credentials';
   const host=(field.help||'').match(/(?:only|must (?:use|be)|hosted on)\s+(?:https?:\/\/)?((?:[a-z0-9-]+\.)+[a-z]{2,})/i)?.[1];if(host&&u.hostname!==host&&!u.hostname.endsWith('.'+host))return 'Must use '+host;
  }

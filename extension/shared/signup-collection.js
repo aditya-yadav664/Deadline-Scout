@@ -1,4 +1,5 @@
 export function collectSignupPage(collection,step){
+ if(!step.fields?.length&&step.warnings?.length)throw Error(step.warnings[0]);
  if(!step.fields?.length)throw Error('No answer fields on this page. The final Submit/review page does not need capture.');
  const steps=collection?.steps?[...collection.steps]:[];
  if(steps.length&&new URL(steps[0].url).origin!==new URL(step.url).origin)throw Error('Finish or discard the current collection before capturing another site.');
