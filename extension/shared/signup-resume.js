@@ -5,7 +5,7 @@ export function finalReviewPlan(pending,live,all){
  if(all.warnings?.some(w=>/Unfamiliar control|Ambiguous control|Multiple forms/.test(w)))return null;
  const known=pending.draft.steps.flatMap(s=>s.fields),constraints=f=>JSON.stringify([f.key,f.type,!!f.required,f.options||[],f.accept||'',!!f.multiple,f.maxLength||null,f.pattern||'',f.min||'',f.max||'']);
  if(!known.length||all.fields.length&&known.filter(f=>f.required).some(f=>!all.fields.some(n=>n.key===f.key)))return null;
- if(all.fields.some(f=>!known.some(k=>constraints(f)===constraints(k))))return null;
+ if(all.fields.some(f=>(f.visible!==false||f.required)&&!known.some(k=>constraints(f)===constraints(k))))return null;
  if(live.terms&&!pending.draft.steps.some(s=>s.terms===live.terms))return null;
  return {index:pending.draft.steps.length,review:true,step:{...live,fields:[]},answers:{},signature:formSignature(live),warnings:[]};
 }
