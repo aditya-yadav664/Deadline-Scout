@@ -4,6 +4,19 @@ export function isGoogleForms(url) {
     /^\/forms\/(?:u\/\d+\/)?d\/(?:e\/)?[\w-]+\/(?:viewform|formResponse)\/?$/.test(page.pathname);
 }
 
+export function sameSignupForm(a, b) {
+  const first = new URL(a), second = new URL(b);
+  if (first.origin !== second.origin) return false;
+  if (!isGoogleForms(a) && !isGoogleForms(b)) return true;
+  const formPath = page => page.pathname.replace(/\/(?:viewform|formResponse)\/?$/, '').replace(/^\/forms\/u\/\d+\//,'/forms/');
+  return isGoogleForms(a) && isGoogleForms(b) && formPath(first) === formPath(second);
+}
+
+export function isLegacyGoogleCapture(step) {
+  return isGoogleForms(step.url) && step.fields.length > 0 &&
+    step.fields.every(field => !field.key.startsWith('google-forms:'));
+}
+
 // Serialized into the browser tab. Keep all DOM helpers inside this function.
 export async function googleFormsSignup({step, answers} = {}) {
   const page = new URL(location.href);

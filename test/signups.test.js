@@ -156,6 +156,15 @@ test('page collection persists ordered captures and replaces recaptures without 
  const first={url:'https://example.org/form',stepToken:'one',fields:[{key:'id:name'}]},second={...first,stepToken:'two',fields:[{key:'id:project'}]};
  let c=collectSignupPage(null,first);c=collectSignupPage(c,second);c=collectSignupPage(c,{...first,title:'Updated'});assert.equal(c.steps.length,2);assert.equal(c.steps[0].title,'Updated');assert.throws(()=>collectSignupPage(c,{...second,url:'https://other.org/form'}),/another site/);assert.throws(()=>collectSignupPage(c,{...second,fields:[]}),/does not need/);
 });
+test('a fresh Google Forms capture replaces old generic captures and stays scoped to its form',()=>{
+ const base='https://docs.google.com/forms/d/e/example-one/';
+ const legacy={url:base+'formResponse',fields:[{key:'label::text'}]};
+ const first={url:base+'viewform',fields:[{key:'google-forms:101'}]};
+ const last={url:base+'viewform',fields:[{key:'google-forms:102'}]};
+ const updated=collectSignupPage(collectSignupPage(null,legacy),first);
+ assert.deepEqual(collectSignupPage(updated,last).steps,[first,last]);
+ assert.throws(()=>collectSignupPage(updated,{...last,url:base.replace('example-one','example-two')+'viewform'}),/another site or Google Form/);
+});
 test('job runner schedules the due-time alarm and immediately starts a claimed tab',async()=>{
  const state={signupJobs:[{token:'test'}]},storage={get:async k=>state[k],set:async(k,v)=>state[k]=v};let alarm,started;const when=Date.now()+1500;
  const browser={alarms:{create:async(name,options)=>alarm={name,...options}}};

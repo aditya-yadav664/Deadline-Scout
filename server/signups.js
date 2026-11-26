@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {hash,safeUrl,randomToken} from './security.js';
 import {formSignature,validateAnswer,validateFiles} from '../extension/shared/signup.js';
+import {sameSignupForm} from '../extension/shared/google-forms.js';
 import {instant} from '../extension/shared/dates.js';
 import {renderSignupEmail} from './email-template.js';
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
@@ -82,7 +83,7 @@ export class Signups {
    const old=b.id?this.read(owner,b.id):null;if(old&&['Confirmed','Already registered','Deleted'].includes(old.status))throw fail('Completed drafts cannot be edited.');if(old&&b.revision!==undefined&&b.revision!==(old.revision||0))throw fail('This draft changed in another tab. Reopen it before saving.',409);
    if(!this.store.get(owner,'track',b.trackId))throw fail('Select an active tracked page.');
    const steps=(b.steps||[]).slice(0,12).map(s=>({...this.capture(s),answers:Object.fromEntries(Object.entries(s.answers||{}).slice(0,100).map(([k,v])=>[k,String(v).slice(0,10000)])),sources:s.sources||{},sharing:s.sharing||{},files:s.files||{}}));
-   if(!steps.length||steps.some(s=>new URL(s.url).origin!==new URL(steps[0].url).origin))throw fail('Capture steps from one form site.');
+   if(!steps.length||steps.some(s=>!sameSignupForm(s.url,steps[0].url)))throw fail('Capture steps from the same form.');
    if(old)this.cancelNotices(owner,old.id);const d={...old,revision:(old?.revision||0)+1,id:old?.id||randomUUID(),trackId:b.trackId,title:String(b.title||'Signup').slice(0,200),steps,extensionId:/^[a-p]{32}$/.test(b.extensionId)?b.extensionId:old?.extensionId||null,formUrl:steps[0].url,status:'Draft',mode:'reminder',createdAt:old?.createdAt||new Date().toISOString(),reviewedAll:!!b.reviewedAll};return this.save(owner,d);
   }
   const match=path.match(/^\/api\/signups\/([\w-]+)(?:\/(arm|cancel|registered|steps|reorder|restore|submit-now))?$/);if(!match)throw fail('Signup route not found.',404);
@@ -98,7 +99,7 @@ export class Signups {
   }
   if(match[2]==='steps'){
    if(['Confirmed','Already registered','Cancelled'].includes(d.status))throw fail('Choose an active signup draft.');
-   const incoming=this.capture(b.step);if(new URL(incoming.url).origin!==new URL(d.formUrl).origin)throw fail('This form is on another site. Start a separate signup.');
+   const incoming=this.capture(b.step);if(!sameSignupForm(incoming.url,d.formUrl))throw fail('This is a different form. Start a separate signup.');
    const identity=s=>JSON.stringify([s.url,s.formIndex||0,s.fields.map(f=>f.key).sort()]),index=d.steps.findIndex(s=>identity(s)===identity(incoming)&&(!s.stepToken||!incoming.stepToken||s.stepToken===incoming.stepToken));
    const step={...incoming,answers:b.step.answers||{},sources:b.step.sources||{},files:{},sharing:{}};
    if(index>=0){const old=d.steps[index];for(const f of step.fields){if(!validateAnswer(f,old.answers?.[f.key]))step.answers[f.key]=old.answers?.[f.key]||'';if(f.type==='file'&&!validateFiles(f,old.files?.[f.key]||[]))step.files[f.key]=old.files?.[f.key]||[];}d.steps[index]=step;}else{if(d.steps.length>=12)throw fail('Maximum 12 captured steps.');d.steps.push(step);}
