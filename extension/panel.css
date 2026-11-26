@@ -90,3 +90,62 @@ body:has(#draft-dialog[open]){overflow:hidden}
 .workspace-hero .radar-heading{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,280px);align-items:center;gap:24px;margin:0 0 28px}.workspace-hero .radar-heading h1{margin:0;min-width:0}.radar-heading .event-search{display:block;width:100%;margin:0;min-width:0;line-height:1.4}.radar-heading .event-search input{display:block;box-sizing:border-box;margin:7px 0 0;height:44px;min-height:44px;max-width:100%;line-height:1.3}.workspace-hero>.capture{clear:both;margin-top:0}@media(max-width:850px){.workspace-hero .radar-heading{grid-template-columns:1fr;gap:16px;margin-bottom:24px}.radar-heading .event-search{max-width:100%;margin:0}}
 
 .row-actions{flex-wrap:wrap;min-width:0;max-width:100%}.signup-card-links{padding-bottom:18px;margin-bottom:20px;border-bottom:1px solid #304653}.signup-card-links p{font-size:13px;line-height:1.6}
+
+/* Dashboard tracking and search workspace. */
+.header .tabs { padding: 4px; gap: 4px; background: #111c25; border: 1px solid #283a47; border-radius: 13px; }
+.header .tab { text-decoration: none; border-radius: 9px; padding: 9px 12px; }
+.header .tab[href="/backup.html"] { color: #ffabb4; }
+.header .tab[href="/backup.html"]:hover { background: #38242e; }
+.header .tab span { margin-left: 4px; }
+
+.workspace-hero {
+  display: grid; grid-template-columns: minmax(0,1.08fr) minmax(0,1fr);
+  align-items: center; gap: clamp(24px,4vw,64px);
+  margin: 22px 0 26px; padding: clamp(22px,3vw,42px);
+  background: radial-gradient(ellipse at 2% 0%, #17414b 0%, transparent 62%),
+    radial-gradient(ellipse at 100% 100%, #34222e 0%, transparent 63%), #111b24;
+  border: 1px solid #354956; border-radius: 20px;
+}
+.radar-story, .track-launcher { min-width: 0; }
+.workspace-hero .workspace-date {
+  display: inline-flex; margin: 0 0 14px; padding: 5px 9px; gap: 7px;
+  color: #c1e5ed; background: #102832; border: 1px solid #365763; border-radius: 8px;
+  font-size: .76rem;
+}
+.workspace-hero .workspace-date .ui-icon { width: 15px; height: 15px; }
+.workspace-hero h1 {
+  margin: 0; font-size: clamp(2.1rem,4vw,3.65rem);
+  line-height: 1.05; letter-spacing: -.055em;
+}
+.workspace-hero h1 span { display: inline-block; color: #64e8ef; }
+.radar-description { margin: 12px 0 18px; color: #c0d0da; font-size: .92rem; }
+.radar-story .event-search { display: block; width: min(100%, 320px); margin: 0; color: #c3d6df; font-size: .78rem; }
+.radar-story .event-search input { margin: 5px 0 0; background: #101d27; }
+.track-launcher {
+  padding: clamp(15px,2.1vw,26px); border: 1px solid #684350; border-radius: 15px;
+  background: linear-gradient(145deg, #271d28, #151e28 74%);
+}
+.launcher-heading { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; }
+.launcher-heading h2 { font-size: 1.05rem; margin: 0; }
+.launcher-heading p { font-size: .8rem; margin: 3px 0 0; color: #b9c8d2; }
+.launcher-icon {
+  display: grid; place-items: center; width: 37px; height: 37px; flex: 0 0 37px;
+  background: #452a37; border: 1px solid #754956; border-radius: 10px;
+}
+.launcher-icon .ui-icon { filter: brightness(0) saturate(100%) invert(78%) sepia(22%) saturate(1325%) hue-rotate(297deg); }
+.track-launcher .capture { display: grid; gap: 11px; align-items: stretch; }
+.track-launcher .capture-input { padding: 4px 5px 4px 11px; gap: 8px; background: #101b24; }
+.track-launcher .capture-input input { padding: 9px 0; font-size: .88rem; }
+.track-launcher .capture-input .button { min-width: 0; min-height: 42px; padding: 9px 12px; white-space: nowrap; font-size: .83rem; }
+.track-launcher .capture-manual { margin: 0; justify-self: start; }
+.track-launcher .scan-feedback:not([hidden]) { justify-self: start; }
+.featured-track { background: linear-gradient(110deg,#182630,#15212a 65%); }
+@media (max-width: 830px) {
+  .workspace-hero { grid-template-columns: 1fr; gap: 20px; }
+  .workspace-hero h1 { max-width: none; }
+}
+@media (max-width: 650px) {
+  .header .tabs { flex-wrap: wrap; }
+  .header .tab { flex: 1 1 auto; text-align: center; padding: 8px 6px; font-size: 12px; }
+  .workspace-hero { margin: 15px 0 20px; padding: 16px; border-radius: 15px; }
+}
