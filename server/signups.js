@@ -67,7 +67,7 @@ export class Signups {
   if(d.status==='Armed')return {waiting:true,backupAt:d.backupAt};
   if(d.status==='Browser running'&&d.browserStartedAt<Date.now()-30*60000){d.status='Needs review';d.notice='The browser run did not report an outcome. Check the organizer before trying again.';this.save(owner,d);}
   if(d.status!=='Waiting for browser')return {stop:true,status:d.status};
-  d.status='Browser running';d.browserStartedAt=Date.now();d.browserRunId=randomToken();d.notice='Claimed by your extension. Edge must remain running; uncertain attempts are not automatically repeated.';this.save(owner,d);
+  d.status='Browser running';d.browserStartedAt=Date.now();d.browserRunId=randomToken();d.notice='Claimed by your extension. Keep your browser running; uncertain attempts are not automatically repeated.';this.save(owner,d);
   const filePayload=[];let bytes=0;for(const [stepIndex,step]of d.steps.entries())for(const field of step.fields.filter(f=>f.type==='file'&&!f.manualUpload))for(const ref of step.files?.[field.key]||[]){const file=await this.route(owner,'/api/signups/'+id+'/files/'+ref.id,'GET',{});bytes+=file.size;if(bytes>4*1024*1024)throw fail('Saved PDFs exceed the 4 MB session limit.');filePayload.push({stepIndex,key:field.key,id:ref.id,...file});}
   return {draft:d,filePayload,runId:d.browserRunId};
  }
@@ -155,7 +155,7 @@ export class Signups {
     if(d.backupAt>Date.now())continue;
     this.validate(owner,d);
     if(this.deadlineTime(m)<=Date.now())throw fail('Registration may have closed. Review now.');
-    if(d.mode==='browser-auto'){this.approvedFiles(owner,d);d.status='Waiting for browser';d.notice='Approved background signup is due. Your connected Edge extension will run it while Edge is open.';}
+    if(d.mode==='browser-auto'){this.approvedFiles(owner,d);d.status='Waiting for browser';d.notice='Approved background signup is due. Your connected extension will run it while your browser is open.';}
     else if(d.mode==='reminder'){d.status='Ready to finish';d.notice='Reopen the form, restore reviewed answers, attach the listed files, and submit yourself.';}
     else{
      const schema=this.schema();if(schema.open!==true||schema.fee||schema.version!==d.organizerVersion||schema.terms!==d.steps[0].terms||JSON.stringify(schema.fields)!==JSON.stringify(d.steps[0].fields))throw fail('Organizer form, terms, fee or registration status changed.');

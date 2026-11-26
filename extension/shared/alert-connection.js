@@ -2,7 +2,7 @@ const proof=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{43}$/.test(value);
 const encode=bytes=>btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 export async function beginAlertConnection(browser,storage,backend){
   if(!await browser.permissions.request({permissions:['notifications']}))throw new Error('Allow notifications for Deadline Scout to enable background alerts.');
-  if(await browser.notifications.getPermissionLevel()==='denied')throw new Error('Enable Deadline Scout notifications in Edge before connecting background alerts.');
+  if(await browser.notifications.getPermissionLevel()==='denied')throw new Error('Enable Deadline Scout notifications in your browser before connecting background alerts.');
   if(typeof backend==='function')backend=await backend();
   const verifier=encode(crypto.getRandomValues(new Uint8Array(32))),state=encode(crypto.getRandomValues(new Uint8Array(32))),challenge=encode(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier)));
   await storage.set('alertConnection',{state,verifier,challenge,origin:new URL(backend).origin,expires:Date.now()+600000});

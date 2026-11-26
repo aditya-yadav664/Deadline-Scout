@@ -6,8 +6,8 @@ export async function deliverBrowserAlerts({load,notify,ack}){
 }
 
 export async function enableExtensionAlerts({browser,validateSession,signIn}){
-  if(!await browser.permissions.request({permissions:['notifications']}))throw new Error('Notifications were not allowed. Enable them for Deadline Scout in Edge.');
+  if(!await browser.permissions.request({permissions:['notifications']}))throw new Error('Notifications were not allowed. Enable them for Deadline Scout in your browser.');
   try{await validateSession();}catch(error){if(error.status!==401)throw error;await signIn();await validateSession();}
-  if(await browser.notifications.getPermissionLevel()==='denied')throw new Error('Edge is blocking extension notifications. Allow them in extension settings.');
+  if(await browser.notifications.getPermissionLevel()==='denied')throw new Error('Your browser is blocking extension notifications. Allow them in extension settings.');
   await browser.alarms.create('surface-alerts',{periodInMinutes:1});
 }

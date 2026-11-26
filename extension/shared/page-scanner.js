@@ -1,7 +1,7 @@
 import {dedupeMilestones} from './milestone-selection.js';
 import {extract,readHtml} from './extract.js';
 // This function is injected into the selected web tab. It has no dependencies
-// on the popup, so Edge can serialize and execute it in an isolated world.
+// on the popup, so the browser can serialize and execute it in an isolated world.
 export function captureVisiblePage(){
   const text=document.body?.innerText||'';
   return {title:document.title,url:location.href,text:text.slice(0,240000),selected:window.getSelection()?.toString()||'',schemas:[...document.querySelectorAll('script[type="application/ld+json"]')].slice(0,12).map(n=>n.textContent.slice(0,30000)),links:[...document.querySelectorAll('a[href]')].filter(a=>a.origin===location.origin&&/faq|rules|updates|schedule|dates/i.test(a.textContent+' '+a.pathname)).slice(0,10).map(a=>({url:a.href,label:a.innerText||a.textContent}))};

@@ -1,6 +1,6 @@
 # Deadline Scout
 
-A Manifest V3 side panel for Microsoft Edge and Google Chrome that watches registration schedules, explains meaningful deadline changes, and connects to real Google Calendar, Google Tasks, and Brevo email.
+A Manifest V3 browser extension for Google Chrome and Microsoft Edge that watches registration schedules, explains meaningful deadline changes, and connects to real Google Calendar, Google Tasks, and Brevo email.
 
 Built for the **Beyond the Browser** hackathon track. Plain HTML/CSS/JavaScript extension, Node.js backend, SQLite storage. Generic JavaScript rechecks use **playwright-core** with an existing Edge/Chromium installation. Node.js **24 or newer** is required for built-in SQLite and environment-file support.
 
@@ -28,7 +28,7 @@ Stop the server with **Ctrl+C**. Restart with:
 node --env-file-if-exists=.env server/index.js
 ```
 
-## Install the unpacked extension in Microsoft Edge (current test target)
+## Install the unpacked extension in Chrome or Edge
 
 1. In Microsoft Edge, open `edge://extensions`. In Google Chrome, use `chrome://extensions` instead.
 2. Turn on **Developer mode**.
@@ -38,12 +38,14 @@ node --env-file-if-exists=.env server/index.js
    C:\Users\adity\Documents\Codex\2026-11-22\give-a-proper-prompt-to-build\outputs\Deadline Scout\extension
    ```
 
-4. Pin **Deadline Scout** in Edge's Extensions menu.
-5. Open a registration page and click its toolbar icon to open the side panel.
-6. Use **Track this page**. If page access fails, click the toolbar icon again on that page and retry, or paste its public URL.
-7. For background alerts, choose **Set up background alerts** in the popup and allow extension notifications. Setup opens the hosted dashboard and reuses its signed-in account. If needed, sign in there once; setup resumes automatically. Profile → Settings shows connection status and **Send test background alert**. Reload the extension at edge://extensions after updating it. Legacy extension dashboard pages redirect to the hosted website. Website-only Browser alerts remain separate and work while the page is open.
+4. Pin **Deadline Scout** in your browser’s Extensions menu.
+5. Open a registration page and click its toolbar icon to open the popup.
+6. Use **Scan this page**. If page access fails, click the toolbar icon again on that page and retry, or paste its public URL.
+7. For background alerts, choose **Set up background alerts** in the popup and allow extension notifications. Setup opens the hosted dashboard and reuses its signed-in account. If needed, sign in there once; setup resumes automatically. Profile → Settings shows connection status and **Send test background alert**. Reload the extension from your browser’s extensions page after updating it. Legacy extension dashboard pages redirect to the hosted website. Website-only Browser alerts remain separate and work while the page is open.
 
 Background setup uses a short-lived, single-use PKCE exchange. The extension receives an alerts-only session bound to the website session; it cannot change tracked events, clear account data, or access Calendar APIs. Signing out of that website session revokes its background access.
+
+The same extension folder targets Chrome and Edge (Chromium 120 or later). For a hosted backend, add each installed extension's ID to the server's comma-separated `EXTENSION_IDS` allowlist if the browser shows a different ID. The current package uses Chromium extension APIs.
 
 If you extracted the ZIP somewhere else, select its `extension` folder instead. The folder contains the manifest, service worker, shared extraction code, and icons. No build step is necessary.
 

@@ -94,7 +94,7 @@ async function renderSettings(){
   const s=await settings();$('#demo-link').href=s.backendUrl+'/demo/registration';$('.demo-hint').hidden=connected&&!['localhost','127.0.0.1'].includes(new URL(config.base).hostname);
   const supported=isExtension||'Notification' in window;$('#browser-alerts').disabled=!supported;
   $('#browser-alerts').checked=isExtension?!!me.email&&await chrome.permissions.contains({permissions:['notifications']})&&await chrome.notifications.getPermissionLevel()==='granted':supported&&Notification.permission==='granted'&&!!await storage.get('webAlerts:'+me.email);
-  $('#browser-alerts-help').textContent=isExtension?'Background alerts while Edge is running. Sign in here and allow notifications.':'Alerts while this website is open. In the extension, choose Set up background alerts to receive them without this page.';
+  $('#browser-alerts-help').textContent=isExtension?'Background alerts while your browser is running. Sign in here and allow notifications.':'Alerts while this website is open. In the extension, choose Set up background alerts to receive them without this page.';
   $('#test-browser-alert').disabled=!$('#browser-alerts').checked;
 
 }
@@ -266,9 +266,9 @@ $('#edit-profile-name').onclick=()=>{profileNameEditing=true;profileNameDirty=fa
 $('#cancel-profile-name').onclick=cancelProfileName;
 function extensionMessage(extensionId,message){
   return new Promise((resolve,reject)=>{
-    if(!globalThis.chrome?.runtime?.sendMessage){reject(new Error('Open this page in Edge with Deadline Scout enabled, then reload the extension and choose Set up background alerts.'));return;}
-    const timer=setTimeout(()=>reject(new Error('The extension did not respond. Reload Deadline Scout in Edge and try setup again.')),20000);
-    try{chrome.runtime.sendMessage(extensionId,message,response=>{clearTimeout(timer);const error=chrome.runtime.lastError;if(error||!response?.ok)reject(new Error(response?.error||'Reload the Deadline Scout extension in Edge, then choose Set up background alerts again.'));else resolve(response);});}catch(error){clearTimeout(timer);reject(error);}
+    if(!globalThis.chrome?.runtime?.sendMessage){reject(new Error('Open this page in the browser where you installed Deadline Scout, then reload the extension and choose Set up background alerts.'));return;}
+    const timer=setTimeout(()=>reject(new Error('The extension did not respond. Reload the Deadline Scout extension and try setup again.')),20000);
+    try{chrome.runtime.sendMessage(extensionId,message,response=>{clearTimeout(timer);const error=chrome.runtime.lastError;if(error||!response?.ok)reject(new Error(response?.error||'Reload the Deadline Scout extension, then choose Set up background alerts again.'));else resolve(response);});}catch(error){clearTimeout(timer);reject(error);}
   });
 }
 async function backgroundAlertStatus(){
@@ -286,7 +286,7 @@ async function finishBackgroundSetup(flow){
     await storage.set('backgroundExtensionId',flow.extensionId);await storage.set('pendingBackgroundSetup',null);$('#background-alerts-status').textContent='Background alerts connected to '+(connected.email||me.email)+'.';$('#test-background-alert').hidden=false;toast('Background alerts connected.');
   }catch(error){$('#background-alerts-status').textContent=error.message;}
 }
-$('#test-background-alert').onclick=e=>run(e.currentTarget,async()=>{const id=await storage.get('backgroundExtensionId');await extensionMessage(id,{type:'scout-alerts-test'});$('#background-alerts-status').textContent='Test sent. Check Edge and Windows notification settings if no banner appears.';});
+$('#test-background-alert').onclick=e=>run(e.currentTarget,async()=>{const id=await storage.get('backgroundExtensionId');await extensionMessage(id,{type:'scout-alerts-test'});$('#background-alerts-status').textContent='Test sent. Check your browser and system notification settings if no banner appears.';});
 $('#profile-name').oninput=()=>{profileNameDirty=true;$('#profile-name-status').textContent='';};
 $('#profile-name').onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();cancelProfileName();}};
 $('#profile-popover').addEventListener('toggle',async event=>{
@@ -323,8 +323,8 @@ $('#close-dialog').onclick=closeDialog;
 $('#connect-google').onclick=e=>run(e.currentTarget,async()=>{await signIn();toast('Google connected.');});
 $('#disconnect-google').onclick=e=>run(e.currentTarget,async()=>{await api('/api/google/disconnect','POST',{});await refresh();});
 function websiteNotification(title,body,tag,url){
-  if(!('Notification' in window)||Notification.permission!=='granted')throw new Error('Allow notifications for Deadline Scout in Edge site permissions.');
-  return new Promise((resolve,reject)=>{const notification=new Notification(title,{body,icon:'/icon128.png',tag});const timer=setTimeout(()=>reject(new Error('No notification confirmation received. Check Edge and Windows notification settings.')),15000);notification.onshow=()=>{clearTimeout(timer);resolve();};notification.onerror=()=>{clearTimeout(timer);reject(new Error('The browser could not show the notification. Check Edge and Windows notification settings.'));};notification.onclick=()=>{window.focus();if(url&&new URL(url).origin===location.origin)location.assign(url);else showView('timeline');notification.close();};});
+  if(!('Notification' in window)||Notification.permission!=='granted')throw new Error('Allow notifications for Deadline Scout in your browser’s site permissions.');
+  return new Promise((resolve,reject)=>{const notification=new Notification(title,{body,icon:'/icon128.png',tag});const timer=setTimeout(()=>reject(new Error('No notification confirmation received. Check your browser and system notification settings.')),15000);notification.onshow=()=>{clearTimeout(timer);resolve();};notification.onerror=()=>{clearTimeout(timer);reject(new Error('The browser could not show the notification. Check your browser and system notification settings.'));};notification.onclick=()=>{window.focus();if(url&&new URL(url).origin===location.origin)location.assign(url);else showView('timeline');notification.close();};});
 }
 async function surfaceWebsiteAlerts(){
   if(isExtension||webAlertsBusy||!connected||!me.email||!('Notification' in window)||Notification.permission!=='granted'||!await storage.get('webAlerts:'+me.email))return;
@@ -336,7 +336,7 @@ $('#browser-alerts').onchange=e=>run(null,async()=>{
       if(wanted){await enableExtensionAlerts({browser:chrome,validateSession:()=>api('/api/me'),signIn:connectGoogle});await refresh();await chrome.runtime.sendMessage({type:'surface-alerts'});$('#browser-alerts-status').textContent='Background alerts connected to '+me.email+'.';
       }else{await chrome.permissions.remove({permissions:['notifications']});$('#browser-alerts-status').textContent='Background alerts turned off.';}
     }else{
-      if(wanted){if(!me.email)throw new Error('Sign in before enabling browser alerts.');if(!('Notification' in window))throw new Error('This browser does not support desktop notifications.');const permission=await Notification.requestPermission();if(permission!=='granted')throw new Error('Notifications were not allowed. Open Edge site permissions for Deadline Scout and allow notifications.');}
+      if(wanted){if(!me.email)throw new Error('Sign in before enabling browser alerts.');if(!('Notification' in window))throw new Error('This browser does not support desktop notifications.');const permission=await Notification.requestPermission();if(permission!=='granted')throw new Error('Notifications were not allowed. Open your browser’s site permissions for Deadline Scout and allow notifications.');}
       await storage.set('webAlerts:'+me.email,wanted);if(wanted)await surfaceWebsiteAlerts();else $('#browser-alerts-status').textContent='Website alerts turned off.';
     }
   }catch(error){$('#browser-alerts-status').textContent=error.message;throw error;}finally{await renderSettings();}
