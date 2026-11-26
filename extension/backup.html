@@ -1,1 +1,167 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Backup Signup · Deadline Scout</title><link rel="stylesheet" href="panel.css"><link rel="stylesheet" href="backup.css"></head><body><main class="backup-shell"><header class="header"><a class="brand scout-brand" href="/" aria-label="Deadline Scout home"><img class="scout-emblem" src="/assets/scout-symbol.svg" alt="" width="44" height="48"><span class="brand-lettering"><span class="brand-deadline">DEADLINE <span class="brand-scout">SCOUT</span></span></span></a><a href="/">Dashboard</a></header><p class="eyebrow">A SECOND CHANCE TO FINISH</p><h1>Backup Signup</h1><p>Prepare once. Run now or approve a background backup.</p><p id="backup-account" role="status"></p><div id="backup-feedback" role="status" aria-live="polite"></div><section class="card start-guide"><h2>Start here</h2><ol><li>Track the event on your dashboard.</li><li>Open its signup form and choose <strong>Prepare signup</strong> in the extension.</li><li>Capture each page with answer fields into the same draft. An empty final review page needs no capture.</li></ol><details><summary>Optional: save your profile and links for suggestions</summary><form id="signup-profile"><label>Full name<input name="name" maxlength="100"></label><label>Phone<input name="phone" type="tel"></label><label>College / affiliation<input name="college" maxlength="200"></label><div id="saved-links"></div><button type="button" id="add-link" class="button secondary">Add named link</button><button class="button primary">Save profile</button></form></details></section><section class="card"><h2>Your drafts</h2><p>Open a saved signup, or arrange its captured form steps below.</p><button id="undo-delete" type="button" class="button secondary" hidden>Undo draft deletion</button><div id="signup-list" aria-live="polite"></div><details><summary>Try the demo</summary><p>The demo tests receipt-based submissions. For other sites, background signup runs through your Edge extension.</p><a href="signup-demo.html" target="_blank">Open test signup form</a><button id="run-backups" class="button secondary">Run due demo backups</button></details></section><section id="capture-choice" class="card" hidden><h2>Continue a signup</h2><p id="capture-summary"></p><label>Which saved draft is this form page for?<select id="append-draft"></select></label><button id="append-step" class="button primary">Add to selected draft</button><button id="new-signup" class="button secondary">Start a separate signup</button></section><section id="signup-editor" class="card" hidden aria-labelledby="signup-title"><div class="dialog-heading"><h2 id="signup-title">Prepare your signup</h2><button id="close-signup" type="button" class="text-button">Close editor</button></div><nav class="signup-progress" aria-label="Signup setup"><button type="button" id="flow-1">1 · Choose event</button><button type="button" id="flow-2">2 · Review answers</button><button type="button" id="flow-3">3 · Set backup</button></nav><p id="signup-feedback" role="status" aria-live="polite"></p><form id="draft-form" novalidate><section id="stage-1"><label>Signup name<input id="signup-name" required maxlength="200"></label><label>Tracked event or page<select id="signup-track" required></select></label><p id="signup-destination"></p><button id="next-review" type="button" class="button primary">Continue to answers →</button></section><section id="stage-2" hidden><p>Save a PDF here to attach it automatically when you fill this form. PDFs up to 2 MB are encrypted in your account for 7 days. Other file types stay manual.</p><div id="signup-steps"></div><p>Save answers to unlock event and backup navigation. Saving does not submit a registration.</p><button class="button primary">Save & continue →</button><button id="save-progress" type="button" class="button secondary">Save unfinished draft</button><button id="back-event" type="button" class="text-button">← Change event</button></section></form><section id="stage-3" hidden><h3>When should we help you finish?</h3><p>Choose a reminder or approve background fill and submission. Edge must be running, the extension needs access to the form site, and the organizer must stay signed in. New questions, payments and CAPTCHA pause the run.</p><label>Deadline<select id="signup-milestone"></select></label><label>Backup timing<select id="signup-rule"><option value="relative">Before the deadline</option><option value="fixed">Choose an exact time</option></select></label><label id="offset-label">Minutes before the deadline<input id="signup-offset" type="number" min="0" max="10080" value="15"></label><label id="time-label" hidden>Exact time (your device timezone)<input id="signup-time" type="datetime-local"></label><p id="backup-exact-time"></p><label>Action<select id="signup-mode"><option value="reminder">Send me a reminder</option><option value="browser-auto">Fill and submit in background · Edge must be running</option><option value="demo-auto">Automatic submission · test organizer only</option></select></label><button id="arm-signup" class="button primary">Turn on backup</button><button id="submit-demo-now" class="button secondary" hidden>Register now · demo organizer only</button><button id="fill-submit-signup" class="button secondary">Run background signup now</button><button id="resume-signup" class="button secondary">Fill form now</button><button id="back-answers" class="text-button">← Edit answers</button><p id="resume-instructions"></p></section><div id="saved-draft-actions" hidden><button id="registered-signup" class="text-button">I already registered</button><button id="cancel-signup" class="text-button">Cancel backup</button></div></section></main><script type="module" src="backup.js?v=1.9.7"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Backup Signup · Deadline Scout</title>
+  <link rel="stylesheet" href="panel.css">
+  <link rel="stylesheet" href="backup.css?v=2">
+</head>
+<body>
+  <main class="shell backup-shell">
+    <header class="header backup-header">
+      <a class="brand scout-brand" href="/" aria-label="Deadline Scout home">
+        <img class="scout-emblem" src="assets/scout-symbol.svg" alt="" width="44" height="48">
+        <span class="brand-lettering"><span class="brand-deadline">DEADLINE <span class="brand-scout">SCOUT</span></span></span>
+      </a>
+      <a class="back-dashboard" href="/">← Dashboard</a>
+    </header>
+
+    <section class="backup-hero" aria-labelledby="backup-title">
+      <div class="backup-intro">
+        <h1 id="backup-title">Backup <em>Signup</em></h1>
+        <p>Save your answers now. Fill the form when you’re ready or set a backup before the deadline.</p>
+        <a class="button backup-primary" href="#drafts-heading">Go to your drafts <span aria-hidden="true">↓</span></a>
+      </div>
+      <div class="backup-hero-guide">
+        <h2>Start a signup</h2>
+        <ol>
+          <li>Track the event on your dashboard.</li>
+          <li>Open the signup form and click <strong>Prepare signup</strong> in Edge.</li>
+          <li>Capture each section with questions, then choose <strong>Submit as draft</strong> in Edge.</li>
+        </ol>
+      </div>
+    </section>
+
+    <div class="backup-session">
+      <p id="backup-account" role="status"></p>
+      <div id="backup-feedback" role="status" aria-live="polite"></div>
+    </div>
+
+    <section id="capture-choice" class="card backup-editor" hidden>
+      <h2>Where should these pages go?</h2>
+      <p id="capture-summary"></p>
+      <label>Existing draft<select id="append-draft"></select></label>
+      <div class="backup-actions">
+        <button id="append-step" class="button backup-primary">Add to selected draft</button>
+        <button id="new-signup" class="button secondary">Start a separate signup</button>
+      </div>
+    </section>
+
+    <section id="signup-editor" class="card backup-editor" hidden aria-labelledby="signup-title">
+      <div class="editor-heading">
+        <div>
+          <h2 id="signup-title" tabindex="-1">Prepare your signup</h2>
+          <p id="signup-destination"></p>
+        </div>
+        <button id="close-signup" type="button" class="button secondary">Close editor</button>
+      </div>
+      <nav class="signup-progress" aria-label="Signup setup">
+        <button type="button" id="flow-1"><span>1</span> Choose event</button>
+        <button type="button" id="flow-2"><span>2</span> Review answers</button>
+        <button type="button" id="flow-3"><span>3</span> Set backup</button>
+      </nav>
+      <p id="signup-feedback" role="status" aria-live="polite"></p>
+      <form id="draft-form" novalidate>
+        <section id="stage-1">
+          <div class="backup-field-grid">
+            <label>Signup name<input id="signup-name" required maxlength="200"></label>
+            <label>Tracked event or page<select id="signup-track" required></select></label>
+          </div>
+          <div class="backup-actions">
+            <button id="next-review" type="button" class="button backup-primary">Continue to answers →</button>
+          </div>
+        </section>
+        <section id="stage-2" hidden>
+          <details class="backup-details field-help">
+            <summary>How saved attachments work</summary>
+            <p>PDFs up to 2 MB can attach automatically. They’re encrypted in your account for 7 days. Other files need to be attached on the form.</p>
+          </details>
+          <div id="signup-steps"></div>
+          <div class="backup-actions">
+            <button class="button backup-primary">Save &amp; continue →</button>
+            <button id="save-progress" type="button" class="button secondary">Save unfinished draft</button>
+            <button id="back-event" type="button" class="text-button">← Change event</button>
+          </div>
+        </section>
+      </form>
+      <section id="stage-3" hidden>
+        <div class="backup-mode-grid">
+          <section class="backup-option">
+            <h3>Schedule a backup</h3>
+            <label>Deadline<select id="signup-milestone"></select></label>
+            <div class="backup-field-grid">
+              <label>Timing<select id="signup-rule"><option value="relative">Before the deadline</option><option value="fixed">Choose an exact time</option></select></label>
+              <label id="offset-label">Minutes before deadline<input id="signup-offset" type="number" min="0" max="10080" value="15"></label>
+              <label id="time-label" hidden>Exact time (device timezone)<input id="signup-time" type="datetime-local"></label>
+            </div>
+            <label>Action<select id="signup-mode"><option value="reminder">Send me a reminder</option><option value="browser-auto">Fill and submit in background</option><option value="demo-auto">Automatic submission · test organizer only</option></select></label>
+            <p id="backup-exact-time"></p>
+            <button id="arm-signup" class="button backup-primary">Turn on backup</button>
+          </section>
+          <section class="backup-option backup-option-now">
+            <h3>Finish now</h3>
+            <p>Open the form with your answers filled, or approve a background submission now.</p>
+            <div class="backup-actions">
+              <button id="resume-signup" class="button secondary">Fill form now</button>
+              <button id="fill-submit-signup" class="button secondary">Run background signup now</button>
+              <button id="submit-demo-now" class="button secondary" hidden>Register now · demo organizer only</button>
+            </div>
+            <details class="backup-details">
+              <summary>What needs your attention?</summary>
+              <p>Keep Edge open and stay signed in to the organizer. Background signup pauses for things like payment, new questions, or CAPTCHA.</p>
+              <p id="resume-instructions"></p>
+            </details>
+          </section>
+        </div>
+        <button id="back-answers" class="text-button">← Edit answers</button>
+      </section>
+      <div id="saved-draft-actions" class="backup-actions draft-management" hidden>
+        <button id="registered-signup" class="text-button">I already registered</button>
+        <button id="cancel-signup" class="text-button backup-danger">Cancel backup</button>
+      </div>
+    </section>
+
+    <div class="backup-workspace">
+      <section class="backup-drafts" aria-labelledby="drafts-heading">
+        <div class="drafts-heading">
+          <div class="drafts-title">
+            <h2 id="drafts-heading">Your drafts</h2>
+            <span id="draft-count" class="draft-count" aria-label="Saved draft count">0</span>
+          </div>
+          <label class="draft-search"><span class="sr-only">Search drafts</span><input id="draft-search" type="search" placeholder="Search drafts"></label>
+        </div>
+        <button id="undo-delete" type="button" class="button secondary" hidden>Undo draft deletion</button>
+        <div id="signup-list" class="signup-list"></div>
+        <p id="draft-no-results" class="draft-empty" hidden>No drafts match your search.</p>
+      </section>
+      <aside class="card backup-tools" aria-labelledby="tools-heading">
+        <h2 id="tools-heading">Signup tools</h2>
+        <details class="backup-details">
+          <summary>Profile and saved links</summary>
+          <p>Reuse these details when reviewing a draft.</p>
+          <form id="signup-profile">
+            <label>Full name<input name="name" maxlength="100"></label>
+            <label>Phone<input name="phone" type="tel"></label>
+            <label>College / affiliation<input name="college" maxlength="100"></label>
+            <div id="saved-links"></div>
+            <div class="backup-actions">
+              <button type="button" id="add-link" class="button secondary">Add link</button>
+              <button class="button backup-primary">Save profile</button>
+            </div>
+          </form>
+        </details>
+        <details class="backup-details">
+          <summary>Try the demo</summary>
+          <p>Practice on a fictional signup.</p>
+          <div class="backup-actions">
+            <a href="signup-demo.html" target="_blank" rel="noopener">Open test form ↗</a>
+            <button id="run-backups" class="button secondary">Check due demo backups</button>
+          </div>
+        </details>
+      </aside>
+    </div>
+  </main>
+  <script type="module" src="backup.js?v=1.9.8"></script>
+</body>
+</html>
