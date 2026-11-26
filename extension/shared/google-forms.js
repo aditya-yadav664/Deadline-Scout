@@ -138,7 +138,7 @@ export async function googleFormsSignup({step, answers, captureAnswers = false} 
   }
   for (const field of step.fields) {
     if (field.manualUpload) {
-      report.push(field.label + ': upload this file on Google Forms; automatic attachment is unavailable.');
+      report.push(field.label + ': checking whether the form accepts the saved PDF.');
       continue;
     }
     const matches = questions.filter(question => question.field.key === field.key);

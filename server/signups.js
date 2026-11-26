@@ -68,7 +68,7 @@ export class Signups {
   if(d.status==='Browser running'&&d.browserStartedAt<Date.now()-30*60000){d.status='Needs review';d.notice='The browser run did not report an outcome. Check the organizer before trying again.';this.save(owner,d);}
   if(d.status!=='Waiting for browser')return {stop:true,status:d.status};
   d.status='Browser running';d.browserStartedAt=Date.now();d.browserRunId=randomToken();d.notice='Claimed by your extension. Keep your browser running; uncertain attempts are not automatically repeated.';this.save(owner,d);
-  const filePayload=[];let bytes=0;for(const [stepIndex,step]of d.steps.entries())for(const field of step.fields.filter(f=>f.type==='file'&&!f.manualUpload))for(const ref of step.files?.[field.key]||[]){const file=await this.route(owner,'/api/signups/'+id+'/files/'+ref.id,'GET',{});bytes+=file.size;if(bytes>4*1024*1024)throw fail('Saved PDFs exceed the 4 MB session limit.');filePayload.push({stepIndex,key:field.key,id:ref.id,...file});}
+  const filePayload=[];let bytes=0;for(const [stepIndex,step]of d.steps.entries())for(const field of step.fields.filter(f=>f.type==='file'))for(const ref of step.files?.[field.key]||[]){const file=await this.route(owner,'/api/signups/'+id+'/files/'+ref.id,'GET',{});bytes+=file.size;if(bytes>4*1024*1024)throw fail('Saved PDFs exceed the 4 MB session limit.');filePayload.push({stepIndex,key:field.key,id:ref.id,...file});}
   return {draft:d,filePayload,runId:d.browserRunId};
  }
  async route(owner,path,method,b){

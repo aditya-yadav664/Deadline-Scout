@@ -47,7 +47,9 @@ export function validateFiles(field,files=[]){
 export function captureSignupForm(formIndex=0,includeInactive=false,captureAnswers=false){
  const visible=el=>!!el.getClientRects().length&&getComputedStyle(el).visibility!=='hidden';
  const forms=[...document.forms].filter(f=>visible(f)&&f.querySelector('input,textarea,select'));const root=forms.sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length)[formIndex]||document;
- const controls=[...root.querySelectorAll('input,textarea,select')].filter(el=>includeInactive||visible(el)),fields=[],seen=new Set(),warnings=[],capturedAnswers={};if(forms.length>1)warnings.push('Multiple forms found. Review the selected form before saving.');
+ const controls=[...root.querySelectorAll('input,textarea,select')].filter(el=>
+  includeInactive||visible(el)||el.type==='file'&&[...el.labels||[]].some(visible)
+ ),fields=[],seen=new Set(),warnings=[],capturedAnswers={};if(forms.length>1)warnings.push('Multiple forms found. Review the selected form before saving.');
  const consent=/\b(?:consent|waiver|terms|privacy|agree|authorize|certify|acknowledge|accept)\b/i;
  const checkboxScopes=new Map();
  for(const el of controls){
@@ -84,7 +86,7 @@ export function captureSignupForm(formIndex=0,includeInactive=false,captureAnswe
   const label=(type==='radio'?el.closest('fieldset')?.querySelector('legend')?.innerText:null)||[...el.labels||[]].map(l=>l.innerText).join(' ')||el.getAttribute('aria-label')||el.placeholder||name||id||'Unlabelled field';
   const help=[...(el.getAttribute('aria-describedby')||'').split(/\s+/).filter(Boolean)].map(id=>document.getElementById(id)?.innerText||'').join(' ');
   const size=el.getAttribute('data-max-bytes')||help.match(/(?:max(?:imum)?(?: file)? size:?|up to)\s*(\d+(?:\.\d+)?)\s*(KB|MB|bytes)/i)?.slice(1);
-  fields.push({key,id,name,label:label.trim().slice(0,300),help:help.slice(0,1500),type,required:group.some(c=>c.required),visible:visible(el),options:type==='select'?[...el.options].map(o=>({value:o.value,label:o.label})):type==='radio'?group.map(c=>({value:c.value,label:c.labels?.[0]?.innerText||c.value})):[],accept:el.accept||'',multiple:!!el.multiple,maxLength:el.maxLength>0?el.maxLength:null,pattern:el.pattern||'',min:el.min||'',max:el.max||'',maxBytes:Array.isArray(size)?Number(size[0])*({KB:1024,MB:1048576,BYTES:1}[size[1].toUpperCase()]||1):Number(size)||null});
+  fields.push({key,id,name,label:label.trim().slice(0,300),help:help.slice(0,1500),type,required:group.some(c=>c.required),visible:visible(el)||type==='file'&&[...el.labels||[]].some(visible),options:type==='select'?[...el.options].map(o=>({value:o.value,label:o.label})):type==='radio'?group.map(c=>({value:c.value,label:c.labels?.[0]?.innerText||c.value})):[],accept:el.accept||'',multiple:!!el.multiple,maxLength:el.maxLength>0?el.maxLength:null,pattern:el.pattern||'',min:el.min||'',max:el.max||'',maxBytes:Array.isArray(size)?Number(size[0])*({KB:1024,MB:1048576,BYTES:1}[size[1].toUpperCase()]||1):Number(size)||null});
   if(captureAnswers&&type!=='file'&&!/(?:^|\s)(?:one-time-code|current-password|new-password|cc-\S+)(?:\s|$)/i.test(el.autocomplete||'')&&
      !/\b(?:password|passcode|otp|verification code|card number|cvv|cvc)\b/i.test(label+' '+name)){
    const value=type==='radio'?group.find(node=>node.checked)?.value:el.value;

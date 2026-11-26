@@ -70,21 +70,16 @@ export async function fillPendingSignup({browser,storage,tabId,force=false,prefe
  if(!force&&alreadyFilled&&!pending.autoSubmit)return {ok:true};
  const [result]=force||!alreadyFilled?await browser.scripting.executeScript({target:{tabId},func:googleForms?googleFormsSignup:restoreSignupAnswers,args:[{step:plan.step,answers:plan.answers}]}):[{result:[]}];
  let attachmentResult={report:[],blocked:false};
- if(pending.fileSession&&(!alreadyFilled||force)){
-  const cache=(await browser.storage.session.get('signupFiles')).signupFiles;
-  const attachments=cache?.id===pending.fileSession&&cache.expires>Date.now()?cache.files.filter(f=>f.stepIndex===plan.index&&!plan.step.fields.some(field=>field.key===f.key&&field.manualUpload)):[];
-  if(attachments.length){const [attached]=await browser.scripting.executeScript({target:{tabId},func:attachSignupPdfs,args:[{step:plan.step,attachments}]});attachmentResult=attached.result;}
- }
- const manualAttachment=plan.step.fields.find(field=>field.manualUpload&&(field.required||plan.step.files?.[field.key]?.length));
- if(manualAttachment&&pending.autoSubmit){
-  const message='Upload '+manualAttachment.label+' on Google Forms and continue there.';
-  await browser.scripting.executeScript({target:{tabId},func:showSignupProgress,args:[{message}]});
-  return {ok:true,execution:{paused:true,message},report:[...result.result,message]};
+ if(plan.step.fields.some(field=>field.type==='file')){
+  const cache=pending.fileSession?(await browser.storage.session.get('signupFiles')).signupFiles:null;
+  const attachments=cache?.id===pending.fileSession&&cache?.expires>Date.now()?cache.files.filter(file=>file.stepIndex===plan.index):[];
+  const [attached]=await browser.scripting.executeScript({target:{tabId},func:attachSignupPdfs,args:[{step:plan.step,attachments,autoSubmit:pending.autoSubmit}]});
+  attachmentResult=attached.result;
  }
  result.result.push(...attachmentResult.report);
  if(!alreadyFilled)pending.lastProgressAt=Date.now();pending.filled=[...new Set([...pending.filled,key])];await storage.set('signupResume',pending);
  if(!plan.warnings.length&&!attachmentResult.blocked&&!result.result.some(line=>/ambiguous or missing/.test(line))){pending.visited=[...new Set([...(pending.visited||[]),plan.index])];await storage.set('signupResume',pending);}
- let execution;
+ let execution=attachmentResult.blocked&&pending.autoSubmit?{paused:true,message:attachmentResult.report.join(" ")}:undefined;
  if(pending.autoSubmit&&!plan.warnings.length&&!attachmentResult.blocked&&!result.result.some(line=>/ambiguous or missing/.test(line))){pending.attempted||=[];if(!pending.attempted.includes(key)&&!pending.submissionRequested){pending.attempted.push(key);pending.dispatching=true;await storage.set('signupResume',pending);const [attempt]=await browser.scripting.executeScript({target:{tabId},func:advanceSignup,args:[{finalStep:plan.review||plan.index===pending.draft.steps.length-1,allowSubmit:pending.draft.steps.every((s,i)=>!s.fields.length||pending.visited?.includes(i)),formIndex:plan.step.formIndex||0,googleForms}]});execution=attempt.result;pending.dispatching=false;if(execution?.paused){pending.attempted=pending.attempted.filter(k=>k!==key);}if(execution?.attempted){pending.submissionRequested=true;pending.submittedAt=Date.now();}await storage.set('signupResume',pending);}}
  await browser.scripting.executeScript({target:{tabId},func:watchSignupStep});
  const nextUrl=pending.draft.steps[plan.index+1]?.url;

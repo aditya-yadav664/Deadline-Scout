@@ -90,7 +90,7 @@ import {attachSignupPdfs,approvedSessionFiles} from '../extension/shared/signup-
 import {createHash} from 'node:crypto';
 test('real browser: approved PDF attachment reaches FormData and fires the site change handler', {skip:!executablePath},async t=>{
  const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());const page=await browser.newPage();
- await page.route('https://signup.test/**',route=>route.fulfill({contentType:'text/html',body:'<form><label>Proposal<input id="pdf" name="proposal" type="file" accept=".pdf" required></label></form><script>window.changes=0;document.querySelector("input").onchange=()=>window.changes++</script>'}));
+ await page.route('https://signup.test/**',route=>route.fulfill({contentType:'text/html',body:'<form><label>Proposal<input id="pdf" name="proposal" type="file" accept=".pdf" required hidden></label></form><script>window.changes=0;document.querySelector("input").onchange=()=>window.changes++</script>'}));
  await page.goto('https://signup.test/form');
  const bytes=Buffer.from('%PDF-1.4\nFictional attachment test'),file={stepIndex:0,key:'id:pdf',id:'file1',name:'test.pdf',type:'application/pdf',size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),data:bytes.toString('base64')};
  const step={...await page.evaluate(captureSignupForm),files:{'id:pdf':[{...file,data:undefined}]}};
@@ -104,6 +104,30 @@ test('real browser: approved PDF attachment reaches FormData and fires the site 
  assert.equal((await page.evaluate(attachSignupPdfs,{step,attachments:[{...file,data:Buffer.from('%PDF-tampered').toString('base64')}]})).blocked,true);
  assert.equal(await page.locator('#pdf').evaluate(el=>el.files.length),0);
  assert.throws(()=>approvedSessionFiles({steps:[step]},[{...file,id:'unapproved'}]),/reviewed/);
+});
+
+test('a Google Forms upload tries only the approved question and pauses for a custom picker or rejected file', {skip:!executablePath},async t=>{
+ const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());
+ const page=await browser.newPage();
+ const url='https://docs.google.com/forms/d/e/controlled-pdf/viewform';
+ await page.route(url,route=>route.fulfill({contentType:'text/html',body:`<form action="formResponse">
+  <div data-params="%.@.[7,"><button type="button">Add file</button></div>
+  <div data-params="%.@.[8,"><input type="file" aria-label="Different question"></div>
+ </form>`}));
+ await page.goto(url);
+ const key='google-forms:7';
+ const bytes=Buffer.from('%PDF-1.4\nFictional upload test');
+ const pdf={id:'fixture',key,name:'approved.pdf',size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),data:bytes.toString('base64')};
+ const step={fields:[{key,type:'file',label:'Resume',required:true,manualUpload:true}],files:{[key]:[pdf]}};
+ const args={step,attachments:[pdf],autoSubmit:true};
+ assert.equal((await page.evaluate(attachSignupPdfs,args)).blocked,true);
+ assert.equal(await page.getByLabel('Different question').evaluate(input=>input.files.length),0);
+ await page.locator('button').evaluate(button=>button.insertAdjacentHTML('afterend','<input type="file" hidden>'));
+ const target=page.locator('input[hidden]');
+ await target.evaluate(input=>input.addEventListener('change',()=>setTimeout(()=>{input.value='';},40),{once:true}));
+ assert.equal((await page.evaluate(attachSignupPdfs,args)).blocked,true);
+ assert.equal((await page.evaluate(attachSignupPdfs,args)).blocked,false);
+ assert.equal(await target.evaluate(input=>input.files[0].name),'approved.pdf');
 });
 
 import {fillPendingSignup} from '../extension/shared/signup-resume.js';
