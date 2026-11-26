@@ -17,7 +17,7 @@ export async function attachSignupPdfs({step,attachments,autoSubmit=false}){
  const digest=async bytes=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(n=>n.toString(16).padStart(2,'0')).join('');
  const pickerFrames=()=>[...document.querySelectorAll('iframe[src]')].filter(frame=>{
   const url=new URL(frame.src,location.href);
-  return url.origin==='https://docs.google.com'&&url.pathname==='/picker'&&visible(frame);
+  return url.origin==='https://docs.google.com'&&/^\/picker\/?$/.test(url.pathname)&&visible(frame)&&!frame.closest('[hidden],[aria-hidden=true]');
  });
  const waitFor=async (read,ms)=>{
   const end=Date.now()+ms;
@@ -50,21 +50,36 @@ export async function attachSignupPdfs({step,attachments,autoSubmit=false}){
   const matches=()=>{const items=selected();return card.isConnected&&items.length===pdfs.length&&pdfs.every((pdf,i)=>exactName(items[i],pdf.name));};
   const approval=JSON.stringify(pdfs.map(pdf=>[pdf.name,pdf.sha256]));
   if(confirmedPickers.get(card)===approval&&matches())return;
-  if(selected().length||pickerFrames().length)throw Error('The Google picker already has a selection or is open.');
-  const buttons=[...card.querySelectorAll('button,[role=button]')].filter(button=>visible(button)&&!button.matches(':disabled,[aria-disabled=true]')&&button.textContent.trim()==='Add file');
+  if(pickerFrames().length)throw Error('Close the open Google picker and retry.');
+  // Remove only attachments belonging to this question, after validating the reviewed bytes.
+  const removeControl=item=>{
+   const controls=[...item.querySelectorAll('button,[role=button]')].filter(button=>
+    visible(button)&&!button.matches(':disabled,[aria-disabled=true]')&&
+    ['aria-label','title','data-tooltip'].map(attr=>button.getAttribute(attr)||'').concat(button.textContent.trim()).some(label=>/^remove(?:\s|$)/i.test(label)));
+   return controls.length===1?controls[0]:null;
+  };
+  const existing=selected();
+  if(existing.some(item=>!removeControl(item)))throw Error('The existing attachment has no identifiable Remove button.');
+  for(let count=existing.length;count>0;count--){
+   const items=selected(),remove=items.length&&removeControl(items[0]);
+   if(items.length!==count||!remove)throw Error('The attachment list changed during replacement.');
+   remove.click();
+   if(!await waitFor(()=>selected().length===count-1,5000))throw Error('Google Forms did not confirm removal of the old attachment.');
+  }
+  const buttons=[...card.querySelectorAll('button,[role=button]')].filter(button=>visible(button)&&!button.matches(':disabled,[aria-disabled=true]')&&[button.textContent.trim(),button.getAttribute('aria-label')].includes('Add file'));
   if(buttons.length!==1)throw Error('The Google picker button could not be identified.');
   buttons[0].click();
   const pickerInput=await waitFor(()=>{
    const frames=pickerFrames();
    if(frames.length!==1)return null;
    const picker=frames[0].contentDocument;
-   if(!picker||new URL(picker.URL).pathname!=='/picker'||!picker.getElementById('uploadButtonId'))return null;
+   if(!picker||!/^\/picker\/?$/.test(new URL(picker.URL).pathname))return null;
    const inputs=picker.querySelectorAll('input[type=file]:not(:disabled)');
    return inputs.length===1&&inputs[0].files.length===0?inputs[0]:null;
-  },5000);
+  },12000);
   if(!card.isConnected||!pickerInput?.isConnected)throw Error('The Google picker upload input was unavailable.');
   attach(pickerInput,pdfs);
-  if(!await waitFor(()=>!pickerFrames().length&&matches(),18000))throw Error('Google Forms did not confirm the attachment.');
+  if(!await waitFor(()=>!pickerFrames().length&&matches(),45000))throw Error('Google Forms did not confirm the attachment.');
   confirmedPickers.set(card,approval);
  }
  for(const field of step.fields.filter(f=>f.type==='file')){
@@ -103,7 +118,7 @@ export async function attachSignupPdfs({step,attachments,autoSubmit=false}){
     if(busy())throw Error('The site is still processing the file.');
     if(!input.isConnected||input.getAttribute('aria-invalid')==='true'||!await matchesApproved())throw Error('The site did not retain the approved attachment.');
    };
-   if(input?.files?.length){
+   if(input?.files?.length&&(!refs.length||await matchesApproved())){
     if(autoSubmit)await verifyReady();
     report.push(field.label+': kept the file already chosen on the site.');continue;
    }

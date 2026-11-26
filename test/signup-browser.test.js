@@ -237,6 +237,13 @@ test('a reviewed PDF is uploaded through the matching Google picker and confirme
  await page.locator('ul li').evaluate(el=>{el.textContent='Different.pdf';});
  assert.equal((await page.evaluate(attachSignupPdfs,args)).blocked,true);
  assert.equal(await page.evaluate(()=>window.uploads.length),1);
+ await page.locator('ul li').evaluate(item=>{
+  const remove=document.createElement('button');remove.type='button';remove.setAttribute('aria-label','Remove file');
+  remove.onclick=()=>item.remove();item.append(remove);
+ });
+ assert.equal((await page.evaluate(attachSignupPdfs,args)).blocked,false);
+ assert.equal(await page.evaluate(()=>window.uploads.length),2);
+ assert.equal(await page.locator('ul').first().locator('li').count(),1);
 });
 test('inactive browser job fills two captured panels, attaches PDF and submits an uncaptured empty review exactly once', {skip:!executablePath},async t=>{
  const browser=await chromium.launch({executablePath,headless:true});t.after(()=>browser.close());const page=await browser.newPage();let submissions=0;
