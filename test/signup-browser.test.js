@@ -164,9 +164,10 @@ test('real browser: approved PDF attachment reaches FormData and fires the site 
  const payload=approvedSessionFiles({steps:[step]},[file]);assert.equal((await page.evaluate(attachSignupPdfs,{step,attachments:payload})).blocked,false);
  assert.equal(await page.evaluate(()=>new FormData(document.forms[0]).get('proposal').name),'test.pdf');
  assert.equal(await page.locator('#pdf').evaluate(el=>el.files[0].name),'test.pdf');assert.equal(await page.evaluate(()=>window.changes),1);
- // User-chosen files are preserved, not silently replaced.
+ // The approved draft replaces a different file already on the form.
  await page.locator('#pdf').setInputFiles({name:'my-choice.pdf',mimeType:'application/pdf',buffer:bytes});
- assert.match((await page.evaluate(attachSignupPdfs,{step,attachments:payload})).report[0],/kept/);
+ assert.equal((await page.evaluate(attachSignupPdfs,{step,attachments:payload})).blocked,false);
+ assert.equal(await page.locator('#pdf').evaluate(el=>el.files[0].name),'test.pdf');
  await page.locator('#pdf').setInputFiles([]);
  assert.equal((await page.evaluate(attachSignupPdfs,{step,attachments:[{...file,data:Buffer.from('%PDF-tampered').toString('base64')}]})).blocked,true);
  assert.equal(await page.locator('#pdf').evaluate(el=>el.files.length),0);
