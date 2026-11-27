@@ -30,10 +30,12 @@ function suggestStep(step){
  }
  return draft;
 }
-async function refresh(){[me,tracks,drafts,profile,passportEntries]=await Promise.all([
-  api('/api/me'),api('/api/tracks?summary=signup'),api('/api/signups?summary=1'),api('/api/signup-profile'),
-  api('/api/application-passport').catch(()=>[])
-]);$('#backup-account').textContent=me.email?'Your Google account is connected.':'';for(const k of ['name','phone','college'])$('#signup-profile').elements[k].value=profile[k]||(k==='name'?me.displayName:'');$('#saved-links').innerHTML='';profile.links.forEach(addLink);paintList();groupDraftCards();}
+async function refresh(workspace){
+  ({me,tracks,drafts,profile,passportEntries}=workspace||await api('/api/signup-workspace'));
+  $('#backup-account').textContent=me.email?'Your Google account is connected.':'';
+  for(const k of ['name','phone','college'])$('#signup-profile').elements[k].value=profile[k]||(k==='name'?me.displayName:'');
+  $('#saved-links').innerHTML='';profile.links.forEach(addLink);paintList();groupDraftCards();
+}
 function showStage(n){stage=n;for(let i=1;i<=3;i++){$('#stage-'+i).hidden=i!==n;const stepButton=$('#flow-'+i);stepButton.classList.toggle('current',i===n);if(i===n)stepButton.setAttribute('aria-current','step');else stepButton.removeAttribute('aria-current');}$('#signup-feedback').textContent='';if(n===3){previewTime();showPickerFiles(editing);}}
 function filterDrafts(){
   const query=$('#draft-search').value.trim().toLowerCase();
@@ -318,10 +320,10 @@ async function continueCapture(id){const token=++epoch;let d;for(const step of c
 $('#append-step').onclick=()=>action(()=>continueCapture($('#append-draft').value));$('#new-signup').onclick=()=>{epoch++;$('#capture-choice').hidden=true;showStage(1);openDraft({trackId:tracks.some(t=>t.id===targetEvent)?targetEvent:'',title:captured.step.title,formUrl:captured.step.url,steps:(captured.steps||[captured.step]).map(suggestStep),extensionId:captured.extensionId,reviewedAll:false});};
 $('#undo-delete').onclick=()=>action(async()=>{if(!lastDeletedId)return;await api('/api/signups/'+lastDeletedId+'/restore','POST',{});lastDeletedId=null;$('#undo-delete').hidden=true;await refresh();status('Draft restored. Review it before turning its backup on again.');});
 $('#run-backups').onclick=()=>action(async()=>{await api('/api/signups/run','POST',{});await refresh();status('Due backups checked.');});
-export function openBackupTarget(hash){
+export function openBackupTarget(hash,initialCapture){
   return action(async()=>{
     if(hash.has('capture')){
-      captured=await api('/api/signup-captures/'+hash.get('capture'));
+      captured=initialCapture||await api('/api/signup-captures/'+encodeURIComponent(hash.get('capture')));
       if(/^[a-p]{32}$/.test(captured.extensionId))await storage.set('backgroundExtensionId',captured.extensionId);
       history.replaceState(null,'',location.pathname+location.search);
       const matches=drafts.filter(d=>!['Confirmed','Already registered','Cancelled'].includes(d.status)&&sameSignupForm(d.formUrl,captured.step.url));
@@ -346,15 +348,26 @@ export function openBackupTarget(hash){
     }
   });
 }
+const backupTarget=location.pathname==='/backup.html'?new URLSearchParams(location.hash.slice(1)):null;
+let initialCapture;
 await action(async()=>{
-  const config=await api('/api/config');
-  if(!await storage.get('token')&&config.auth==='local'){
-    const session=await api('/api/local-session','POST',{});await storage.set('token',session.token);
+  if(!await storage.get('token')){
+    const config=await api('/api/config');
+    if(config.auth==='local'){
+      const session=await api('/api/local-session','POST',{});await storage.set('token',session.token);
+    }
   }
-  await refresh();
+  if(backupTarget?.has('capture')){
+    status('Opening captured form pages…');
+    const handoff=await api('/api/signup-captures/'+encodeURIComponent(backupTarget.get('capture'))+'?workspace=1')
+      .catch(error=>{if(error.status!==404)throw error;return {expired:error};});
+    await refresh(handoff.workspace);
+    if(handoff.expired){status(handoff.expired.message);backupTarget.delete('capture');}
+    initialCapture=handoff.capture;
+  }else await refresh();
   targetEvent=await storage.get('signup-target-event:'+me.email);
 });
-if(me.email&&location.pathname==='/backup.html') await openBackupTarget(new URLSearchParams(location.hash.slice(1)));
+if(me.email&&backupTarget)await openBackupTarget(backupTarget,initialCapture);
 
 if(!me.email){$('#backup-account').textContent='Sign in on the dashboard, then return here.';const b=document.createElement('button');b.className='button primary';b.textContent='Sign in with Google';b.onclick=()=>action(async()=>{sessionStorage.setItem('dd:backup-handoff',location.pathname+location.hash);await connectGoogle();});$('#backup-account').append(b);}
 

@@ -12,7 +12,7 @@ export function saveCapture(store,vault,input,base){
   for(const old of store.list('_system','capture'))if(old.expires<Date.now())store.remove('_system','capture',old.id);
   const token=randomToken(),id=hash(token);
   store.put('_system','capture',id,{id,expires:Date.now()+15*60000,payload:vault.seal({url,title:String(input.title||'Registration').slice(0,200),milestones,links})});
-  return {reviewUrl:base+'/#capture='+token};
+  return {reviewUrl:base+'/dashboard#capture='+token};
 }
 export function consumeCapture(store,vault,token){
   const id=hash(token),capture=store.get('_system','capture',id);

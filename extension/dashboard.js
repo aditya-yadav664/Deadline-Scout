@@ -152,14 +152,14 @@ async function openOpportunity(id,{focus=true}={}){
     if(request===detailRequest&&epoch===workspaceEpoch)target.textContent=error.message;
   }
 }
-async function refresh(){
+async function refresh(initial){
   const epoch=workspaceEpoch;
   localTracks=await storage.get('localTracks')||[];
   try{
-    config=await api('/api/config');connected=true;
+    config=initial?.config||await api('/api/config');connected=true;
     if(!await storage.get('token')&&config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);}
     if(await storage.get('token')){
-      try{const workspace=await api('/api/workspace?compact=1');if(epoch!==workspaceEpoch)return;({tracks,changes,me}=workspace);priorities=workspace.priorities||[];overview=workspace.overview||{};dashboardPrefs=workspace.dashboard||{groups:[],pinnedIds:[],seenChangeIds:[]};}
+      try{const workspace=initial?.workspace||await api('/api/workspace?compact=1');if(epoch!==workspaceEpoch)return;({tracks,changes,me}=workspace);priorities=workspace.priorities||[];overview=workspace.overview||{};dashboardPrefs=workspace.dashboard||{groups:[],pinnedIds:[],seenChangeIds:[]};}
       catch(e){if(e.status===401){await storage.set('token',null);tracks=[];priorities=[];overview={};me={};if(config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);return refresh();}}else throw e;}
     }else{tracks=[];priorities=[];overview={};me={};}
     await storage.set('cachedTracks',tracks);
@@ -459,7 +459,7 @@ function mountBackup(){
       stylesheet.rel='stylesheet';stylesheet.href='/backup.css?v=4';
       document.head.append(stylesheet);
       target.replaceChildren(section);
-      return await import('./backup.js?v=egress-1');
+      return await import('./backup.js?v=handoff-1');
     })().catch(error=>{target.textContent=error.message;backupMount=null;});
   }
   return backupMount;
@@ -779,6 +779,7 @@ $('#apply-demo').onclick=e=>run(e.currentTarget,async()=>{await api('/api/demo',
 $('#refresh-outbox').onclick=e=>run(e.currentTarget,()=>renderOutbox({force:true}));
 $('#sign-out').onclick=e=>run(e.currentTarget,async()=>{await signOut();toast('Signed out.');});
 async function openCapturedReview(token){
+  trackingStatus('Opening the dates found by your extension…');
   const captured=await api('/api/captures/'+encodeURIComponent(token));
   history.replaceState(null,'',location.pathname);
   const preview=mergeCapturedMilestones(captured.milestones,null).map(m=>({...m,confirmed:false,detected:{time:m.time??null,zone:m.zone??null}}));
@@ -797,13 +798,21 @@ function renderGroups(ordered){const groups=dashboardPrefs.groups||[];const assi
 function groupDialog(id){const group=(dashboardPrefs.groups||[]).find(g=>g.id===id),all=[...tracks,...localTracks];dialog(group?'Edit group':'Create group','<label>Group name<input id="group-name" maxlength="80" value="'+esc(group?.name||'')+'"></label><fieldset><legend>Choose saved pages</legend>'+all.map(t=>'<label><input type="checkbox" data-group-track="'+esc(t.id)+'" '+(group?.trackIds.includes(t.id)?'checked':'')+'> '+esc(t.title)+'</label>').join('')+'</fieldset><button id="save-group" class="button primary">Save group</button>'+(group?'<button id="remove-group" class="text-button">Remove group (keep pages)</button>':''));$('#save-group').onclick=e=>run(e.currentTarget,async()=>{const name=$('#group-name').value.trim();if(!name)throw Error('Enter a group name.');const next={id:group?.id||crypto.randomUUID(),name,trackIds:[...$('#dialog-body').querySelectorAll('[data-group-track]:checked')].map(n=>n.dataset.groupTrack)};await saveDashboard({groups:[...(dashboardPrefs.groups||[]).filter(g=>g.id!==id),next]});closeDialog();render();});if(group)$('#remove-group').onclick=e=>run(e.currentTarget,async()=>{await saveDashboard({groups:dashboardPrefs.groups.filter(g=>g.id!==id)});closeDialog();render();});}
 $('#find-event').oninput=render;$('#watchlist-layout').onchange=()=>{render();};$('#new-group').onclick=()=>groupDialog();
 async function showChangeMessages(){if(!me.email||!connected||document.visibilityState!=='visible')return;const seen=new Set(dashboardPrefs.seenChangeIds||[]);const pending=changes.filter(c=>!seen.has(c.id)&&!noticesShown.has(me.email+':'+c.id)).slice(0,3);for(const c of pending){noticesShown.add(me.email+':'+c.id);const t=tracks.find(t=>t.id===c.trackId);if(!t)continue;const message=document.createElement('div');message.className='change-message';message.innerHTML='<button class="message-open"><strong>'+esc(c.title)+'</strong><span>'+esc(c.label)+': '+esc(formatDate(c.before.date))+' → '+esc(formatDate(c.after.date))+'</span><small>View tracked event →</small></button><button class="message-close" aria-label="Dismiss date update">×</button>';message.querySelector('.message-close').onclick=()=>message.remove();message.querySelector('.message-open').onclick=()=>{showView('watchlist');$('#find-event').value='';$('#watchlist-layout').value='all';openTracks.add(t.id);render();document.querySelector('#tracks [data-track="'+CSS.escape(t.id)+'"]')?.scrollIntoView({behavior:'smooth',block:'center'});message.remove();};$('#change-messages').append(message);setTimeout(()=>message.remove(),7000);}if(pending.length){try{await api('/api/dashboard/seen','POST',{ids:pending.map(c=>c.id)});dashboardPrefs.seenChangeIds=[...(dashboardPrefs.seenChangeIds||[]),...pending.map(c=>c.id)];}catch{/* Already shown in this session; retry persistence on next visit. */}}}
-if(location.pathname!=='/auth/done'){
+export async function startDashboard(initial){
   const fragment=new URLSearchParams(location.hash.slice(1));
+  config=initial.config;connected=true;
   const captureReview=fragment.has('capture')?run(null,()=>openCapturedReview(fragment.get('capture'))):null;
-  await refresh();
+  const inspectReview=fragment.has('inspect')?run(null,async()=>{
+    const url=fragment.get('inspect');
+    history.replaceState(null,'',location.pathname);
+    $('#source-url').value=url;
+    await inspect(url);
+  }):null;
+  await refresh(initial);
+  void surfaceWebsiteAlerts();
   if(captureReview)await captureReview;
   else if(fragment.has('alerts-setup')){const flow={extensionId:fragment.get('alerts-setup'),state:fragment.get('state'),challenge:fragment.get('challenge'),expires:Date.now()+600000};history.replaceState(null,'',location.pathname);await storage.set('pendingBackgroundSetup',flow);await finishBackgroundSetup(flow);}
-  else if(fragment.has('inspect')){const url=fragment.get('inspect');history.replaceState(null,'',location.pathname);$('#source-url').value=url;await run(null,()=>inspect(url));}
+  else if(inspectReview)await inspectReview;
   else {const setup=await storage.get('pendingBackgroundSetup');if(setup&&setup.expires>Date.now())await finishBackgroundSetup(setup);else{const pending=await storage.get('pendingReview');if(pending){draft=pending;renderDraft();}if(['#settings','#timeline','#watchlist'].includes(location.hash))showView(location.hash.slice(1));else if(fragment.has('opportunity'))await openOpportunity(fragment.get('opportunity'),{focus:false});}}
 }
 let refreshing=false;
@@ -812,7 +821,6 @@ async function refreshVisibleWorkspace(){
   refreshing=true;try{await refresh();}finally{refreshing=false;}
 }
 setInterval(()=>void refreshVisibleWorkspace(),60000);
-void surfaceWebsiteAlerts();
 setInterval(()=>void surfaceWebsiteAlerts(),30000);
 document.addEventListener('visibilitychange',()=>{
   void refreshVisibleWorkspace();

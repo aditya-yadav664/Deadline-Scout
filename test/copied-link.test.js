@@ -6,6 +6,7 @@ test('copied registration links preserve their query and fragment in the website
  const source='https://events.example/register?event=a&day=2#schedule';
  const target=new URL(copiedLinkReviewUrl('  '+source+'\n',base));
  assert.equal(target.origin,base);
+ assert.equal(target.pathname,'/dashboard');
  assert.equal(new URLSearchParams(target.hash.slice(1)).get('inspect'),source);
 });
 test('empty, non-link, executable and credential-bearing clipboard values are rejected',()=>{

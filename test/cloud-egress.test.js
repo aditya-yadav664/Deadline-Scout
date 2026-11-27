@@ -105,6 +105,20 @@ test('scoped cloud APIs execute against Postgres and transfer only the records t
   assert.equal('sources' in readiness.data,false);
   assert.equal(queries.some(query=>query.params?.includes('sourceHistory')),false);
   assert.equal((await request('/api/opportunities/two?view=readiness')).status,404);
+  const captureResponse=await request('/api/signup-captures',{method:'POST',body:{
+    step:{url:source,title:'Captured form',fields:[{key:'id:name',type:'text',label:'Name'}],capturedAnswers:{'id:name':'Example'}}
+  }});
+  assert.equal(captureResponse.status,200);
+  const captureToken=new URLSearchParams(new URL(captureResponse.data.url).hash.slice(1)).get('capture');
+  const signupHandoff='/api/signup-captures/'+captureToken+'?workspace=1';
+  assert.equal((await request(signupHandoff,{auth:'Bearer invalid'})).status,401);
+  const handoff=await request(signupHandoff);
+  assert.equal(handoff.data.capture.steps[0].capturedAnswers['id:name'],'Example');
+  assert.equal(handoff.data.workspace.me.email,'alice@example.test');
+  assert.deepEqual(handoff.data.workspace.tracks.map(track=>track.id),['one']);
+  assert.equal(handoff.data.workspace.drafts.length,2);
+  assert.ok(queries.every(query=>query.rows.every(row=>row.owner!=='bob'&&row.kind!=='signupFile')));
+  assert.equal((await request(signupHandoff)).status,404);
   assert.equal((await request('/api/signup-confirmations')).data[0].receipt,'fixture');
   assert.equal((await request('/api/signups/legacy/files/other')).status,404);
   assert.equal(queries.some(q=>q.params?.includes('signupFile')),false);

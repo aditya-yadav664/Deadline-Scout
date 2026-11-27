@@ -586,3 +586,35 @@ test('dashboard loads more timeline and email rows on demand',{skip:!executableP
   await page.getByText('8 shown',{exact:true}).waitFor();
   assert.equal(await page.locator('#outbox .outbox-item').count(),8);
 });
+
+test('extension date review uses one workspace read and displays the capture during verification',{skip:!executablePath},async t=>{
+  const f=await fixture(t);
+  const browser=await chromium.launch({executablePath,headless:true});
+  t.after(()=>browser.close());
+  const page=await browser.newPage();
+  await page.addInitScript(token=>localStorage.setItem('dd:token',JSON.stringify(token)),f.token);
+  await page.route('**/api/config',route=>route.fulfill({json:{auth:'supabase'}}));
+  let allowVerification;
+  const pending=new Promise(resolve=>{allowVerification=resolve;});
+  t.after(allowVerification);
+  await page.route('**/api/inspect',async route=>{
+    await pending;
+    await route.fulfill({json:{milestones:f.track.milestones}});
+  });
+  const capture=await f.request('/api/captures','POST',{url:f.track.url,title:'Captured workshop',milestones:f.track.milestones},f.token);
+  assert.equal(capture.status,201);
+  const requests=[];
+  page.on('request',request=>requests.push(new URL(request.url()).pathname));
+  await page.goto(capture.data.reviewUrl);
+  assert.equal(new URL(page.url()).pathname,'/dashboard');
+  const review=page.getByRole('dialog',{name:/milestone.*review and save/i});
+  await review.getByLabel('Page name').waitFor();
+  assert.equal(await review.getByLabel('Page name').inputValue(),'Captured workshop');
+  assert.equal(await review.getByRole('button',{name:'Checking source…'}).isDisabled(),true);
+  assert.equal(requests.filter(path=>path==='/api/workspace').length,1);
+  assert.equal(requests.filter(path=>path==='/api/me').length,0);
+  assert.equal(requests.filter(path=>path.startsWith('/api/captures/')).length,1);
+  assert.equal(requests.filter(path=>path==='/api/inspect').length,1);
+  allowVerification();
+  await review.getByRole('button',{name:'Save tracked page'}).waitFor();
+});

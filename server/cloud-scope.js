@@ -28,6 +28,9 @@ export async function loadAccountRoute(store,owner,path,method,auth,params) {
   if(path==='/api/dashboard/seen')return load('dashboard');
   if(path==='/api/changes'&&!params.has('limit'))return load({kind:'track',projection:'idOnly'},'change');
   if(path==='/api/alerts')return store.loadBrowserAlerts(owner);
+  if(method==='GET'&&(path==='/api/signup-workspace'||path.startsWith('/api/signup-captures/')&&params.get('workspace')==='1')){
+    return load(profile,{kind:'track',projection:'signupTrack'},signupSummary,'signupProfile','applicationPassport');
+  }
   if(path==='/api/signup-profile')return load('signupProfile');
   if(path==='/api/signup-files')return load({kind:'signupFile',projection:'fileQuota'});
   if(path==='/api/signup-browser/poll'&&auth.scope==='browser-signup'){return load(byId('signup',auth.signupId));}

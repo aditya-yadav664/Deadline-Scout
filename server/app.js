@@ -66,6 +66,17 @@ export function createApp(options={}) {
   async function body(req,limit=300000) {let bytes=0,chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>limit)throw fail('Request too large.',413);chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{throw fail('Invalid JSON.');}}
   function profileFor(owner) {return store.get(owner,'profile','me')||{email:'',emailEnabled:false,emailVerified:false};}
   function changesFor(owner){const active=new Set(store.list(owner,'track').map(t=>t.id));return store.list(owner,'change').filter(c=>active.has(c.trackId)).sort((a,b)=>b.at.localeCompare(a.at));}
+  function signupTracks(owner){
+    return store.list(owner,'track').map(({id,title,url,milestones})=>({id,title,url,
+      milestones:milestones.map(({id,label,date,time,zone})=>({id,label,date,time,zone}))}));
+  }
+  async function signupWorkspace(owner){
+    const p=profileFor(owner);
+    let passportEntries=[];
+    try{passportEntries=readPassport(store,secrets,owner);}catch{/* The editor can recover without reusable answers. */}
+    return {me:{email:p.email,displayName:p.displayName||p.googleName||''},tracks:signupTracks(owner),
+      drafts:signups.summaries(owner),profile:await signups.route(owner,'/api/signup-profile','GET',{}),passportEntries};
+  }
   function compactChanges(owner,dashboard){
     const history=changesFor(owner),latest=new Map(),seen=new Set(dashboard.seenChangeIds||[]);
     for(const change of history)if(!latest.has(change.trackId))latest.set(change.trackId,change);
@@ -183,7 +194,17 @@ export function createApp(options={}) {
           const code=randomToken();store.put('_system','redeem',hash(code),{owner,challenge:b.challenge,extensionId:b.extensionId,scope:'browser-alerts',parentSession:hash(token),expires:Date.now()+60000});return send({code});
         }
         if(path.startsWith('/api/signup')||path.startsWith('/api/signups')){
-          if(path.startsWith('/api/signup-captures/')&&req.method==='GET'){const key=hash(path.split('/').at(-1));await store.load?.('_system',{kind:'signupCapture',id:key});const c=store.get('_system','signupCapture',key);if(!c||c.expires<Date.now())throw fail('Capture expired. Scan the form again.',404);store.remove('_system','signupCapture',key);return send(secrets.open(c.sealed));}
+          if(path==='/api/signup-workspace'&&req.method==='GET')return send(await signupWorkspace(owner));
+          if(path.startsWith('/api/signup-captures/')&&req.method==='GET'){
+            const key=hash(path.split('/').at(-1));
+            await store.load?.('_system',{kind:'signupCapture',id:key});
+            const c=store.get('_system','signupCapture',key);
+            if(!c||c.expires<Date.now())throw fail('Capture expired. Scan the form again.',404);
+            const capture=secrets.open(c.sealed);
+            const response=u.searchParams.get('workspace')==='1'?{capture,workspace:await signupWorkspace(owner)}:capture;
+            store.remove('_system','signupCapture',key);
+            return send(response);
+          }
           if(path==='/api/signup-confirmations'&&req.method==='GET')return send(signups.summaries(owner).filter(draft=>draft.status==='Confirmed'&&draft.mode==='browser-auto'&&draft.receipt));
           if(path==='/api/signups'&&req.method==='GET'){
             if(u.searchParams.get('summary')==='1')return send(signups.summaries(owner));
@@ -360,9 +381,8 @@ export function createApp(options={}) {
           return send({reviewedAt:change.reviewedAt});
         }
         if(path==='/api/tracks'&&req.method==='GET'){
-          const records=store.list(owner,'track');
-          if(u.searchParams.get('summary')==='signup')return send(records.map(({id,title,url,milestones})=>({id,title,url,milestones:milestones.map(({id,label,date,time,zone})=>({id,label,date,time,zone}))})));
-          return send(enrichList(owner,records));
+          if(u.searchParams.get('summary')==='signup')return send(signupTracks(owner));
+          return send(enrichList(owner,store.list(owner,'track')));
         }
         if(path==='/api/tracks'&&req.method==='POST'){
           const b=await body(req),url=safeUrl(b.url).href;
