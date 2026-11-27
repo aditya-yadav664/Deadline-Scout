@@ -29,7 +29,8 @@ export function applicationOverview(store, owner, tracks) {
     const workspace = store.get(owner, 'applicationWorkspace', track.id);
     if (!workspace) continue;
     const { checklist, tasks } = workspace;
-    for (const task of tasks.filter(item => !item.done)) {
+    const openTasks = tasks.filter(item => !item.done);
+    for (const task of openTasks) {
       pendingTasks.push({
         trackId: track.id, title: track.title, label: task.label, due: task.due,
         blocked: task.dependencies.some(id => !tasks.find(item => item.id === id)?.done)
@@ -39,12 +40,17 @@ export function applicationOverview(store, owner, tracks) {
       requirements.push({ trackId: track.id, title: track.title, label: item.label, required: item.required, done: item.done });
     }
     const entries = [...tasks, ...checklist];
-    if (entries.length) progress.push({ trackId: track.id, title: track.title, total: entries.length, done: entries.filter(item => item.done).length });
+    const requiredItems = checklist.filter(item => item.required);
+    if (entries.length) progress.push({
+      trackId: track.id, title: track.title, total: entries.length, done: entries.filter(item => item.done).length,
+      requiredTotal: requiredItems.length, requiredDone: requiredItems.filter(item => item.done).length,
+      openTasks: openTasks.length
+    });
   }
   pendingTasks.sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999') || Number(b.blocked) - Number(a.blocked));
   requirements.sort((a, b) => Number(a.done) - Number(b.done) || Number(b.required) - Number(a.required));
   return { pendingTasks: pendingTasks.slice(0, 5), requirements: requirements.slice(0, 5),
-    progress: progress.slice(0, 4), openTaskCount: pendingTasks.length,
+    progress, openTaskCount: pendingTasks.length,
     openRequirements: requirements.filter(item => item.required && !item.done).length };
 }
 

@@ -1,7 +1,7 @@
 import {renderReadiness} from './readiness.js?v=1';
 import {renderAnswers,renderMemory,renderHeatmap,renderProductivity} from './assistant-ui.js?v=1';
 import {renderApplication,renderPassport} from './applications.js?v=readiness-1';
-import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=readiness-1';
+import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=readiness-2';
 import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
 import './shared/signup-success-notices.js';
 import {api,storage,settings,isExtension,connectGoogle} from './api.js';

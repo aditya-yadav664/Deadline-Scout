@@ -8,7 +8,8 @@ export function renderOverview(target, tracks, priorities, today, { esc, formatD
   const applicationDates = tracks.filter(track => !track.local && !track.cached)
     .map(track => ({ track, milestone: applicationCutoff(track.milestones, today) }))
     .filter(item => item.milestone).sort((a, b) => a.milestone.date.localeCompare(b.milestone.date));
-  const focus = applicationDates[0];
+  const planned = new Set((overview.progress || []).map(item => item.trackId));
+  const focus = applicationDates.find(item => planned.has(item.track.id)) || applicationDates[0];
   const details = (id, title) =>
     `<a href="#opportunity=${encodeURIComponent(id)}" data-opportunity="${esc(id)}">${esc(title)}</a>`;
   const jump = (view, title, attributes = '') =>
@@ -29,6 +30,14 @@ export function renderOverview(target, tracks, priorities, today, { esc, formatD
   const attention = priorities.filter(item => ['Critical', 'High'].includes(item.level)).slice(0, 2);
   const focusProgress = focus && overview.progress?.find(item => item.trackId === focus.track.id);
   const readinessAttributes = focus ? `data-readiness-track="${esc(focus.track.id)}"` : '';
+  const readinessCard = focus ? `<article class="card workspace-card plan-card scout-readiness">
+    <div class="plan-card-heading"><h3>Readiness at a glance</h3>${jump('readiness', 'Simulate', readinessAttributes)}</div>
+    <p>${details(focus.track.id, focus.track.title)}<small>${esc(focus.milestone.label)} · ${esc(formatDate(focus.milestone.date))}</small></p>
+    ${focusProgress?.requiredTotal ? `<p><strong>${focusProgress.requiredDone} of ${focusProgress.requiredTotal}</strong> required items complete</p>
+      <progress aria-label="Required items complete for the featured application" value="${focusProgress.requiredDone}" max="${focusProgress.requiredTotal}"></progress>`
+      : '<p class="muted">Add required items to track checklist progress.</p>'}
+    ${focusProgress ? `<p class="muted">${focusProgress.openTasks} open tasks</p>` : ''}
+  </article>` : '';
   const steps = [
     ['Track', tracks.length + ' saved', 'watchlist', tracks.length ? 'done' : ''],
     ['Prepare', focusProgress ? focusProgress.done + ' of ' + focusProgress.total + ' plan items complete' : (overview.openTaskCount || 0) + ' open tasks', 'applications', tracks.length ? 'current' : ''],
@@ -43,7 +52,7 @@ export function renderOverview(target, tracks, priorities, today, { esc, formatD
   ];
   target.innerHTML = `<div class="scout-overview-grid"><div class="scout-overview-main">
     <article class="card workspace-card plan-card journey-card">
-      <div class="plan-card-heading"><h3>Application plan</h3>${focus ? `<span class="plan-focus">Next to close · ${details(focus.track.id, focus.track.title)}</span>` : ''}</div>
+      <div class="plan-card-heading"><h3>Application plan</h3>${focus ? `<span class="plan-focus">Application focus · ${details(focus.track.id, focus.track.title)}</span>` : ''}</div>
       <ol class="plan-journey">${steps.map(([title, detail, view, state], index) =>
         `<li data-step-state="${state}"><button type="button" data-workspace-jump="${view}" ${view === 'readiness' ? readinessAttributes : ''}>
           <span class="plan-step-mark" aria-hidden="true">${state === 'done' ? '✓' : index + 1}</span><span><strong>${title}</strong><small>${detail}</small></span>
@@ -71,6 +80,7 @@ export function renderOverview(target, tracks, priorities, today, { esc, formatD
       <input id="scout-overview-question" type="text" autocomplete="off" maxlength="500" placeholder="Ask about your workspace">
       <button type="submit" class="button secondary">Open assistant</button></form>
     </article>
+    ${readinessCard}
     ${card('Needs attention', attention.map(item => row(details(item.id, item.title), item.next, item.level, 'attention')),
     'No high or critical risks in your watchlist.', jump('risk', 'Risk overview'))}
   </aside></div>`;

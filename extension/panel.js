@@ -9,7 +9,7 @@ if(isExtension){
     if(config.auth!=='local')await api('/api/me');
     gate.hidden=true;
     shell.hidden=false;
-    await import('./dashboard.js?v=readiness-1');
+    await import('./dashboard.js?v=readiness-2');
   }catch(error){
     if(error.status===401){
       await storage.set('token',null);

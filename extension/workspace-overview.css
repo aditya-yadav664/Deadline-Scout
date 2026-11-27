@@ -146,6 +146,9 @@
 }
 .plan-tag[data-tone="done"] { background: #123936; color: #a6f6e8; }
 .plan-tag[data-tone="attention"] { background: #482831; color: #ffc1c7; }
+.scout-readiness p { margin-block: 7px; }
+.scout-readiness small { display: block; margin-top: 4px; color: #b0c0ce; }
+.scout-readiness strong { color: #8cebf3; }
 .scout-advisor h3 { display: flex; align-items: center; gap: 6px; }
 .scout-advisor input { width: 100%; min-width: 0; margin-block: 10px; }
 .scout-questions { display: grid; gap: 7px; justify-items: start; margin-top: 10px; }

@@ -15,6 +15,10 @@ Phase 4 shipped embedded Backup Signup, Ask Deadline Scout, Deadline Heatmap, Pr
 - Forecast inputs are session-only and do not change saved dates, checklist items, tasks, or Backup Signup drafts. One calendar day per open item is an editable starting estimate. No database migration is needed.
 - Main files are extension/opportunities.js, extension/workspace-overview.css, extension/readiness.js, extension/dashboard.js, and server/applications.js. Test coverage is in test/opportunities.test.js. Run `node scripts/check.js` and `node --test`. Deployment follows AGENTS.md. Check GitHub main and the live production hostname for release status.
 
+## Release status
+
+The first readiness release (f459aaa) passed 144 tests and was verified live on Vercel. The follow-up adds a readiness snapshot for the nearest upcoming application with saved plan items, with the same required-item counts used by the simulator and a direct link into it. The screenshot references are layout inspiration and use Deadline Scout components and branding.
+
 ## Where to pick up
 
 Phase 5 covers Smart Page Discovery, a sourced Opportunity Radar, and an on-page extension overlay. Phase 6 covers explicitly shared watchlists and role enforcement. See EXPANSION-PHASE-4.md. The readiness forecast can later support saved scenarios and configurable working days if requested. Gemini remains optional for the existing assistant and needs a server-side key to be active.

@@ -508,7 +508,9 @@ test('overview opens a readiness scenario and pre-fills the existing assistant',
   const main = await page.locator('.scout-overview-main').boundingBox();
   const rail = await page.locator('.scout-overview-rail').boundingBox();
   assert.ok(rail.x >= main.x + main.width && rail.y === main.y);
-  await page.getByRole('button', {name:'Run a scenario',exact:false}).click();
+  const snapshot = page.getByRole('article').filter({has:page.getByRole('heading',{name:'Readiness at a glance'})});
+  assert.equal(await snapshot.getByRole('progressbar').getAttribute('max'),'1');
+  await snapshot.getByRole('button',{name:'Simulate',exact:true}).click();
   await page.getByRole('heading', {name:'Application readiness',exact:true}).waitFor();
   await page.getByRole('spinbutton', {name:/Recommendation/}).fill('5');
   await page.getByRole('button', {name:'Start in 3 days'}).click();
