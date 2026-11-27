@@ -1,3 +1,4 @@
+import {renderAnswers,renderMemory,renderHeatmap,renderProductivity} from './assistant-ui.js?v=1';
 import {renderApplication,renderPassport} from './applications.js?v=applications-1';
 import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=dashboard-2';
 import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
@@ -45,7 +46,7 @@ document.addEventListener('keydown',event=>{
     setNavigation(false);navButton.focus();
   }
 });
-const viewNames=['overview','watchlist','timeline','opportunity','intelligence','risk','applications','passport','settings'];
+const viewNames=['overview','watchlist','timeline','opportunity','intelligence','risk','applications','passport','settings','assistant','heatmap','productivity','memory','backup'];
 let detailRequest=0,intelligenceRequest=0;
 function showView(name){
   if(!viewNames.includes(name))return;
@@ -58,6 +59,9 @@ function showView(name){
   $('#current-view-name').textContent=navigation?.querySelector('.rail-label')?.textContent||navigation?.textContent.trim()||'Opportunity details';
   $('.workspace-hero').hidden=!['overview','watchlist'].includes(name);
   if(name==='passport')void loadPassport();
+  if(['assistant','heatmap','productivity','memory'].includes(name))void loadPlanning(name);
+  if(name==='backup')void mountBackup();
+
   intelligenceRequest++;
   for(const page of viewNames)$('#'+page+'-view').hidden=page!==name;
   document.querySelectorAll('.workspace-navigation [data-view]').forEach(button=>{
@@ -338,7 +342,7 @@ async function renderOutbox(){const epoch=workspaceEpoch,owner=me.email;if(outbo
 $('#load-more-outbox').onclick=()=>{outboxVisible+=5;paintOutbox();};
 $('#clear-account-data').onclick=e=>run(e.currentTarget,async()=>{
   if(!connected||!await storage.get('token'))throw new Error('Sign in to clear your account data.');
-  workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#passport-content').replaceChildren();$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();$('#clear-data-status').textContent='Clearing…';
+  workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#passport-content').replaceChildren();for(const id of ['assistant-results','memory-content','heatmap-content','productivity-content'])$('#'+id).replaceChildren();answerEntries=[];$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();$('#clear-data-status').textContent='Clearing…';
   try{await api('/api/account/clear-data','POST',{action:'clear-account-data'});workspaceEpoch++;for(const key of ['localTracks','localChanges','cachedTracks'])await storage.set(key,[]);await storage.set('pendingReview',null);tracks=[];localTracks=[];changes=[];priorities=[];overview={};openTracks.clear();outboxItems=[];outboxVisible=3;paintOutbox();if(draft)await closeDraft();await refresh();$('#clear-data-status').textContent='Account activity cleared. Your profile and Google connection are unchanged.';}catch(error){$('#clear-data-status').textContent=error.message;throw error;}
 });
 $('#watchlist-view').onclick=e=>{
@@ -349,7 +353,7 @@ $('#watchlist-view').onclick=e=>{
       case 'expand':{const article=button.closest('[data-track]'),pane=article.querySelector('.track-details'),expanded=pane.hidden;pane.hidden=!expanded;article.classList.toggle('is-open',expanded);button.setAttribute('aria-expanded',String(expanded));button.setAttribute('aria-label',(expanded?'Collapse':'Expand')+' milestones for '+t.title);if(expanded)openTracks.add(id);else openTracks.delete(id);break;}
       case 'check':if(t.local)await localCheck(t,button);else{const result=await api(`/api/tracks/${id}/check`,'POST',{});toast(result.status==='changed'?'A deadline changed. See the timeline.':result.status==='conflict'?'Sources disagree. Review the evidence.':result.status==='check_failed'?'Check failed. Your confirmed dates are kept.':result.status==='manual'?'This is a manual reminder. Use Manage to verify the source and enable automatic monitoring.':result.status==='date_missing'?'A tracked milestone is missing from the source. Your confirmed date is kept.':result.status==='needs_review'?'A source date needs your review. Open the tracked page card.':'Check complete.');if(isExtension)chrome.runtime.sendMessage({type:'surface-alerts'}).catch(()=>{});}await refresh();break;
       case 'calendar':case 'task':await googleDialog(t,button.dataset.action);break;
-      case 'prepare-signup':location.assign('/backup.html#event='+encodeURIComponent(t.id));break;
+      case 'prepare-signup':await openBackup(new URLSearchParams({event:t.id}));break;
       case 'pin':await saveDashboard({pinnedIds:(dashboardPrefs.pinnedIds||[]).includes(id)?dashboardPrefs.pinnedIds.filter(x=>x!==id):[...(dashboardPrefs.pinnedIds||[]),id]});render();break;
       case 'manage':manageDialog(t);break;
       case 'resolve':resolveDialog(t,button.dataset.kind,+button.dataset.index,button.dataset.milestone);break;
@@ -357,6 +361,102 @@ $('#watchlist-view').onclick=e=>{
     }
   });
 };
+let planningRequest=0,answerEntries=[],backupMount;
+function mountBackup(){
+  const target=$('#backup-embedded');
+  if(!backupMount){
+    target.textContent='Opening Backup Signup…';
+    backupMount=(async()=>{
+      const response=await fetch('/backup.html');
+      if(!response.ok)throw Error('Could not load Backup Signup.');
+      const markup=new DOMParser().parseFromString(await response.text(),'text/html');
+      const editor=markup.querySelector('.backup-shell');
+      if(!editor)throw Error('Backup Signup editor is unavailable.');
+      editor.querySelector('.backup-header')?.remove();
+      const section=document.createElement('section');
+      section.className='backup-shell embedded-backup';
+      section.append(...editor.childNodes);
+      const stylesheet=document.createElement('link');
+      stylesheet.rel='stylesheet';stylesheet.href='/backup.css?v=4';
+      document.head.append(stylesheet);
+      target.replaceChildren(section);
+      return await import('./backup.js?v=phase4-1');
+    })().catch(error=>{target.textContent=error.message;backupMount=null;});
+  }
+  return backupMount;
+}
+
+async function openBackup(target){
+  showView('backup');
+  const editor=await mountBackup();
+  if(view==='backup')await editor?.openBackupTarget(target);
+}
+async function loadPlanning(name){
+  const request=++planningRequest,epoch=workspaceEpoch;
+  const target=$('#'+(name==='assistant'?'assistant-results':name+'-content'));
+  const route={assistant:'/api/assistant/history',memory:'/api/assistant/memory',heatmap:'/api/productivity',productivity:'/api/productivity'}[name];
+  target.textContent='Loading…';
+  try{
+    const data=await api(route);
+    if(request!==planningRequest||epoch!==workspaceEpoch||view!==name)return;
+    if(name==='assistant'){
+      answerEntries=data.entries;
+      renderAnswers(target,answerEntries);
+      $('#assistant-gemini').disabled=!data.geminiConfigured;
+      $('#assistant-availability').textContent=data.geminiConfigured?'Gemini is optional. Keep private information out of questions you send.':'Workspace answers are available. Gemini is not configured.';
+    }else if(name==='memory')renderMemory(target,data.entries,esc);
+    else if(name==='heatmap')renderHeatmap(target,data,esc);
+    else renderProductivity(target,data,esc);
+  }catch(error){if(request===planningRequest&&epoch===workspaceEpoch&&view===name)target.textContent=error.message;}
+}
+$('#suggested-questions').onclick=event=>{
+  if(event.target.tagName!=='BUTTON')return;
+  $('#assistant-question').value=event.target.textContent;
+  $('#assistant-question').focus();
+};
+$('#assistant-form').onsubmit=event=>{
+  event.preventDefault();
+  const button=event.currentTarget.querySelector('[type=submit]');
+  void run(button,async()=>{
+    const epoch=workspaceEpoch, status=$('#assistant-status'), clear=$('#clear-assistant');
+    if(clear.disabled)return;
+    clear.disabled=true;
+    status.textContent='Looking through your workspace…';
+    try{
+      const {answer,receipt}=await api('/api/assistant/answer','POST',{
+        question:$('#assistant-question').value,useGemini:!$('#assistant-gemini').disabled&&$('#assistant-gemini').checked
+      });
+      if(epoch!==workspaceEpoch)return;
+      answerEntries=[answer,...answerEntries].slice(0,15);
+      if(view==='assistant')renderAnswers($('#assistant-results'),answerEntries);
+      $('#assistant-question').value='';
+      $('#assistant-gemini').checked=false;
+      try{const saved=await api('/api/assistant/history','PATCH',{action:'save',receipt});if(epoch===workspaceEpoch)answerEntries=saved.entries;}
+      catch{status.textContent='Answer shown. History could not be saved.';return;}
+      status.textContent='';
+    }catch(error){if(epoch===workspaceEpoch)status.textContent=error.message;}
+    finally{clear.disabled=false;}
+  });
+};
+$('#clear-assistant').onclick=event=>void run(event.currentTarget,async()=>{
+  await api('/api/assistant/history','PATCH',{action:'clear'});
+  answerEntries=[];renderAnswers($('#assistant-results'),answerEntries);$('#assistant-status').textContent='History cleared.';
+});
+async function saveMemory(input){
+  const epoch=workspaceEpoch,{entries}=await api('/api/assistant/memory','PATCH',input);
+  if(epoch===workspaceEpoch&&view==='memory'){planningRequest++;renderMemory($('#memory-content'),entries,esc);}
+}
+$('#memory-content').addEventListener('submit',event=>{
+  const form=event.target.closest('[data-scout-memory]');
+  if(!form)return;
+  event.preventDefault();
+  void run(form.querySelector('[type=submit]'),()=>saveMemory({action:'save',id:form.dataset.id,...Object.fromEntries(new FormData(form))}));
+});
+$('#memory-content').addEventListener('click',event=>{
+  const button=event.target.closest('[data-delete-memory]');
+  if(button)void run(button,()=>saveMemory({action:'delete',id:button.dataset.deleteMemory}));
+});
+
 let passportRequest=0;
 async function loadPassport(){
   const request=++passportRequest,epoch=workspaceEpoch,target=$('#passport-content');
@@ -404,6 +504,12 @@ document.querySelector('main').addEventListener('click',event=>{
     return;
   }
 
+  const backupLink=event.target.closest('a[href^="/backup.html#"]');
+  if(backupLink&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){
+    event.preventDefault();
+    void openBackup(new URLSearchParams(new URL(backupLink.href).hash.slice(1)));
+    return;
+  }
   const review=event.target.closest('[data-review-change]');
   if(review){
     void run(review,async()=>{
@@ -496,7 +602,7 @@ $('#profile-name-form').onsubmit=e=>{e.preventDefault();void run($('#save-profil
   $('#profile-name-status').textContent='Saving…';try{const result=await api('/api/me','PATCH',{displayName:$('#profile-name').value});me.displayName=result.displayName;profileNameDirty=false;profileNameEditing=false;await refresh();toast('Name saved.');if($('#profile-popover').matches(':popover-open'))$('#edit-profile-name').focus();}catch(error){$('#profile-name-status').textContent=error.message;throw error;}
 });};
 $('#profile-signin').onclick=e=>run(e.currentTarget,signIn);
-async function signOut(){workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#passport-content').replaceChildren();$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];priorities=[];me={};await storage.set('cachedTracks',[]);location.replace('/');}}
+async function signOut(){workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#passport-content').replaceChildren();for(const id of ['assistant-results','memory-content','heatmap-content','productivity-content'])$('#'+id).replaceChildren();answerEntries=[];$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];priorities=[];me={};await storage.set('cachedTracks',[]);location.replace('/');}}
 $('#profile-switch').onclick=e=>run(e.currentTarget,async()=>{await signOut();await signIn();});
 async function signIn(){if(draft){readDraft();await storage.set('pendingReview',draft);}await connectGoogle();await refresh();}
 $('#tracking-signin').onclick=e=>run(e.currentTarget,signIn);

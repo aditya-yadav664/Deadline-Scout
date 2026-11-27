@@ -14,7 +14,7 @@ function status(message){
   $('#backup-feedback').textContent=inEditor?'':message;
   $('#signup-feedback').textContent=inEditor?message:'';
 }
-async function action(fn){if(busy)return;busy=true;document.querySelectorAll('button').forEach(b=>{if(b.id!=='close-signup'){b.dataset.wasDisabled=b.disabled?'1':'0';b.disabled=true;}});try{await fn();}catch(e){status(e.message);}finally{busy=false;document.querySelectorAll('button').forEach(b=>{if(b.dataset.wasDisabled!==undefined){b.disabled=b.dataset.wasDisabled==='1';delete b.dataset.wasDisabled;}});}}
+async function action(fn){if(busy)return;busy=true;document.querySelectorAll('.backup-shell button').forEach(b=>{if(b.id!=='close-signup'){b.dataset.wasDisabled=b.disabled?'1':'0';b.disabled=true;}});try{await fn();}catch(e){status(e.message);}finally{busy=false;document.querySelectorAll('.backup-shell button').forEach(b=>{if(b.dataset.wasDisabled!==undefined){b.disabled=b.dataset.wasDisabled==='1';delete b.dataset.wasDisabled;}});}}
 function links(){return [...$('#saved-links').children].map(row=>({kind:row.querySelector('select').value,name:row.querySelector('[name=link-name]').value,url:row.querySelector('[name=link-url]').value})).filter(l=>l.url);}
 function addLink(l={}){const row=document.createElement('div');row.className='link-row';row.innerHTML=`<select aria-label="Link type">${['github','repository','portfolio','video','deck'].map(k=>`<option ${l.kind===k?'selected':''}>${k}</option>`).join('')}</select><input name="link-name" aria-label="Link name" placeholder="Link name" value="${esc(l.name)}"><input name="link-url" type="url" aria-label="Saved URL" placeholder="https://" value="${esc(l.url)}"><button type="button" class="text-button">Remove link</button>`;row.querySelector('button').onclick=()=>row.remove();$('#saved-links').append(row);}
 $('#add-link').onclick=()=>addLink();
@@ -315,7 +315,44 @@ async function continueCapture(id){const token=++epoch;let d;for(const step of c
 $('#append-step').onclick=()=>action(()=>continueCapture($('#append-draft').value));$('#new-signup').onclick=()=>{epoch++;$('#capture-choice').hidden=true;showStage(1);openDraft({trackId:tracks.some(t=>t.id===targetEvent)?targetEvent:'',title:captured.step.title,formUrl:captured.step.url,steps:(captured.steps||[captured.step]).map(suggestStep),extensionId:captured.extensionId,reviewedAll:false});};
 $('#undo-delete').onclick=()=>action(async()=>{if(!lastDeletedId)return;await api('/api/signups/'+lastDeletedId+'/restore','POST',{});lastDeletedId=null;$('#undo-delete').hidden=true;await refresh();status('Draft restored. Review it before turning its backup on again.');});
 $('#run-backups').onclick=()=>action(async()=>{await api('/api/signups/run','POST',{});await refresh();status('Due backups checked.');});
-await action(async()=>{const config=await api('/api/config');if(!await storage.get('token')&&config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);}await refresh();targetEvent=await storage.get('signup-target-event:'+me.email);const hash=new URLSearchParams(location.hash.slice(1));if(hash.has('capture')){captured=await api('/api/signup-captures/'+hash.get('capture'));if(/^[a-p]{32}$/.test(captured.extensionId))await storage.set('backgroundExtensionId',captured.extensionId);history.replaceState(null,'',location.pathname);const matches=drafts.filter(d=>!['Confirmed','Already registered','Cancelled'].includes(d.status)&&sameSignupForm(d.formUrl,captured.step.url));if(matches.length){$('#capture-choice').hidden=false;$('#capture-choice').scrollIntoView({block:'start',behavior:'instant'});$('#capture-summary').textContent='Captured: '+captured.step.title+'. Continue an existing signup to keep its earlier steps.';$('#append-draft').innerHTML=matches.map(d=>'<option value="'+esc(d.id)+'">'+esc(d.title)+' · '+d.steps.length+' saved step(s)</option>').join('');}else $('#new-signup').onclick();}else if(hash.has('event')){const event=tracks.find(t=>t.id===hash.get('event'));if(event){await storage.set('signup-target-event:'+me.email,event.id);status('Open the registration form for '+event.title+', then click Prepare signup in the extension.');const a=document.createElement('a');a.href=event.url;a.target='_blank';a.rel='noopener';a.className='button primary';a.textContent='Open registration page';$('#backup-feedback').append(a);}}else if(hash.has('draft')){showStage(1);openDraft(await api('/api/signups/'+hash.get('draft')));}});
-if(!me.email){$('#backup-account').textContent='Sign in on the dashboard, then return here.';const b=document.createElement('button');b.className='button primary';b.textContent='Sign in with Google';b.onclick=()=>action(async()=>{await storage.set('pendingBackupUrl',location.href);await connectGoogle();});$('#backup-account').append(b);}
+export function openBackupTarget(hash){
+  return action(async()=>{
+    if(hash.has('capture')){
+      captured=await api('/api/signup-captures/'+hash.get('capture'));
+      if(/^[a-p]{32}$/.test(captured.extensionId))await storage.set('backgroundExtensionId',captured.extensionId);
+      history.replaceState(null,'',location.pathname+location.search);
+      const matches=drafts.filter(d=>!['Confirmed','Already registered','Cancelled'].includes(d.status)&&sameSignupForm(d.formUrl,captured.step.url));
+      if(matches.length){
+        $('#capture-choice').hidden=false;
+        $('#capture-choice').scrollIntoView({block:'start',behavior:'instant'});
+        $('#capture-summary').textContent='Captured: '+captured.step.title+'. Continue an existing signup to keep its earlier steps.';
+        $('#append-draft').innerHTML=matches.map(d=>'<option value="'+esc(d.id)+'">'+esc(d.title)+' · '+d.steps.length+' saved step(s)</option>').join('');
+      }else $('#new-signup').onclick();
+    }else if(hash.has('event')){
+      const event=tracks.find(t=>t.id===hash.get('event'));
+      if(!event)return;
+      await storage.set('signup-target-event:'+me.email,event.id);
+      status('Open the registration form for '+event.title+', then click Prepare signup in the extension.');
+      const link=document.createElement('a');
+      link.href=event.url;link.target='_blank';link.rel='noopener';link.className='button primary';
+      link.textContent='Open registration page';
+      $('#backup-feedback').append(link);
+    }else if(hash.has('draft')){
+      const draft=await api('/api/signups/'+encodeURIComponent(hash.get('draft')));
+      showStage(1);openDraft(draft);
+    }
+  });
+}
+await action(async()=>{
+  const config=await api('/api/config');
+  if(!await storage.get('token')&&config.auth==='local'){
+    const session=await api('/api/local-session','POST',{});await storage.set('token',session.token);
+  }
+  await refresh();
+  targetEvent=await storage.get('signup-target-event:'+me.email);
+});
+if(me.email&&location.pathname==='/backup.html') await openBackupTarget(new URLSearchParams(location.hash.slice(1)));
+
+if(!me.email){$('#backup-account').textContent='Sign in on the dashboard, then return here.';const b=document.createElement('button');b.className='button primary';b.textContent='Sign in with Google';b.onclick=()=>action(async()=>{sessionStorage.setItem('dd:backup-handoff',location.pathname+location.hash);await connectGoogle();});$('#backup-account').append(b);}
 
 setInterval(async()=>{if(busy||!me.email)return;try{const latest=await api('/api/signups');if(JSON.stringify(latest)!==JSON.stringify(drafts)){drafts=latest;paintList();groupDraftCards();}}catch{}},15000);

@@ -9,6 +9,7 @@ import { Store } from '../server/store.js';
 import { hash } from '../server/security.js';
 import { extractFacts, riskFor } from '../server/intelligence.js';
 import { extract } from '../extension/shared/extract.js';
+import { recordSourceCheck } from '../server/opportunities.js';
 import { readPublicPdf } from '../server/public-pdf.js';
 
 const executablePath = [
@@ -26,9 +27,10 @@ async function fixture(t, options = {}) {
   const url = 'http://127.0.0.1:' + port;
   const app = createApp({
     store,
-    env: { HOST: '127.0.0.1', APP_URL: url },
+    env: { HOST: '127.0.0.1', APP_URL: url, ...options.env },
     vault: { seal: JSON.stringify, open: JSON.parse },
-    ...options
+    ...(options.readPage ? {readPage:options.readPage} : {}),
+    ...(options.assistantFetch ? {assistantFetch:options.assistantFetch} : {})
   });
   await new Promise(resolve => app.server.listen(port, '127.0.0.1', resolve));
   t.after(() => app.close());
@@ -196,9 +198,93 @@ test('dashboard shell keeps watchlist actions and opportunity links accessible o
   await page.getByRole('heading', { name: 'Orbit Hack' }).waitFor();
   await page.getByRole('button', { name: 'Back to watchlist' }).click();
   await page.getByRole('button', { name: 'Toggle navigation' }).click();
-  await page.getByRole('link', { name: 'Backup Signup', exact: true }).click();
-  await page.waitForURL('**/backup.html');
+  await page.getByRole('button', { name: 'Backup Signup', exact: true }).click();
+  await page.locator('#backup-view #backup-title').waitFor();
+  await page.locator('#backup-account').getByText('Your Google account is connected.').waitFor();
+  await page.getByRole('button', { name: 'Toggle navigation' }).click();
+  await page.getByRole('button', { name: /^My Watchlist/ }).click();
+  await page.locator('#tracks').getByRole('button', { name: 'Prepare a Signup' }).click();
+  await page.getByRole('link', { name: 'Open registration page' }).waitFor();
+  assert.equal(new URL(page.url()).pathname,'/dashboard');
   assert.deepEqual(errors, []);
+});
+
+test('assistant cites owner evidence, keeps private records out of Gemini, and clears saved history',async t=>{
+  let callCount=0;
+  let bogus=false;
+  const f=await fixture(t,{env:{GEMINI_API_KEY:'fixture-only'},assistantFetch:async function(request,init){
+    callCount++;
+    assert.match(request,/generativelanguage\.googleapis\.com/);
+    const data=JSON.parse(init.body);
+    assert.match(data.contents[0].parts[0].text,/Registration deadline/);
+    assert.doesNotMatch(init.body,/private draft|secret note|unrelated user|private task/);
+    return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify({ids:[bogus?999:0]})}]}}]}));
+  }});
+  f.track.milestones[0].date='2099-12-01';
+  f.store.put('local-demo','track',f.track.id,f.track);
+  f.store.put('local-demo','applicationWorkspace',f.track.id,{
+    notes:'secret note',priority:'normal',pages:[],checklist:[{required:true,done:false}],tasks:[{label:'private task',due:'2099-12-01',dependencies:[],done:false}]
+  });
+  f.store.put('someone-else','track','outside',{...f.track,id:'outside',title:'unrelated user'});
+  f.store.put('local-demo','signup','draft',{id:'draft',trackId:f.track.id,status:'Draft',sealed:'private draft'});
+  const request=(path,method,body)=>f.request('/api/'+path,method,body,f.token);
+  const question='What are the upcoming deadlines?';
+  const first=await request('assistant/answer','POST',{question,useGemini:false});
+  assert.equal(first.status,200);
+  assert.equal(first.data.answer.mode,'workspace');
+  assert.equal(callCount,0);
+  const unverified=await request('assistant/answer','POST',{question,useGemini:true});
+  assert.equal(unverified.data.answer.mode,'workspace');
+  assert.equal(callCount,0);
+  recordSourceCheck(f.store,'local-demo',f.track,[{requestedUrl:f.source,milestones:f.track.milestones}],[],new Date().toISOString());
+  const ranked=await request('assistant/answer','POST',{question,useGemini:true});
+  assert.equal(ranked.data.answer.mode,'gemini');
+  assert.equal(ranked.data.answer.items[0].url,f.source);
+  bogus=true;
+  const fallback=await request('assistant/answer','POST',{question,useGemini:true});
+  assert.equal(fallback.data.answer.mode,'workspace');
+  assert.match(fallback.data.answer.note,/could not rank/);
+  const privateAnswer=await request('assistant/answer','POST',{question:'Which documents are required?',useGemini:true});
+  assert.equal(privateAnswer.data.answer.mode,'workspace');
+  assert.equal(callCount,2);
+  const persisted=await request('assistant/history','PATCH',{action:'save',receipt:first.data.receipt});
+  assert.equal(persisted.data.entries.length,1);
+  assert.ok(f.store.get('local-demo','assistantHistory','me').sealed);
+  assert.equal((await request('assistant/memory','PATCH',{action:'save',label:'Preference',value:'Choose small teams'})).status,200);
+  const details=await request('productivity','GET');
+  assert.equal(details.data.insights.activeOpportunities,1);
+  assert.ok(details.data.events.some(event=>event.label==='private task'));
+  await request('assistant/history','PATCH',{action:'clear'});
+  assert.equal((await request('assistant/history','PATCH',{action:'save',receipt:first.data.receipt})).status,409);
+  assert.deepEqual((await request('assistant/history','GET')).data.entries,[]);
+});
+
+test('planning UI answers a question, saves a memory note and renders the heatmap', {skip:!executablePath}, async t=>{
+  const f=await fixture(t);
+  const browser=await chromium.launch({executablePath,headless:true});
+  t.after(()=>browser.close());
+  const page=await browser.newPage({viewport:{width:1280,height:800}});
+  const errors=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  await page.goto(f.url+'/dashboard');
+  await page.getByRole('button',{name:'Ask Deadline Scout',exact:true}).click();
+  await page.getByText('Workspace answers are available. Gemini is not configured.').waitFor();
+  await page.getByLabel('Question',{exact:true}).fill('What should I do first?');
+  await page.getByRole('button',{name:'Ask',exact:true}).click();
+  await page.getByRole('heading',{name:'What needs your attention'}).waitFor();
+  await page.getByRole('button',{name:'Scout Memory'}).click();
+  await page.getByLabel('Label',{exact:true}).fill('Preference');
+  await page.getByLabel('Note',{exact:true}).fill('Local memory');
+  await page.getByRole('button',{name:'Add note'}).click();
+  await page.getByText('Preference',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Deadline Heatmap'}).click();
+  await page.locator('[data-cal-day]').first().waitFor();
+  assert.equal(await page.locator('[data-cal-day]').count(),42);
+  await page.getByLabel('Period',{exact:true}).selectOption('week');
+  assert.equal(await page.locator('[data-cal-day]').count(),7);
+  await page.getByRole('button',{name:'Productivity Insights'}).click();
+  await page.locator('#productivity-content').getByText('Tracked opportunities',{exact:true}).waitFor();
+  assert.deepEqual(errors,[]);
 });
 
 test('desktop sidebar keeps labels visible and comparison review persists', { skip: !executablePath }, async t => {

@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Deadline Scout — Keep your plans ahead</title><link rel="icon" href="/icon32.png" type="image/png"><link rel="stylesheet" href="/panel.css?v=dashboard-2"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Deadline Scout — Keep your plans ahead</title><link rel="icon" href="/icon32.png" type="image/png"><link rel="stylesheet" href="/panel.css?v=phase4-1"><link rel="stylesheet" href="/assistant.css?v=1"></head>
 <body>
   <section id="dashboard-gate" class="access-status" aria-live="polite"><p>Opening your workspace…</p><a href="/" hidden>Return to Deadline Scout</a></section>
   <section id="auth-return-status" class="access-status" hidden aria-live="polite"><p id="auth-return-text">Completing Google sign-in…</p><a href="/" hidden>Return to Deadline Scout</a></section>
@@ -17,10 +17,15 @@
             <button type="button" class="tab" data-view="timeline"><img src="/assets/icons/calendar.svg" alt=""><span class="rail-label">Timeline</span><span class="rail-count" id="change-count">0</span></button>
             <button type="button" class="tab" data-view="intelligence"><img src="/assets/icons/refresh.svg" alt=""><span class="rail-label">Change Intelligence</span></button>
             <button type="button" class="tab" data-view="risk"><img src="/assets/icons/clock.svg" alt=""><span class="rail-label">Risk Overview</span></button>
+            <span class="nav-group">Planning</span>
+            <button type="button" class="tab" data-view="assistant"><img src="/assets/icons/scan.svg" alt="">Ask Deadline Scout</button>
+            <button type="button" class="tab" data-view="heatmap"><img src="/assets/icons/calendar.svg" alt="">Deadline Heatmap</button>
+            <button type="button" class="tab" data-view="productivity"><img src="/assets/icons/list-details.svg" alt="">Productivity Insights</button>
+            <button type="button" class="tab" data-view="memory"><img src="/assets/icons/check.svg" alt="">Scout Memory</button>
             <span class="nav-group">Applications</span>
             <button type="button" class="tab" data-view="applications"><img src="/assets/icons/list-details.svg" alt="">Application Workspaces</button>
             <button type="button" class="tab" data-view="passport"><img src="/assets/icons/user.svg" alt="">Application Passport</button>
-            <a class="tab" href="/backup.html"><img src="/assets/icons/check.svg" alt=""><span class="rail-label">Backup Signup</span></a>
+            <button type="button" class="tab" data-view="backup"><img src="/assets/icons/check.svg" alt=""><span class="rail-label">Backup Signup</span></button>
             <button type="button" class="tab" data-view="settings"><img src="/assets/icons/user.svg" alt=""><span class="rail-label">Settings</span></button>
           </nav>
         </details>
@@ -50,6 +55,30 @@
     <section id="tracking-status" class="tracking-status" role="status" hidden><p id="tracking-status-text"></p><button id="tracking-signin" class="button secondary" hidden>Sign in with Google</button></section>
 
     <main>
+      <section id="backup-view" hidden><div id="backup-embedded" aria-live="polite"></div></section>
+      <section id="assistant-view" hidden aria-labelledby="assistant-title">
+        <div class="section-heading"><h2 id="assistant-title">Ask Deadline Scout</h2><button id="clear-assistant" class="button secondary" type="button">Clear history</button></div>
+        <form id="assistant-form" class="card workspace-card application-form">
+          <label>Question<textarea id="assistant-question" maxlength="500" required placeholder="Ask about your saved opportunities"></textarea></label>
+          <div id="suggested-questions" class="opportunity-buttons">
+            <button type="button" class="button secondary">Which applications close this month?</button>
+            <button type="button" class="button secondary">What changed recently?</button>
+            <button type="button" class="button secondary">What should I do first?</button>
+            <button type="button" class="button secondary">Which deadlines conflict?</button>
+          </div>
+          <label><input id="assistant-gemini" type="checkbox" disabled> Send this question and public excerpts to Gemini to rank the evidence</label>
+          <p class="muted" id="assistant-availability"></p>
+          <button class="button primary" type="submit">Ask</button>
+          <p id="assistant-status" role="status"></p>
+        </form>
+        <div id="assistant-results" aria-live="polite"></div>
+      </section>
+      <section id="heatmap-view" hidden><h2>Deadline Heatmap</h2><div id="heatmap-content"></div></section>
+      <section id="productivity-view" hidden><h2>Productivity Insights</h2><div id="productivity-content"></div></section>
+      <section id="memory-view" hidden><h2>Scout Memory</h2>
+        <p class="muted">Save and edit your own notes and preferences. Memory stays separate from source evidence and Gemini prompts.</p>
+        <div id="memory-content" aria-live="polite"></div>
+      </section>
       <section id="applications-view" hidden><h2>Application Workspaces</h2><div id="application-list"></div></section>
       <section id="passport-view" hidden><h2>Application Passport</h2><div id="passport-content" aria-live="polite"></div></section>
       <section id="overview-view" aria-labelledby="overview-title">
@@ -91,5 +120,5 @@
   <aside id="change-messages" aria-live="polite" aria-label="Date change updates"></aside><div id="toast" role="status" aria-live="polite" hidden></div>
   <dialog id="draft-dialog" aria-labelledby="draft-review-title"><div id="draft" hidden></div></dialog>
   <dialog id="action-dialog"><div class="dialog-heading"><h2 id="dialog-title">Review action</h2><button id="close-dialog" class="icon-button" aria-label="Close dialog"><img class="ui-icon" src="/assets/icons/x.svg" alt=""></button></div><div id="dialog-body"></div></dialog>
-  <script type="module" src="/auth-done.js"></script><script type="module" src="/panel.js?v=dashboard-2"></script>
+  <script type="module" src="/auth-done.js"></script><script type="module" src="/panel.js?v=phase4-1"></script>
 </body></html>

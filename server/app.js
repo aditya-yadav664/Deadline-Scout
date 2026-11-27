@@ -1,3 +1,4 @@
+import {askScout, productivity, readScoutData, saveScoutData, updateMemory} from './assistant.js';
 import {Signups} from './signups.js';
 import {dedupeMilestones,milestoneKey} from '../extension/shared/milestone-selection.js';
 import http from 'node:http';
@@ -24,7 +25,7 @@ const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const sha256url=s=>createHash('sha256').update(s).digest('base64url');
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const publicAsset=path=>path==='/'?'home.html':path==='/dashboard'||path==='/auth/done'?'panel.html':path.slice(1);
-export function isPublicFilePath(path){const relative=publicAsset(path);return /^(?:home\.(?:html|css|js)|panel\.(?:html|css|js)|dashboard\.js|opportunities\.js|applications\.js|backup\.(?:html|js|css)|signup-demo\.(?:html|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts|alert-connection|signup|google-forms|signup-resume|signup-files|signup-background|signup-collection|signup-receipt|signup-success-notices)\.js)$/.test(relative);}
+export function isPublicFilePath(path){const relative=publicAsset(path);return /^(?:home\.(?:html|css|js)|panel\.(?:html|css|js)|dashboard\.js|assistant-ui\.js|assistant\.css|opportunities\.js|applications\.js|backup\.(?:html|js|css)|signup-demo\.(?:html|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts|alert-connection|signup|google-forms|signup-resume|signup-files|signup-background|signup-collection|signup-receipt|signup-success-notices)\.js)$/.test(relative);}
 export function createApp(options={}) {
   const env=options.env||process.env;
   const port=Number(env.PORT||4317),host=env.HOST||'127.0.0.1';
@@ -165,10 +166,60 @@ export function createApp(options={}) {
           if(path.startsWith('/api/signup-captures/')&&req.method==='GET'){const key=hash(path.split('/').at(-1)),c=store.get('_system','signupCapture',key);if(!c||c.expires<Date.now())throw fail('Capture expired. Scan the form again.',404);store.remove('_system','signupCapture',key);return send(secrets.open(c.sealed));}
           return send(await signups.route(owner,path,req.method,req.method==='GET'?{}:await body(req,path==='/api/signup-files'?2900000:300000)));
         }
+        if(path==='/api/productivity'&&req.method==='GET'){
+          const {today,insights,events,items}=productivity(store,owner);
+          return send({today,insights,events:events.map(({type,trackId,title,label,date,risk,kind})=>({type,trackId,title,label,date,risk,kind})),
+            opportunities:items.map(({id,title})=>({id,title}))});
+        }
+        const readHistory=()=>readScoutData(store,secrets,owner,'assistantHistory',[]);
+        const historyRevision=()=>store.get(owner,'assistantHistoryRevision','me')?.id||'initial';
+        const clearAssistantHistory=()=>{
+          store.remove(owner,'assistantHistory','me');
+          store.put(owner,'assistantHistoryRevision','me',{id:randomUUID()});
+        };
+        if(path==='/api/assistant/answer'&&req.method==='POST'){
+          const input=await body(req,4000);
+          const revision=historyRevision();
+          const answer=await askScout(store,owner,input?.question,input?.useGemini,env,options.assistantFetch);
+          return send({answer,receipt:secrets.seal({owner,revision,expires:Date.now()+120000,answer})});
+        }
+        if(path==='/api/assistant/history'){
+          if(req.method==='GET')return send({entries:readHistory(),geminiConfigured:!!env.GEMINI_API_KEY});
+          if(req.method==='PATCH'){
+            const input=await body(req,45000);
+            const history=readHistory();
+            if(input?.action==='clear'){
+              clearAssistantHistory();
+              return send({entries:[]});
+            }
+            if(input?.action!=='save'||typeof input.receipt!=='string')throw fail('Invalid assistant history update.');
+            let receipt;
+            try{receipt=secrets.open(input.receipt);}catch{throw fail('Invalid assistant response receipt.');}
+            if(receipt.owner!==owner||receipt.revision!==historyRevision()||receipt.expires<Date.now())throw fail('This answer can no longer be saved.',409);
+            const entries=[receipt.answer,...history.filter(item=>item.id!==receipt.answer.id)].slice(0,15);
+            saveScoutData(store,secrets,owner,'assistantHistory',entries);
+            return send({entries});
+          }
+        }
+        if(path==='/api/assistant/memory'){
+          const read=()=>readScoutData(store,secrets,owner,'scoutMemory',[]);
+          if(req.method==='GET')return send({entries:read()});
+          if(req.method==='PATCH'){
+            const input=await body(req,3000);
+            const entries=updateMemory(read(),input);
+            saveScoutData(store,secrets,owner,'scoutMemory',entries);
+            return send({entries});
+          }
+        }
         if(path==='/api/account/clear-data'&&req.method==='POST'){
           const b=await body(req);if(b.action!=='clear-account-data')throw fail('Choose Clear account data to continue.');
           if([...engine.locks].some(key=>key.startsWith(owner+':'))||engine.delivering.has(owner))throw fail('A check or delivery is running. Try again when it finishes.',409);
-          const deleted=store.transaction(()=>{for(const r of store.list('_system','demoSignup'))if(r.owner===owner&&r.key)store.remove('_system','demoSignup',r.key);return store.clearKinds(owner,['track','change','delivery','googleLink','signup','signupFile','signupProfile','dashboard','sourceHistory','intelligence','applicationWorkspace','applicationPassport']);});return send({ok:true,deleted});
+          const deleted=store.transaction(()=>{
+            for(const r of store.list('_system','demoSignup'))if(r.owner===owner&&r.key)store.remove('_system','demoSignup',r.key);
+            const count=store.clearKinds(owner,['track','change','delivery','googleLink','signup','signupFile','signupProfile','dashboard','sourceHistory','intelligence','applicationWorkspace','applicationPassport','assistantHistory','scoutMemory']);
+            store.put(owner,'assistantHistoryRevision','me',{id:randomUUID()});
+            return count;
+          });return send({ok:true,deleted});
         }
         if(path==='/api/logout'&&req.method==='POST'){store.remove('_system','session',hash(token));return send({ok:true});}
         if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {
