@@ -252,3 +252,58 @@ body:has(#draft-dialog[open]){overflow:hidden}
   .overview-grid,.workspace-layout .workspace-hero{grid-template-columns:minmax(0,1fr)}
   .workspace-layout .track-overview{grid-template-columns:auto minmax(0,1fr)}
 }
+
+body:has(.workspace-layout){padding:0}
+.shell:has(.workspace-layout){width:100%;max-width:none;min-height:100dvh;border:0;border-radius:0;padding:0}
+.shell:has(.workspace-layout)>.header{padding-inline:clamp(16px,3vw,38px);min-height:66px}
+.workspace-layout{grid-template-columns:64px minmax(0,1fr);gap:0;min-height:calc(100dvh - 66px)}
+.workspace-content{width:100%;max-width:1500px;margin:0 auto;padding:0 clamp(16px,3vw,38px)}
+.workspace-navigation{position:relative;z-index:5;background:#0e171f;border-right:1px solid var(--line);padding:0}
+.workspace-navigation details{width:64px;box-sizing:border-box;top:0;padding:12px 8px;background:#0e171f;border-right:1px solid var(--line)}
+.workspace-navigation nav{display:grid;padding:4px 0;gap:5px}
+.workspace-navigation .tab,.workspace-navigation summary{display:flex;justify-content:flex-start;align-items:center;gap:10px;min-height:44px;padding:8px 11px;white-space:nowrap;overflow:hidden}
+.workspace-navigation img{width:18px;height:18px;flex:none}
+.workspace-navigation summary{list-style:none}
+.workspace-navigation summary::-webkit-details-marker{display:none}
+.workspace-navigation .rail-label,.workspace-navigation .rail-count{margin:0;font:inherit}
+.workspace-navigation .rail-count{margin-left:auto;color:var(--muted);font-size:11px}
+.workspace-navigation .tab:hover{background:#1a2a36}
+.workspace-navigation .tab.active{box-shadow:inset 2px 0 var(--green)}
+@media (min-width:801px){
+  .workspace-navigation details{transition:width 150ms ease}
+  .workspace-navigation details:hover,.workspace-navigation details:focus-within{width:218px;box-shadow:10px 12px 22px #0006}
+  .workspace-navigation details:not(:hover):not(:focus-within) .rail-label,.workspace-navigation details:not(:hover):not(:focus-within) .rail-count{opacity:0}
+}
+@media (max-width:800px){
+  .workspace-layout{grid-template-columns:minmax(0,1fr)}
+  .workspace-navigation{border-right:0;border-bottom:1px solid var(--line)}
+  .workspace-navigation details{width:100%;border:0;padding:4px 12px}
+  .workspace-navigation nav{display:flex;flex-wrap:wrap}
+  .workspace-navigation .tab{width:auto}
+}
+@media (prefers-reduced-motion:reduce){.workspace-navigation details{transition:none}}
+
+.risk-badge{display:inline-block;border-radius:6px;padding:4px 9px;background:#192c32;color:#b8d6da;font-size:12px;font-weight:700}
+.risk-badge[data-level="Critical"]{color:#ffc3cd;background:#48232f}
+.risk-badge[data-level="High"]{color:#ffd7a0;background:#443221}
+.risk-badge[data-level="Moderate"]{color:#f4e3a4;background:#37311f}
+.intelligence-filter,.content-change-heading{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px}
+.intelligence-filter{margin-bottom:16px;justify-content:flex-start}
+.intelligence-filter label{flex:1 1 160px;max-width:100%;min-width:0}
+.intelligence-filter select,.intelligence-filter input{width:100%;max-width:100%}
+.content-change{margin-bottom:16px;scroll-margin-top:16px}
+.content-change-heading h3{margin-bottom:3px}
+.content-change-heading time{color:var(--muted);font-size:13px}
+.content-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}
+.content-comparison section{padding:14px;border:1px solid var(--line);border-radius:9px;overflow-wrap:anywhere}
+.content-comparison h4{margin:0 0 8px}
+.previous-text{background:#351f28}.current-text{background:#15302e}
+.content-change .opportunity-actions{margin:0}
+.workspace-card form,.source-history,.summary-facts{margin-top:14px}
+.workspace-card form input{width:100%;margin:4px 0 8px}
+.summary-facts dd{margin:4px 0 12px;overflow-wrap:anywhere}
+.summary-facts dt{font-weight:650}
+.opportunity-buttons{display:flex;flex-wrap:wrap;gap:8px}
+.priority-card{margin-top:16px}
+.priority-card .risk-badge{align-self:flex-start}
+@media(max-width:700px){.content-comparison{grid-template-columns:1fr}}

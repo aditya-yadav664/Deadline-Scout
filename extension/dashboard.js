@@ -1,4 +1,4 @@
-import {renderOverview,renderOpportunity} from './opportunities.js';
+import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=intelligence-1';
 import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
 import './shared/signup-success-notices.js';
 import {api,storage,settings,isExtension,connectGoogle} from './api.js';
@@ -19,7 +19,7 @@ function dateTile(m){const d=new Date(m.date+'T12:00:00Z');return '<time class="
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeLink=value=>{try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)?esc(u.href):'#';}catch{return '#';}};
 let dashboardPrefs={groups:[],pinnedIds:[],seenChangeIds:[]},noticesShown=new Set();
-let tracks=[],localTracks=[],changes=[],me={},config={},connected=false,draft=null,view='overview',toastTimer;
+let tracks=[],localTracks=[],changes=[],priorities=[],me={},config={},connected=false,draft=null,view='overview',toastTimer;
 function toast(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,7000);}
 function trackingStatus(message,signIn=false){$('#scan-feedback').hidden=!/reading|scanning/i.test(message||'');$('#tracking-status').hidden=!message;$('#tracking-status-text').textContent=message;$('#tracking-signin').hidden=!signIn;}
 async function run(button,fn){if(button?.disabled)return;try{if(button)button.disabled=true;await fn();}catch(e){toast(e.message);}finally{if(button)button.disabled=false;}}
@@ -27,12 +27,13 @@ function formatDate(date){if(!date)return 'No date';try{return new Intl.DateTime
 function compactDate(date){return new Intl.DateTimeFormat('en',{day:'numeric',month:'short',timeZone:'UTC'}).format(new Date(date+'T12:00:00Z'));}
 function displayZone(zone){return ['Asia/Kolkata','Asia/Calcutta'].includes(zone)?'IST':zone;}
 function relative(value){if(!value)return 'Not checked yet';const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(value))/60000));return minutes===0?'Just now':minutes<60?`${minutes} min ago`:minutes<1440?`${Math.floor(minutes/60)} hr ago`:new Date(value).toLocaleDateString();}
-const viewNames=['overview','watchlist','timeline','opportunity'];
-let detailRequest=0;
+const viewNames=['overview','watchlist','timeline','opportunity','intelligence','risk'];
+let detailRequest=0,intelligenceRequest=0;
 function showView(name){
   if(name==='settings'){openProfileSettings();return;}
   if(!viewNames.includes(name))return;
   view=name;
+  intelligenceRequest++;
   for(const page of viewNames)$('#'+page+'-view').hidden=page!==name;
   document.querySelectorAll('.workspace-navigation [data-view]').forEach(button=>{
     const active=button.dataset.view===name;
@@ -40,10 +41,24 @@ function showView(name){
     if(active)button.setAttribute('aria-current','page');
     else button.removeAttribute('aria-current');
   });
+  if(['intelligence','risk'].includes(name))void loadIntelligence(name);
   if(name!=='opportunity'){
     detailRequest++;
     if(location.hash.startsWith('#opportunity='))history.replaceState(null,'',location.pathname+location.search);
   }
+}
+async function loadIntelligence(name){
+  const request=++intelligenceRequest,epoch=workspaceEpoch;
+  const target=$('#'+name+'-content');
+  target.textContent='Loading '+(name==='risk'?'risk assessments':'website changes')+'…';
+  target.setAttribute('aria-busy','true');
+  try{
+    const {risk,changes:websiteChanges}=await api('/api/intelligence');
+    if(request!==intelligenceRequest||epoch!==workspaceEpoch)return;
+    if(name==='risk')renderRisk(target,risk,{esc});
+    else renderIntelligence(target,websiteChanges,{esc,safeLink});
+  }catch(error){if(request===intelligenceRequest&&epoch===workspaceEpoch)target.textContent=error.message;}
+  finally{if(request===intelligenceRequest)target.setAttribute('aria-busy','false');}
 }
 async function openOpportunity(id,{focus=true}={}){
   const request=++detailRequest;
@@ -77,11 +92,11 @@ async function refresh(){
     config=await api('/api/config');connected=true;
     if(!await storage.get('token')&&config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);}
     if(await storage.get('token')){
-      try{const workspace=await api('/api/workspace');if(epoch!==workspaceEpoch)return;({tracks,changes,me}=workspace);dashboardPrefs=workspace.dashboard||{groups:[],pinnedIds:[],seenChangeIds:[]};}
-      catch(e){if(e.status===401){await storage.set('token',null);tracks=[];me={};if(config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);return refresh();}}else throw e;}
-    }else{tracks=[];me={};}
+      try{const workspace=await api('/api/workspace');if(epoch!==workspaceEpoch)return;({tracks,changes,me}=workspace);priorities=workspace.priorities||[];dashboardPrefs=workspace.dashboard||{groups:[],pinnedIds:[],seenChangeIds:[]};}
+      catch(e){if(e.status===401){await storage.set('token',null);tracks=[];priorities=[];me={};if(config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);return refresh();}}else throw e;}
+    }else{tracks=[];priorities=[];me={};}
     await storage.set('cachedTracks',tracks);
-  }catch(e){connected=false;tracks=(await storage.get('cachedTracks')||[]).map(t=>({...t,cached:true}));}
+  }catch(e){connected=false;priorities=[];tracks=(await storage.get('cachedTracks')||[]).map(t=>({...t,cached:true}));}
   if(!me.email)dashboardPrefs=await storage.get('dashboard-local')||{groups:[],pinnedIds:[],seenChangeIds:[]};
   const activeTrackIds=new Set([...tracks,...localTracks].map(t=>t.id));
   changes=[...new Map([...changes,...await storage.get('localChanges')||[]].filter(c=>activeTrackIds.has(c.trackId)).map(c=>[c.id,c])).values()].sort((a,b)=>b.at.localeCompare(a.at));render();
@@ -90,7 +105,7 @@ const statusLabels={watching:['Watching',''],changed:['Date updated','warn'],con
 function render(){
   $('#tracks').setAttribute('aria-busy','false');
   const all=[...tracks,...localTracks.map(t=>({...t,local:true}))];
-  renderOverview($('#opportunity-overview'),all,changes,today,{esc,formatDate});
+  renderOverview($('#opportunity-overview'),all,priorities,today,{esc,formatDate});
   $('#profile-email').textContent=me.email||'Not signed in';$('#profile-status').textContent=me.email?(me.googleConnected?'Google Calendar & Tasks connected':'Google account signed in'):'Sign in to connect your Google account.';$('#profile-avatar').innerHTML=me.email?esc((me.displayName||me.email)[0].toUpperCase()):icon('user');$('#profile-signin').hidden=!!me.email;$('#profile-switch').hidden=!me.email;$('#sign-out').hidden=!me.email;
   if(!me.email){profileNameDirty=false;profileNameEditing=false;}
   $('#profile-identity').hidden=!me.email;$('#profile-display-name').textContent=me.displayName||'Your profile';$('#edit-profile-name').hidden=profileNameEditing;$('#profile-name-form').hidden=!me.email||!profileNameEditing;if(!profileNameEditing&&!profileNameDirty)$('#profile-name').value=me.displayName||'';
@@ -283,8 +298,8 @@ async function renderOutbox(){const epoch=workspaceEpoch,owner=me.email;if(outbo
 $('#load-more-outbox').onclick=()=>{outboxVisible+=5;paintOutbox();};
 $('#clear-account-data').onclick=e=>run(e.currentTarget,async()=>{
   if(!connected||!await storage.get('token'))throw new Error('Sign in to clear your account data.');
-  workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#clear-data-status').textContent='Clearing…';
-  try{await api('/api/account/clear-data','POST',{action:'clear-account-data'});workspaceEpoch++;for(const key of ['localTracks','localChanges','cachedTracks'])await storage.set(key,[]);await storage.set('pendingReview',null);tracks=[];localTracks=[];changes=[];openTracks.clear();outboxItems=[];outboxVisible=3;paintOutbox();if(draft)await closeDraft();await refresh();$('#clear-data-status').textContent='Account activity cleared. Your profile and Google connection are unchanged.';}catch(error){$('#clear-data-status').textContent=error.message;throw error;}
+  workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();$('#clear-data-status').textContent='Clearing…';
+  try{await api('/api/account/clear-data','POST',{action:'clear-account-data'});workspaceEpoch++;for(const key of ['localTracks','localChanges','cachedTracks'])await storage.set(key,[]);await storage.set('pendingReview',null);tracks=[];localTracks=[];changes=[];priorities=[];openTracks.clear();outboxItems=[];outboxVisible=3;paintOutbox();if(draft)await closeDraft();await refresh();$('#clear-data-status').textContent='Account activity cleared. Your profile and Google connection are unchanged.';}catch(error){$('#clear-data-status').textContent=error.message;throw error;}
 });
 $('#watchlist-view').onclick=e=>{
   const button=e.target.closest('[data-action]');if(!button)return;
@@ -303,10 +318,50 @@ $('#watchlist-view').onclick=e=>{
   });
 };
 document.querySelector('main').addEventListener('click',event=>{
+  const review=event.target.closest('[data-review-change]');
+  if(review){
+    void run(review,async()=>{
+      await api('/api/opportunities/'+encodeURIComponent(review.dataset.trackId)+'/changes/'+encodeURIComponent(review.dataset.reviewChange),'PATCH',{reviewed:true});
+      const badge=document.createElement('span');badge.className='badge';badge.textContent='Reviewed';review.replaceWith(badge);
+    });
+    return;
+  }
+  if(event.target.closest('[data-reload-intelligence]')){void loadIntelligence(view);return;}
+  const removeSource=event.target.closest('[data-remove-verification-source]');
+  if(removeSource){
+    const id=removeSource.dataset.trackId;
+    void run(removeSource,async()=>{
+      await api('/api/tracks/'+encodeURIComponent(id),'PATCH',{removeVerificationSource:removeSource.dataset.removeVerificationSource});
+      await checkOpportunitySources(id);
+    });
+    return;
+  }
+  const check=event.target.closest('[data-check-opportunity]');
+  if(check){
+    const id=check.dataset.checkOpportunity;
+    void run(check,()=>checkOpportunitySources(id));
+    return;
+  }
+
   const link=event.target.closest('a[data-opportunity]');
   if(!link||event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;
   event.preventDefault();
   void openOpportunity(link.dataset.opportunity);
+});
+async function checkOpportunitySources(id){
+  toast('Checking the available evidence…');
+  try{await api('/api/tracks/'+encodeURIComponent(id)+'/check','POST',{});}
+  finally{await refresh();if(view==='opportunity'&&location.hash==='#opportunity='+encodeURIComponent(id))await openOpportunity(id,{focus:false});}
+}
+$('#opportunity-detail').addEventListener('submit',event=>{
+  const form=event.target.closest('[data-add-verification-source]');
+  if(!form)return;
+  event.preventDefault();
+  const id=form.dataset.trackId;
+  void run(form.querySelector('button'),async()=>{
+    await api('/api/tracks/'+encodeURIComponent(id),'PATCH',{verificationSource:new FormData(form).get('url')});
+    await checkOpportunitySources(id);
+  });
 });
 $('#find-event').addEventListener('input',()=>{
   if($('#find-event').value.trim()&&view!=='watchlist')showView('watchlist');
@@ -351,7 +406,7 @@ $('#profile-name-form').onsubmit=e=>{e.preventDefault();void run($('#save-profil
   $('#profile-name-status').textContent='Saving…';try{const result=await api('/api/me','PATCH',{displayName:$('#profile-name').value});me.displayName=result.displayName;profileNameDirty=false;profileNameEditing=false;await refresh();toast('Name saved.');if($('#profile-popover').matches(':popover-open'))$('#edit-profile-name').focus();}catch(error){$('#profile-name-status').textContent=error.message;throw error;}
 });};
 $('#profile-signin').onclick=e=>run(e.currentTarget,signIn);
-async function signOut(){workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];me={};await storage.set('cachedTracks',[]);render();}}
+async function signOut(){workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];priorities=[];me={};await storage.set('cachedTracks',[]);render();}}
 $('#profile-switch').onclick=e=>run(e.currentTarget,async()=>{await signOut();await signIn();});
 async function signIn(){if(draft){readDraft();await storage.set('pendingReview',draft);}await connectGoogle();await refresh();}
 $('#tracking-signin').onclick=e=>run(e.currentTarget,signIn);

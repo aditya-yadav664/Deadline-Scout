@@ -1,5 +1,9 @@
 import {evidenceIdentity} from './milestone-selection.js';
-import { scheduleKey, impact } from './dates.js';
+import { instant, scheduleKey, impact } from './dates.js';
+function verificationKey(milestone) {
+  try { return milestone.time ? instant(milestone) : milestone.date; }
+  catch { return scheduleKey(milestone); }
+}
 export const observationKey = candidates => candidates.map(m=>`${m.sourceUrl}|${scheduleKey(m)}`).sort().join('\n');
 export function compare(track, observations) {
   const changes=[], conflicts=[], missing=[], uncertain=[];
@@ -23,15 +27,16 @@ export function compare(track, observations) {
     });
     if(!all.length){missing.push(old.kind);return old;}
     if(all.some(m=>m.uncertain)){uncertain.push({kind:old.kind,milestoneId:old.id,label:old.label,candidates:all});return old;}
-    const unique=[...new Map(all.map(m=>[scheduleKey(m),m])).values()];
+    const key=track.verificationSources?.length?verificationKey:scheduleKey;
+    const unique=[...new Map(all.map(m=>[key(m),m])).values()];
     let chosen;
     const resolution=track.resolutions?.[old.id]||track.resolutions?.[old.kind];
-    if(unique.length===1) chosen=unique[0];
+    if(unique.length===1) chosen=all.find(m=>scheduleKey(m)===scheduleKey(old))||unique[0];
     else if(resolution?.observation===observationKey(all)) chosen=all.find(m=>scheduleKey(m)===resolution.chosen && m.sourceUrl===resolution.sourceUrl);
     if(!chosen && unique.length>1) {
       const updated=unique.filter(m=>m.explicitUpdate && (!m.previousDates?.length || m.previousDates.includes(old.date) || scheduleKey(m)===scheduleKey(old)));
-      if(updated.length===1) chosen=updated[0];
-      else {conflicts.push({kind:old.kind,milestoneId:old.id,label:old.label,candidates:unique});return old;}
+      if(updated.length===1 && !track.verificationSources?.length) chosen=updated[0];
+      else {conflicts.push({kind:old.kind,milestoneId:old.id,label:old.label,candidates:track.verificationSources?.length?all:unique});return old;}
     }
     if(scheduleKey(chosen)!==scheduleKey(old)) changes.push({kind:old.kind,label:old.label,before:old,after:chosen,impact:impact(track.plan,chosen)});
     return {...old,...chosen,id:old.id,label:old.label,sourceLabel:old.sourceLabel||chosen.label,manual:old.manual};

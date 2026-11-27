@@ -1,19 +1,21 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Deadline Scout — Keep your plans ahead</title><link rel="icon" href="/icon32.png" type="image/png"><link rel="stylesheet" href="/panel.css?v=workspace-1"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Deadline Scout — Keep your plans ahead</title><link rel="icon" href="/icon32.png" type="image/png"><link rel="stylesheet" href="/panel.css?v=intelligence-1"></head>
 <body>
   <div class="shell">
     <header class="header"><a class="brand scout-brand" href="#" aria-label="Deadline Scout home"><img class="scout-emblem" src="/assets/scout-symbol.svg" alt="" width="44" height="48"><span class="brand-lettering"><span class="brand-deadline">DEADLINE <span class="brand-scout">SCOUT</span></span></span></a><button class="profile-trigger" id="profile-trigger" popovertarget="profile-popover" aria-label="Open profile"><span id="profile-avatar" aria-hidden="true">○</span><span>Profile</span><img class="ui-icon" src="/assets/icons/chevron-down.svg" alt=""></button></header>
     <div class="workspace-layout">
       <aside class="workspace-navigation" aria-label="Workspace navigation">
         <details id="workspace-menu" open>
-          <summary>Workspace</summary>
+          <summary aria-label="Toggle workspace navigation"><img src="/assets/icons/chevron-down.svg" alt=""><span class="rail-label">Workspace</span></summary>
           <nav aria-label="Workspace">
-            <button type="button" class="tab active" data-view="overview" aria-current="page">Overview</button>
-            <button type="button" class="tab" data-view="watchlist">My Watchlist <span id="track-count">0</span></button>
-            <button type="button" class="tab" data-view="timeline">Timeline <span id="change-count">0</span></button>
-            <a class="tab" href="/backup.html">Backup Signup</a>
-            <button type="button" class="tab" data-view="settings">Settings</button>
+            <button type="button" class="tab active" data-view="overview" aria-current="page"><img src="/assets/icons/list-details.svg" alt=""><span class="rail-label">Overview</span></button>
+            <button type="button" class="tab" data-view="watchlist"><img src="/assets/icons/link.svg" alt=""><span class="rail-label">My Watchlist</span><span class="rail-count" id="track-count">0</span></button>
+            <button type="button" class="tab" data-view="timeline"><img src="/assets/icons/calendar.svg" alt=""><span class="rail-label">Timeline</span><span class="rail-count" id="change-count">0</span></button>
+            <button type="button" class="tab" data-view="intelligence"><img src="/assets/icons/refresh.svg" alt=""><span class="rail-label">Change Intelligence</span></button>
+            <button type="button" class="tab" data-view="risk"><img src="/assets/icons/clock.svg" alt=""><span class="rail-label">Risk Overview</span></button>
+            <a class="tab" href="/backup.html"><img src="/assets/icons/check.svg" alt=""><span class="rail-label">Backup Signup</span></a>
+            <button type="button" class="tab" data-view="settings"><img src="/assets/icons/user.svg" alt=""><span class="rail-label">Settings</span></button>
           </nav>
         </details>
       </aside>
@@ -42,6 +44,14 @@
         <div class="section-heading"><h2 id="overview-title">Overview</h2></div>
         <div id="opportunity-overview" aria-busy="true"><p role="status">Loading your opportunities…</p></div>
       </section>
+      <section id="intelligence-view" hidden aria-labelledby="intelligence-title">
+        <div class="section-heading"><h2 id="intelligence-title">Change Intelligence</h2><button type="button" class="button secondary" data-reload-intelligence>Refresh</button></div>
+        <div id="intelligence-content" aria-live="polite"></div>
+      </section>
+      <section id="risk-view" hidden aria-labelledby="risk-title">
+        <div class="section-heading"><h2 id="risk-title">Risk Overview</h2><button type="button" class="button secondary" data-reload-intelligence>Refresh</button></div>
+        <div id="risk-content" aria-live="polite"></div>
+      </section>
       <section id="opportunity-view" hidden aria-labelledby="opportunity-title">
         <div class="section-heading">
           <h2 id="opportunity-title" tabindex="-1">Opportunity details</h2>
@@ -67,5 +77,5 @@
   <aside id="change-messages" aria-live="polite" aria-label="Date change updates"></aside><div id="toast" role="status" aria-live="polite" hidden></div>
   <dialog id="draft-dialog" aria-labelledby="draft-review-title"><div id="draft" hidden></div></dialog>
   <dialog id="action-dialog"><div class="dialog-heading"><h2 id="dialog-title">Review action</h2><button id="close-dialog" class="icon-button" aria-label="Close dialog"><img class="ui-icon" src="/assets/icons/x.svg" alt=""></button></div><div id="dialog-body"></div></dialog>
-  <script type="module" src="/auth-done.js"></script><script type="module" src="/panel.js?v=workspace-1"></script>
+  <script type="module" src="/auth-done.js"></script><script type="module" src="/panel.js?v=intelligence-1"></script>
 </body></html>

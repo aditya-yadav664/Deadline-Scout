@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { chromium } from 'playwright-core';
 import { createApp } from '../server/app.js';
 import { Store } from '../server/store.js';
 import { hash } from '../server/security.js';
+import { extractFacts, riskFor } from '../server/intelligence.js';
+import { extract } from '../extension/shared/extract.js';
+import { readPublicPdf } from '../server/public-pdf.js';
 
 const executablePath = [
   process.env.BROWSER_EXECUTABLE,
@@ -13,7 +17,7 @@ const executablePath = [
   '/usr/bin/chromium'
 ].find(path => path && existsSync(path));
 
-async function fixture(t) {
+async function fixture(t, options = {}) {
   const store = new Store(':memory:');
   const reservation = createServer();
   await new Promise(resolve => reservation.listen(0, '127.0.0.1', resolve));
@@ -23,7 +27,8 @@ async function fixture(t) {
   const app = createApp({
     store,
     env: { HOST: '127.0.0.1', APP_URL: url },
-    vault: { seal: JSON.stringify, open: JSON.parse }
+    vault: { seal: JSON.stringify, open: JSON.parse },
+    ...options
   });
   await new Promise(resolve => app.server.listen(port, '127.0.0.1', resolve));
   t.after(() => app.close());
@@ -48,6 +53,95 @@ async function fixture(t) {
   assert.equal(status, 201);
   return { store, url, source, faq, track, token, request };
 }
+
+test('intelligence stores sourced changes, suppresses noise, and reviews and verifies without changing a conflicted date', async t => {
+  let changed = false;
+  let extraDate = '28 November 2026';
+  let failed = false;
+  const extra = 'https://notices.example/official';
+  const f = await fixture(t, { readPage: async url => {
+    if (failed && url === extra) throw Error('Unavailable');
+    const text = url === extra || url.endsWith('/faq') ? 'Registration deadline: ' + (url === extra ? extraDate : '28 November 2026') : [
+      'Registration deadline: 28 November 2026',
+      'Eligibility: ' + (changed ? 'All students' : 'Final-year students'),
+      'Application fee: ' + (changed ? '₹700' : '₹500'),
+      ...(changed ? [] : ['Required documents: Latest marksheet']),
+      changed ? 'Advertisement: new banner' : 'Advertisement: old banner'
+    ].join('\n');
+    return {url,title:'Orbit Hack',text,milestones:extract(text,url)};
+  } });
+  const call = (path,method,body) => f.request(path,method,body,f.token);
+  const check = () => call('/api/tracks/' + f.track.id + '/check','POST',{});
+  const detail = async () => (await call('/api/opportunities/' + f.track.id)).data;
+  await check();
+  assert.equal((await call('/api/intelligence')).data.changes.length,0);
+  assert.equal((await call('/api/tracks/' + f.track.id,'PATCH',{verificationSource:extra})).status,200);
+  await check();
+  assert.equal((await detail()).verification[0].status,'corroborated');
+  changed = true;
+  extraDate = '25 November 2026';
+  await check();
+  const conflicted = await detail();
+  assert.equal(conflicted.verification[0].status,'conflict');
+  assert.equal(conflicted.milestones[0].date,'2026-11-28');
+  assert.ok(conflicted.summaries.some(source=>source.facts.some(fact=>fact.evidence==='Application fee: ₹700')));
+  const {changes} = (await call('/api/intelligence')).data;
+  assert.deepEqual(changes.map(change=>change.category).sort(),['documents','eligibility','fee']);
+  const fee = changes.find(change=>change.category==='fee');
+  assert.equal(fee.before.value,'₹500');
+  assert.equal(fee.after.evidence,'Application fee: ₹700');
+  assert.equal(changes.find(change=>change.category==='documents').after,null);
+  const review = '/api/opportunities/' + f.track.id + '/changes/' + fee.id;
+  assert.equal((await call(review,'PATCH',{reviewed:false})).status,400);
+  assert.ok((await call(review,'PATCH',{reviewed:true})).data.reviewedAt);
+  await check();
+  failed = true;
+  await check();
+  assert.equal((await call('/api/intelligence')).data.changes.length,3);
+  assert.equal((await call('/api/tracks/' + f.track.id,'PATCH',{removeVerificationSource:extra})).status,200);
+  const removed = await detail();
+  assert.ok(!removed.sources.some(source=>source.url===extra));
+  assert.ok(!removed.summaries.some(source=>source.sourceUrl===extra));
+  await call('/api/tracks/' + f.track.id,'DELETE');
+  assert.equal(f.store.get('local-demo','intelligence',f.track.id),null);
+});
+
+test('deterministic facts ignore unrelated text and timed risk uses the source timezone', () => {
+  assert.deepEqual(extractFacts('Advertisement: rolling offer\nEligibility\nFinal-year students')
+    .map(({ category, evidence }) => [category, evidence]), [['eligibility','Final-year students']]);
+  const result = riskFor({milestones:[{ label:'Deadline', date:'2026-12-01', time:'18:00', zone:'Asia/Kolkata' }]},
+    [], null, {now:Date.parse('2026-12-01T11:30:00Z')});
+  assert.equal(result.remainingHours,1);
+  assert.equal(result.level,'Critical');
+});
+
+test('public PDF sources are parsed from bytes and retain a source quotation',
+  {skip:!!spawnSync('pdftotext',['-v'],{windowsHide:true}).error}, async () => {
+    const text = 'BT /F1 12 Tf 30 200 Td (Registration deadline: 28 November 2026) Tj ET';
+    const objects = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 240] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+      '<< /Length ' + text.length + ' >>\nstream\n' + text + '\nendstream'
+    ];
+    let pdf = '%PDF-1.4\n';
+    const offsets = [];
+    for(const [index,object] of objects.entries()){
+      offsets.push(pdf.length);
+      pdf += (index+1)+' 0 obj\n'+object+'\nendobj\n';
+    }
+    const xref = pdf.length;
+    pdf += 'xref\n0 6\n0000000000 65535 f \n' + offsets.map(offset=>String(offset).padStart(10,'0')+' 00000 n \n').join('')
+      + 'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF\n';
+    const url = 'https://notices.example/official.pdf';
+    const source = await readPublicPdf(Buffer.from(pdf),url);
+    assert.equal(source.sourceType,'pdf');
+    assert.equal(source.milestones[0].date,'2026-11-28');
+    assert.equal(source.milestones[0].sourceUrl,url);
+    assert.match(source.milestones[0].quote,/28 November/);
+    await assert.rejects(readPublicPdf(Buffer.from('invalid'),url),/readable PDF/);
+  });
 
 test('opportunity details project legacy tracks, isolate owners and retain bounded source evidence', async t => {
   const f = await fixture(t);
@@ -93,6 +187,7 @@ test('dashboard shell keeps watchlist actions and opportunity links accessible o
   await page.locator('#tracks').getByRole('button', { name: 'Check now' }).click();
   await page.locator('#tracks').getByRole('link', { name: 'Orbit Hack' }).click();
   await page.getByRole('heading', { name: 'Orbit Hack' }).waitFor();
+  await page.getByText('Source check history', { exact: true }).click();
   await page.getByText('Source evidence', { exact: true }).first().click();
   await page.getByText('Milestones found', { exact: false }).first().waitFor();
   assert.equal(await page.locator('body').evaluate(body => body.scrollWidth <= innerWidth), true);
@@ -102,4 +197,44 @@ test('dashboard shell keeps watchlist actions and opportunity links accessible o
   await page.getByRole('link', { name: 'Backup Signup', exact: true }).click();
   await page.waitForURL('**/backup.html');
   assert.deepEqual(errors, []);
+});
+
+test('desktop rail expands without moving content and comparison review persists', { skip: !executablePath }, async t => {
+  let fee = '₹500';
+  const f = await fixture(t,{readPage:async url=>{
+    const text = 'Registration deadline: 28 November 2026\n' + (url.endsWith('/faq')?'':'Application fee: '+fee);
+    return {url,title:'Orbit Hack',text,milestones:extract(text,url)};
+  }});
+  const check = () => f.request('/api/tracks/'+f.track.id+'/check','POST',{},f.token);
+  await check();
+  fee = '₹700';
+  await check();
+  const browser = await chromium.launch({executablePath,headless:true});
+  t.after(()=>browser.close());
+  const page = await browser.newPage({viewport:{width:1280,height:800},reducedMotion:'reduce'});
+  const errors = [];
+  page.on('pageerror',error=>errors.push(error.message));
+  await page.goto(f.url);
+  await page.getByRole('heading',{name:'Upcoming deadlines'}).waitFor();
+  assert.equal(await page.getByText('Recent date changes',{exact:true}).count(),0);
+  const navigation=page.locator('#workspace-menu');
+  const content=page.locator('.workspace-content');
+  const origin=(await content.boundingBox()).x;
+  assert.ok((await navigation.boundingBox()).width<100);
+  await page.getByRole('button',{name:'Change Intelligence'}).hover();
+  assert.ok((await navigation.boundingBox()).width>200);
+  assert.equal((await content.boundingBox()).x,origin);
+  await page.getByRole('button',{name:'Change Intelligence'}).click();
+  await page.getByRole('heading',{name:'Fees',exact:true}).waitFor();
+  await page.getByLabel('Category').selectOption('fee');
+  await page.getByText('₹500',{exact:true}).waitFor();
+  await page.getByText('₹700',{exact:true}).waitFor();
+  await page.getByLabel('Jump to change').selectOption({label:'Orbit Hack · Fees'});
+  await page.getByRole('button',{name:'Mark as reviewed'}).click();
+  await page.getByText('Reviewed',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Refresh',exact:true}).click();
+  await page.getByText('Reviewed',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Risk Overview'}).click();
+  await page.locator('#risk-content .risk-badge').waitFor();
+  assert.deepEqual(errors,[]);
 });

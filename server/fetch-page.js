@@ -2,6 +2,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { lookup } from 'node:dns/promises';
 import { safeUrl, publicAddress } from './security.js';
+import { readPublicPdf } from './public-pdf.js';
 import { readHtml } from '../extension/shared/extract.js';
 export async function fetchPublicPage(value, redirects=0, mode='page',request={}) {
   const url=safeUrl(value);
@@ -22,24 +23,26 @@ export async function fetchPublicPage(value, redirects=0, mode='page',request={}
   const result=await new Promise((resolve,reject)=>{
     const req=(url.protocol==='https:'?https:http).request(url,{
       method:request.method||'GET',
-      headers:{'User-Agent':'DeadlineScout/1.1 (user-requested schedule monitor)','Accept':mode==='json'?'application/json':'text/html,application/xhtml+xml,text/plain,*/*','Cache-Control':'no-cache','Pragma':'no-cache',...(request.contentType?{'Content-Type':request.contentType}:{})},
+      headers:{'User-Agent':'DeadlineScout/1.1 (user-requested schedule monitor)','Accept':mode==='json'?'application/json':'text/html,application/xhtml+xml,text/plain,application/pdf,*/*','Cache-Control':'no-cache','Pragma':'no-cache',...(request.contentType?{'Content-Type':request.contentType}:{})},
       lookup:(_name,options,cb)=>options.all?cb(null,[chosen]):cb(null,chosen.address,chosen.family)
     },res=>{
       if([301,302,303,307,308].includes(res.statusCode)) {res.resume();return resolve({redirect:res.headers.location});}
       if([401,403].includes(res.statusCode)) {res.resume();return reject(new Error(res.statusCode===401?'Login required: this page cannot be monitored by the backend.':'Blocked page (403): use a manual reminder or a public source.'));}
       if(res.statusCode<200||res.statusCode>=300){res.resume();return reject(new Error(`Page fetch failed: HTTP ${res.statusCode}.`));}
-      if(mode!=='resource'&&!(mode==='json'?/application\/(?:[a-z.+-]*\+)?json/i:/text\/(html|plain)|application\/xhtml\+xml/i).test(res.headers['content-type']||'')){res.resume();return reject(new Error('Unsupported source content type.'));}
+      if(mode!=='resource'&&!(mode==='json'?/application\/(?:[a-z.+-]*\+)?json/i:/text\/(html|plain)|application\/(?:xhtml\+xml|pdf)/i).test(res.headers['content-type']||'')){res.resume();return reject(new Error('Unsupported source content type.'));}
       let size=0,chunks=[];res.on('data',chunk=>{size+=chunk.length;if(size>2_000_000){res.destroy();reject(new Error('Page exceeds 2 MB limit.'));}else chunks.push(chunk);});
-      res.on('end',()=>resolve({html:Buffer.concat(chunks).toString('utf8'),headers:res.headers,status:res.statusCode}));res.on('error',reject);
+      res.on('end',()=>resolve({bytes:Buffer.concat(chunks),headers:res.headers,status:res.statusCode}));res.on('error',reject);
     });
     const timer=setTimeout(()=>req.destroy(new Error('Page fetch timed out (15 seconds).')),15000);req.on('close',()=>clearTimeout(timer));req.on('error',reject);
     req.end(request.body||undefined);
   });
   if(result.redirect){if(request.method==='POST')throw new Error('Firestore Listen redirects are not followed.');return fetchPublicPage(new URL(result.redirect,url).href,redirects+1,mode);}
-  if(mode==='json')return {data:JSON.parse(result.html),raw:result.html,url:url.href};
-  if(mode==='resource')return {body:result.html,headers:result.headers,status:result.status,url:url.href};
-  const page=readHtml(result.html,url.href);
+  if(mode==='page'&&/^application\/pdf(?:;|$)/i.test(result.headers['content-type']))return readPublicPdf(result.bytes,url.href);
+  const html=result.bytes.toString('utf8');
+  if(mode==='json')return {data:JSON.parse(html),raw:html,url:url.href};
+  if(mode==='resource')return {body:html,headers:result.headers,status:result.status,url:url.href};
+  const page=readHtml(html,url.href);
   if(!page.milestones.length && /sign in to continue|log in to continue|enable javascript|checking your browser|verify you are human/i.test(page.text)) throw new Error('Login, JavaScript, or browser verification required. Backend cannot read the schedule; use a manual reminder.');
-  const requiresBrowser=!page.milestones.length&&page.text.length<300&&/<script\b[^>]*\bsrc\s*=/i.test(result.html);
-  return {...page,url:url.href,rawHtml:result.html,hasScripts:/<script\b(?![^>]*type=["']application\/ld\+json)/i.test(result.html),readability:requiresBrowser?'requires_browser':'readable',notice:requiresBrowser?'This page needs browser rendering to read its live schedule.':null};
+  const requiresBrowser=!page.milestones.length&&page.text.length<300&&/<script\b[^>]*\bsrc\s*=/i.test(html);
+  return {...page,url:url.href,rawHtml:html,hasScripts:/<script\b(?![^>]*type=["']application\/ld\+json)/i.test(html),readability:requiresBrowser?'requires_browser':'readable',notice:requiresBrowser?'This page needs browser rendering to read its live schedule.':null};
 }

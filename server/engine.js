@@ -4,6 +4,7 @@ import { compare } from '../extension/shared/compare.js';
 import { scheduleKey } from '../extension/shared/dates.js';
 import { changeEmail } from './email.js';
 import { hash } from './security.js';
+import { recordIntelligence } from './intelligence.js';
 import { recordSourceCheck } from './opportunities.js';
 export class Engine {
   constructor({store,readPage,email,google}){Object.assign(this,{store,readPage,email,google});this.locks=new Set();this.reading=new Set();this.delivering=new Set();}
@@ -20,6 +21,7 @@ export class Engine {
         this.store.transaction(()=>{
           this.store.put(owner,'track',id,t);
           recordSourceCheck(this.store,owner,t,observations,errors,now);
+          recordIntelligence(this.store,owner,t,observations,now);
         });return t;}
       repairMixedSnapshot(t,observations);
       const result=compare(t,observations);
@@ -28,6 +30,7 @@ export class Engine {
       this.store.transaction(()=>{
         this.store.put(owner,'track',id,t);
         recordSourceCheck(this.store,owner,t,observations,errors,now);
+        recordIntelligence(this.store,owner,t,observations,now);
         for(const c of changes){
           this.store.put(owner,'change',c.id,c);
           this.store.put(owner,'delivery',c.id+':browser',{id:c.id+':browser',changeId:c.id,trackId:id,channel:'browser',status:'queued',at:now});

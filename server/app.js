@@ -18,7 +18,7 @@ import { observationKey } from '../extension/shared/compare.js';
 import { modelExtract } from './model.js';
 import { readRegistrationSource } from './source-adapters.js';
 import {saveCapture,consumeCapture} from './captures.js';
-import {opportunityDetail} from './opportunities.js';
+import {opportunityDetail, opportunityRiskList} from './opportunities.js';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const sha256url=s=>createHash('sha256').update(s).digest('base64url');
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
@@ -166,10 +166,17 @@ export function createApp(options={}) {
         if(path==='/api/account/clear-data'&&req.method==='POST'){
           const b=await body(req);if(b.action!=='clear-account-data')throw fail('Choose Clear account data to continue.');
           if([...engine.locks].some(key=>key.startsWith(owner+':'))||engine.delivering.has(owner))throw fail('A check or delivery is running. Try again when it finishes.',409);
-          const deleted=store.transaction(()=>{for(const r of store.list('_system','demoSignup'))if(r.owner===owner&&r.key)store.remove('_system','demoSignup',r.key);return store.clearKinds(owner,['track','change','delivery','googleLink','signup','signupFile','signupProfile','dashboard','sourceHistory']);});return send({ok:true,deleted});
+          const deleted=store.transaction(()=>{for(const r of store.list('_system','demoSignup'))if(r.owner===owner&&r.key)store.remove('_system','demoSignup',r.key);return store.clearKinds(owner,['track','change','delivery','googleLink','signup','signupFile','signupProfile','dashboard','sourceHistory','intelligence']);});return send({ok:true,deleted});
         }
         if(path==='/api/logout'&&req.method==='POST'){store.remove('_system','session',hash(token));return send({ok:true});}
-        if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {const p=profileFor(owner),me={displayName:p.displayName||p.googleName||'',email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local};return send(path==='/api/me'?me:{me,tracks:store.list(owner,'track').map(t=>enrich(owner,t)),changes:changesFor(owner),dashboard:store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]}});}
+        if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {
+          const p=profileFor(owner),me={displayName:p.displayName||p.googleName||'',email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local};
+          if(path==='/api/me')return send(me);
+          const tracks=store.list(owner,'track');
+          const priorities=opportunityRiskList(store,owner,tracks).filter(item=>['Critical','High'].includes(item.level))
+            .sort((a,b)=>(a.level==='High')-(b.level==='High')||(a.remainingHours??Infinity)-(b.remainingHours??Infinity)).slice(0,3);
+          return send({me,tracks:tracks.map(t=>enrich(owner,t)),changes:changesFor(owner),priorities,dashboard:store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]}});
+        }
         if(path==='/api/dashboard'&&req.method==='PATCH'){
           const b=await body(req),p=store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]},active=new Set(store.list(owner,'track').map(t=>t.id));
           if(b.groups!==undefined){if(!Array.isArray(b.groups)||b.groups.length>50)throw fail('Maximum 50 groups.');const names=new Set(),ids=new Set();p.groups=b.groups.map(g=>{const name=String(g.name||'').trim().slice(0,80),id=String(g.id||'');if(!name||names.has(name.toLowerCase())||!id||ids.has(id)||id.length>100||!Array.isArray(g.trackIds))throw fail('Each group needs a unique name.');names.add(name.toLowerCase());ids.add(id);return {id,name,trackIds:[...new Set(g.trackIds)].filter(id=>active.has(id))};});}
@@ -216,6 +223,27 @@ export function createApp(options={}) {
           if(!detail)throw fail('Opportunity not found.',404);
           return send(detail);
         }
+        if(path==='/api/intelligence'&&req.method==='GET'){
+          const tracks=store.list(owner,'track');
+          const changesByTrack=new Map(store.list(owner,'intelligence').map(record=>[record.trackId,record]));
+          const risk=opportunityRiskList(store,owner,tracks);
+          const changes=tracks.flatMap(track=>(changesByTrack.get(track.id)?.changes||[])
+            .map(change=>({...change,trackId:track.id}))).sort((a,b)=>b.at.localeCompare(a.at)).slice(0,60);
+          return send({risk,changes});
+        }
+        const reviewChange=path.match(/^\/api\/opportunities\/([\w-]{1,100})\/changes\/([\w-]{1,100})$/);
+        if(reviewChange&&req.method==='PATCH'){
+          const [,id,changeId]=reviewChange;
+          const input=await body(req,1000);
+          if(input?.reviewed!==true)throw fail('Confirm the change was reviewed.');
+          if(!store.get(owner,'track',id))throw fail('Opportunity not found.',404);
+          const entry=store.get(owner,'intelligence',id);
+          const change=entry?.changes.find(item=>item.id===changeId);
+          if(!change)throw fail('Change not found.',404);
+          change.reviewedAt ||= new Date().toISOString();
+          store.put(owner,'intelligence',id,entry);
+          return send({reviewedAt:change.reviewedAt});
+        }
         if(path==='/api/tracks'&&req.method==='GET')return send(store.list(owner,'track').map(t=>enrich(owner,t)));
         if(path==='/api/tracks'&&req.method==='POST'){
           const b=await body(req),url=safeUrl(b.url).href;
@@ -256,15 +284,40 @@ export function createApp(options={}) {
             store.transaction(()=>{
               const related=store.list(owner,'change').filter(c=>c.trackId===id),changeIds=new Set(related.map(c=>c.id));
               for(const draft of signups.list(owner).filter(d=>d.trackId===id)){draft.status='Cancelled';signups.save(owner,draft);}
-              store.remove(owner,'track',id);store.remove(owner,'sourceHistory',id);for(const c of related)store.remove(owner,'change',c.id);
+              store.remove(owner,'track',id);store.remove(owner,'sourceHistory',id);store.remove(owner,'intelligence',id);for(const c of related)store.remove(owner,'change',c.id);
               for(const d of store.list(owner,'delivery').filter(d=>d.trackId===id||changeIds.has(d.changeId))){if(d.channel==='browser')store.remove(owner,'delivery',d.id);else if(['queued','retry','sending'].includes(d.status))store.put(owner,'delivery',d.id,{...d,status:'cancelled',error:'Registration removed; alert cancelled.'});}
               for(const link of store.list(owner,'googleLink').filter(l=>l.trackId===id))store.remove(owner,'googleLink',link.id);
             });return send({ok:true});
           }
           if(!action&&req.method==='PATCH'){
-            if(engine.locks.has(owner+':'+id))throw fail('Wait for the current operation.');const b=await body(req);
+            const b=await body(req);
+            if(!b||typeof b!=='object'||Array.isArray(b))throw fail('Invalid tracking update.');
+            if(engine.locks.has(owner+':'+id))throw fail('Wait for the current operation.');
+            const current=store.get(owner,'track',id);
+            if(!current)throw fail('Tracking record not found.',404);
+            Object.assign(t,current);
             if(b.intervalMinutes!==undefined){if(!Number.isInteger(b.intervalMinutes)||b.intervalMinutes<5||b.intervalMinutes>10080)throw fail('Choose an interval between 5 minutes and 7 days.');t.intervalMinutes=b.intervalMinutes;t.nextCheck=Date.now()+b.intervalMinutes*60000;}
             if(b.plan!==undefined){if(b.plan&&!validDate(b.plan))throw fail('Invalid planned date.');t.plan=b.plan||null;}
+            if(b.verificationSource!==undefined){
+              if(typeof b.verificationSource!=='string'||b.verificationSource.length>2048)throw fail('Enter a public source URL.');
+              const u=safeUrl(b.verificationSource);
+              if(u.port&&!['80','443'].includes(u.port))throw fail('Use a public HTTP(S) source on a standard port.');
+              if(!t.sources.includes(u.href)){
+                if(t.sources.length>=5)throw fail('Maximum five sources per opportunity.');
+                t.sources.push(u.href);
+                t.verificationSources=[...(t.verificationSources||[]),u.href];
+              }
+            }
+            if(b.removeVerificationSource!==undefined){
+              const url=b.removeVerificationSource;
+              if(typeof url!=='string'||!t.verificationSources?.includes(url))throw fail('That verification source was not found.',404);
+              t.verificationSources=t.verificationSources.filter(source=>source!==url);
+              t.sources=t.sources.filter(source=>source!==url);
+              const history=store.get(owner,'sourceHistory',id);
+              if(history)store.put(owner,'sourceHistory',id,{...history,sources:history.sources.filter(source=>source.url!==url)});
+              const content=store.get(owner,'intelligence',id);
+              if(content){delete content.sources[url];store.put(owner,'intelligence',id,content);}
+            }
             if(b.addSource){const s=safeUrl(b.addSource).href;if(new URL(s).origin!==new URL(t.url).origin||t.sources.length>=5)throw fail('Add a same-site source (maximum five).');if(!t.sources.includes(s))t.sources.push(s);}
             return send(enrich(owner,store.put(owner,'track',id,t)));
           }
