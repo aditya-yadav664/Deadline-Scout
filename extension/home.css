@@ -1,0 +1,52 @@
+@font-face{font-family:Inter;src:url('/assets/inter.woff2') format('woff2');font-display:swap}
+:root{color-scheme:dark;--bg:#090b0d;--surface:#11161a;--border:#2a333b;--text:#f4f7f8;--muted:#aab7c1;--accent:#9cf7ed;font:15px/1.6 Inter,system-ui,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;color:var(--text);background:var(--bg)}
+h1,h2,h3,p{margin-block:0}
+a{color:inherit;text-decoration:none}
+button{font:inherit;cursor:pointer;color:inherit}
+button[hidden],p[hidden]{display:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+.site-header,main,footer{width:min(calc(100% - 48px),1240px);margin-inline:auto}
+.site-header{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:72px;border-bottom:1px solid var(--border)}
+.wordmark,.actions,nav{display:flex;align-items:center;gap:13px}
+.wordmark{font-weight:750;white-space:nowrap}
+nav{gap:23px;color:var(--muted);font-size:13px}
+nav a:hover,footer a:hover{color:var(--accent)}
+.primary,.outline,.quiet{display:inline-flex;align-items:center;justify-content:center;border-radius:7px;min-height:42px;padding:8px 15px;font-weight:650;white-space:nowrap}
+.primary{border:1px solid var(--accent);background:var(--accent);color:#102224}
+.primary:hover{background:#c2fff7}
+.outline{border:1px solid var(--border);background:var(--surface)}
+.quiet{border:1px solid transparent;background:none}
+.outline:hover,.quiet:hover{border-color:#62737d}
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.94fr);gap:clamp(28px,6vw,90px);align-items:center;padding:clamp(48px,9vw,132px) 0 66px}
+.hero h1{font-size:clamp(48px,7vw,96px);line-height:.99;letter-spacing:-.075em}
+.hero-copy .lead{color:var(--accent);font-size:clamp(17px,2vw,24px);font-weight:620;margin-top:23px}
+.hero-copy p{color:var(--muted);max-width:53ch;margin-top:14px}
+.hero-copy .actions{margin-top:24px;flex-wrap:wrap}
+#auth-status{color:#ffc7a4}
+.demo{border:1px solid var(--border);border-radius:13px;background:#101518;overflow:hidden;box-shadow:0 16px 75px #2ca89712}
+.demo-header,.demo-source,.demo-result{border-bottom:1px solid var(--border);padding:13px 18px}
+.demo-header{display:flex;justify-content:space-between;gap:10px;font-size:12px;font-weight:650}
+.demo-header span:last-child,.demo-source small,.demo-source span{color:var(--muted)}
+.demo-body{padding:15px}
+.demo-source,.demo-result{background:#151e22;border:1px solid var(--border);border-radius:8px}
+.demo-source strong{font-size:19px}
+.demo-source span,.demo-source strong,.demo-source small{display:block}
+.demo-steps{display:grid;gap:3px;padding-left:24px;margin:13px 0;color:var(--muted);font-size:13px}
+.demo-steps li{padding:2px 5px}
+.demo-steps .complete,.demo-steps [aria-current]{color:var(--accent)}
+.demo-result{min-height:95px;margin-bottom:12px}
+.demo-result p{font-size:13px;color:var(--muted)}
+.section{border-top:1px solid var(--border);padding:45px 0}
+.section h2{font-size:clamp(25px,3vw,39px);letter-spacing:-.04em;line-height:1.15;margin-bottom:19px}
+.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:0;margin:0;list-style:none}
+.tiles>*{border:1px solid var(--border);background:var(--surface);border-radius:9px;padding:20px}
+.tiles h3{margin-bottom:6px;font-size:16px}
+.tiles p,.extension-callout p,footer{color:var(--muted)}
+.extension-callout{display:flex;justify-content:space-between;align-items:center;gap:24px}
+.extension-callout p{max-width:68ch}
+footer{border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:20px;font-size:13px;padding:18px 0 27px}
+footer span{color:var(--text);margin-right:auto}
+@media(max-width:850px){.hero{grid-template-columns:1fr}.site-header{flex-wrap:wrap;padding:12px 0}.site-header nav{order:3;flex-basis:100%;flex-wrap:wrap;gap:14px}.tiles{grid-template-columns:1fr}}
+@media(max-width:450px){.site-header,main,footer{width:calc(100% - 32px)}.site-header{gap:10px}.site-header .actions{gap:4px}.site-header .actions>*{padding:6px 8px;font-size:12px}.wordmark{font-size:13px;gap:5px}.extension-callout{align-items:flex-start;flex-direction:column}}

@@ -18,12 +18,13 @@ import { observationKey } from '../extension/shared/compare.js';
 import { modelExtract } from './model.js';
 import { readRegistrationSource } from './source-adapters.js';
 import {saveCapture,consumeCapture} from './captures.js';
-import {readApplication,updateApplication,readPassport,updatePassport} from './applications.js';
+import {applicationOverview,readApplication,updateApplication,readPassport,updatePassport} from './applications.js';
 import {opportunityDetail, opportunityRiskList} from './opportunities.js';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const sha256url=s=>createHash('sha256').update(s).digest('base64url');
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
-export function isPublicFilePath(path){const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);return /^(?:panel\.(?:html|css|js)|dashboard\.js|opportunities\.js|applications\.js|backup\.(?:html|js|css)|signup-demo\.(?:html|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts|alert-connection|signup|google-forms|signup-resume|signup-files|signup-background|signup-collection|signup-receipt|signup-success-notices)\.js)$/.test(relative);}
+const publicAsset=path=>path==='/'?'home.html':path==='/dashboard'||path==='/auth/done'?'panel.html':path.slice(1);
+export function isPublicFilePath(path){const relative=publicAsset(path);return /^(?:home\.(?:html|css|js)|panel\.(?:html|css|js)|dashboard\.js|opportunities\.js|applications\.js|backup\.(?:html|js|css)|signup-demo\.(?:html|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts|alert-connection|signup|google-forms|signup-resume|signup-files|signup-background|signup-collection|signup-receipt|signup-success-notices)\.js)$/.test(relative);}
 export function createApp(options={}) {
   const env=options.env||process.env;
   const port=Number(env.PORT||4317),host=env.HOST||'127.0.0.1';
@@ -176,7 +177,11 @@ export function createApp(options={}) {
           const tracks=store.list(owner,'track');
           const priorities=opportunityRiskList(store,owner,tracks).filter(item=>['Critical','High'].includes(item.level))
             .sort((a,b)=>(a.level==='High')-(b.level==='High')||(a.remainingHours??Infinity)-(b.remainingHours??Infinity)).slice(0,3);
-          return send({me,tracks:tracks.map(t=>enrich(owner,t)),changes:changesFor(owner),priorities,dashboard:store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]}});
+          const websiteChanges=tracks.flatMap(track=>(store.get(owner,'intelligence',track.id)?.changes||[])
+            .map(({id,at,title,category})=>({id,at,title,category,trackId:track.id})))
+            .sort((a,b)=>b.at.localeCompare(a.at)).slice(0,3);
+          const overview={...applicationOverview(store,owner,tracks),websiteChanges};
+          return send({me,tracks:tracks.map(t=>enrich(owner,t)),changes:changesFor(owner),priorities,overview,dashboard:store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]}});
         }
         if(path==='/api/dashboard'&&req.method==='PATCH'){
           const b=await body(req),p=store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]},active=new Set(store.list(owner,'track').map(t=>t.id));
@@ -375,7 +380,7 @@ export function createApp(options={}) {
         if(!loopback||env.ENABLE_DEMO==='false')throw fail('Demo disabled.',404);
         res.removeHeader('Content-Security-Policy');res.setHeader('Content-Type','text/html; charset=utf-8');return res.end(demoHtml(path,store.get('_system','demo','state')||{mode:'original'}));
       }
-      const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);
+      const relative=publicAsset(path);
       if(!isPublicFilePath(path))throw fail('Page not found.',404);
       res.setHeader('Content-Type',relative.endsWith('.html')?'text/html; charset=utf-8':relative.endsWith('.css')?'text/css':relative.endsWith('.svg')?'image/svg+xml':relative.endsWith('.png')?'image/png':relative.endsWith('.woff2')?'font/woff2':'text/javascript');const content=readFileSync(join(root,'extension',relative)),etag='\"'+createHash('sha256').update(content).digest('base64url')+'\"';
       res.setHeader('Cache-Control','public, max-age=0, must-revalidate');res.setHeader('ETag',etag);if(req.headers['if-none-match']===etag){res.statusCode=304;return res.end();}res.end(content);

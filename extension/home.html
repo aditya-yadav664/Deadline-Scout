@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Deadline Scout tracks deadlines and changes across the web.">
+  <title>Deadline Scout · Track what matters</title>
+  <link rel="icon" href="/icon32.png" type="image/png">
+  <link rel="stylesheet" href="/home.css">
+  <script type="module" src="/home.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="wordmark" href="/"><img src="/assets/scout-symbol.svg" width="29" height="32" alt="">Deadline Scout</a>
+    <nav aria-label="Site"><a href="#features">Features</a><a href="#how-it-works">How It Works</a><a href="#use-cases">Use Cases</a><a href="#about">About</a></nav>
+    <div class="actions"><button type="button" class="quiet" data-auth>Log In</button><button type="button" data-auth class="primary">Get Started</button></div>
+  </header>
+  <main>
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <h1 id="hero-title">Never miss<br>what matters.</h1>
+        <p class="lead">Track it. Understand it. Stay ahead.</p>
+        <p>An intelligent assistant that monitors important dates and changes across the web, helping you stay ahead of applications, opportunities, events, and everything that matters.</p>
+        <div class="actions"><button type="button" data-auth class="primary">Get Started</button><a class="outline" href="#features">Explore Features</a></div>
+        <p id="auth-status" role="status" hidden></p>
+      </div>
+      <section class="demo" aria-label="Interactive product demonstration">
+        <div class="demo-header"><span>Opportunity monitor</span><span>Interactive demo</span></div>
+        <div class="demo-body">
+          <div class="demo-source"><small>Example source</small><strong>Northstar Fellowship</strong><span>Applications · northstar.example</span></div>
+          <ol class="demo-steps">
+            <li data-demo-step="0">Scan the page</li><li data-demo-step="1">Find the deadline</li><li data-demo-step="2">Start tracking</li><li data-demo-step="3">Detect a change</li><li data-demo-step="4">Show the alert</li>
+          </ol>
+          <div class="demo-result" aria-live="polite"><strong id="demo-title">Ready to scan</strong><p id="demo-copy">Run a sample check to see the path from public webpage to deadline alert.</p></div>
+          <button id="demo-next" class="primary" type="button">Scan example page</button>
+        </div>
+      </section>
+    </section>
+    <section id="features" class="section">
+      <h2>From a link to a watchlist</h2>
+      <div class="tiles">
+        <article><h3>Track deadlines</h3><p>Save a public page and review the dates it contains. Keep milestones together even when they fall on the same day.</p></article>
+        <article><h3>See what changed</h3><p>Compare the old and updated source text, including changes to deadlines, fees, and requirements.</p></article>
+        <article><h3>Plan the application</h3><p>Keep notes, checklist items, and dependent tasks alongside the opportunity. Link a milestone to Google Calendar or Tasks.</p></article>
+      </div>
+    </section>
+    <section id="how-it-works" class="section">
+      <h2>How it works</h2>
+      <ol class="tiles"><li><h3>Scan</h3><p>Paste a public link or scan an open tab with the extension.</p></li><li><h3>Review</h3><p>Choose which milestones to track and check the source evidence.</p></li><li><h3>Follow</h3><p>Open your timeline or enable alerts to stay informed about changes.</p></li></ol>
+    </section>
+    <section id="use-cases" class="section"><h2>Track the deadlines that matter to you</h2><div class="tiles"><article><h3>Applications and scholarships</h3><p>Follow submission windows and keep required documents in view.</p></article><article><h3>Events and competitions</h3><p>Keep signup, payment, and event dates in one place.</p></article><article><h3>Project and work milestones</h3><p>Save public schedules or enter dates you want to remember.</p></article></div></section>
+    <section id="about" class="section extension-callout"><div><h2>Start right from your browser</h2><p>The Deadline Scout extension for Chrome and Edge can scan the tab you’re viewing, send it to your dashboard, and deliver browser alerts when enabled.</p></div><a class="outline" href="https://github.com/aditya-yadav664/Deadline-Scout#install-the-unpacked-extension-in-chrome-or-edge">Extension setup</a></section>
+    <section class="section closing"><h2>What are you keeping track of?</h2><button type="button" class="primary" data-auth>Get Started</button></section>
+  </main>
+  <footer><span>Deadline Scout</span><a href="#features">Features</a><a href="https://github.com/aditya-yadav664/Deadline-Scout">Source code</a></footer>
+</body>
+</html>

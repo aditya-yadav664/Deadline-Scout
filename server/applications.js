@@ -23,6 +23,25 @@ export function readApplication(store, owner, trackId) {
     { notes: '', priority: 'normal', pages: [], checklist: [], tasks: [] };
 }
 
+export function applicationOverview(store, owner, tracks) {
+  const pendingTasks = [], progress = [];
+  for (const track of tracks) {
+    const workspace = store.get(owner, 'applicationWorkspace', track.id);
+    if (!workspace) continue;
+    const { checklist, tasks } = workspace;
+    for (const task of tasks.filter(item => !item.done)) {
+      pendingTasks.push({
+        trackId: track.id, title: track.title, label: task.label, due: task.due,
+        blocked: task.dependencies.some(id => !tasks.find(item => item.id === id)?.done)
+      });
+    }
+    const entries = [...tasks, ...checklist];
+    if (entries.length) progress.push({ trackId: track.id, title: track.title, total: entries.length, done: entries.filter(item => item.done).length });
+  }
+  pendingTasks.sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999') || Number(b.blocked) - Number(a.blocked));
+  return { pendingTasks: pendingTasks.slice(0, 4), progress: progress.slice(0, 4) };
+}
+
 export function updateApplication(store, owner, track, input) {
   if (!input || typeof input !== 'object') throw fail('Invalid application update.');
   const workspace = readApplication(store, owner, track.id);

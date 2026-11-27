@@ -21,6 +21,6 @@ test('denied permissions never open an alert connection or request credentials',
 });
 
 test('legacy extension dashboard URLs redirect to the hosted website instead of opening another app',async()=>{
- const source=readFileSync(new URL('../extension/panel.js',import.meta.url),'utf8').replace("import {isExtension,settings} from './api.js';","const isExtension=true,settings=async()=>({backendUrl:'https://deadline-scout.vercel.app'});");
- let destination;await new (Object.getPrototypeOf(async function(){}).constructor)('location',source)({hash:'#settings',replace:url=>{destination=url;}});assert.equal(destination,'https://deadline-scout.vercel.app/#settings');
+ const source=readFileSync(new URL('../extension/panel.js',import.meta.url),'utf8').replace(/^import[^\n]+/,"const isExtension=true,settings=async()=>({backendUrl:'https://deadline-scout.vercel.app'});");
+ let destination;await new (Object.getPrototypeOf(async function(){}).constructor)('location',source)({hash:'#settings',replace:url=>{destination=url;}});assert.equal(destination,'https://deadline-scout.vercel.app/dashboard#settings');
 });

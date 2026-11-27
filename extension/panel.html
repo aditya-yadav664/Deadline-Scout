@@ -1,10 +1,12 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Deadline Scout — Keep your plans ahead</title><link rel="icon" href="/icon32.png" type="image/png"><link rel="stylesheet" href="/panel.css?v=applications-1"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Deadline Scout — Keep your plans ahead</title><link rel="icon" href="/icon32.png" type="image/png"><link rel="stylesheet" href="/panel.css?v=dashboard-2"></head>
 <body>
-  <div class="shell">
+  <section id="dashboard-gate" class="access-status" aria-live="polite"><p>Opening your workspace…</p><a href="/" hidden>Return to Deadline Scout</a></section>
+  <section id="auth-return-status" class="access-status" hidden aria-live="polite"><p id="auth-return-text">Completing Google sign-in…</p><a href="/" hidden>Return to Deadline Scout</a></section>
+  <div class="shell" hidden>
     <div class="workspace-layout">
-      <aside class="workspace-navigation" aria-label="Workspace navigation">
+      <aside id="workspace-sidebar" class="workspace-navigation" aria-label="Workspace navigation">
         <a class="brand scout-brand" href="#" aria-label="Deadline Scout home"><img class="scout-emblem" src="/assets/scout-symbol.svg" alt="" width="44" height="48"><span class="brand-lettering"><span class="brand-deadline">DEADLINE <span class="brand-scout">SCOUT</span></span></span></a>
         <details id="workspace-menu" open>
           <summary aria-label="Toggle workspace navigation"><img src="/assets/icons/chevron-down.svg" alt=""><span class="rail-label">Workspace</span></summary>
@@ -23,24 +25,26 @@
           </nav>
         </details>
       </aside>
+      <button type="button" id="drawer-backdrop" aria-label="Close navigation" hidden></button>
       <div class="workspace-content">
-      <header class="workspace-topbar"><span>Deadline Scout</span><strong id="current-view-name">Overview</strong><button class="profile-trigger" id="profile-trigger" popovertarget="profile-popover" aria-label="Open profile"><span id="profile-avatar" aria-hidden="true">○</span><span>Profile</span><img class="ui-icon" src="/assets/icons/chevron-down.svg" alt=""></button></header>
+      <header class="workspace-topbar">
+        <div class="topbar-page"><button class="icon-button nav-toggle" type="button" id="toggle-workspace-nav" aria-label="Toggle navigation" aria-controls="workspace-sidebar" aria-expanded="true"><img class="ui-icon" src="/assets/icons/list-details.svg" alt=""></button><strong id="current-view-name">Overview</strong></div>
+        <label class="topbar-search"><span class="sr-only">Search saved opportunities</span><input id="find-event" type="search" placeholder="Search opportunities" autocomplete="off"></label>
+        <div class="topbar-actions"><button class="icon-button" type="button" id="notifications-trigger" popovertarget="notification-menu" aria-label="Notifications"><img class="ui-icon" src="/assets/icons/clock.svg" alt=""></button><button class="profile-trigger" id="profile-trigger" popovertarget="profile-popover" aria-label="Open profile"><span id="profile-avatar" aria-hidden="true">○</span><span>Profile</span><img class="ui-icon" src="/assets/icons/chevron-down.svg" alt=""></button></div>
+      </header>
+      <section id="notification-menu" popover="auto" aria-label="Notifications">
+        <h2>Notifications</h2><p id="notification-summary" class="muted"></p>
+        <button class="text-button" type="button" data-view="timeline">Open Timeline</button>
+        <button class="text-button" type="button" data-view="settings">Notification settings</button>
+      </section>
       <div class="workspace-inner">
     <section class="workspace-hero" aria-labelledby="radar-title">
       <div class="radar-story">
-        <p class="workspace-date"><img class="ui-icon" src="/assets/icons/calendar.svg" alt=""><span id="today-label"></span></p>
-        <h1 id="radar-title">What’s on <span>your radar?</span></h1>
-        <p class="radar-description">Track deadlines from a link and see when they change.</p>
-        <label class="event-search" for="find-event">Find a saved event
-          <input id="find-event" type="search" placeholder="Search by event name" autocomplete="off">
-        </label>
+        <p class="workspace-date"><span id="today-label"></span></p>
+        <h1 id="radar-title">Your workspace</h1>
       </div>
       <div class="track-launcher">
-        <div class="launcher-heading">
-          <span class="launcher-icon"><img class="ui-icon" src="/assets/icons/link.svg" alt=""></span>
-          <div><h2>Track a page</h2><p>Paste a public link to find dates.</p></div>
-        </div>
-        <section class="capture" aria-label="Track dates on a page"><div class="capture-input"><label class="sr-only" for="source-url">Public page URL</label><input id="source-url" type="url" placeholder="https://…"><button id="inspect-url" class="button" aria-label="Find dates at URL" hidden>Find dates</button><button id="track-active" class="button primary">Find dates</button></div><span id="scan-feedback" class="scan-feedback" hidden><img src="/assets/scout-symbol.svg" alt="" width="36" height="40"><span>Scanning page…<progress aria-label="Reading the page"></progress></span></span><button id="manual-start" class="text-button capture-manual">Enter a date manually</button></section>
+        <section class="capture" aria-label="Track dates on a page"><div class="capture-input"><label class="sr-only" for="source-url">Public page URL</label><input id="source-url" type="url" placeholder="https://…"><button id="inspect-url" class="button" aria-label="Find dates at URL" hidden>Find dates</button><button id="track-active" class="button primary">Quick Scan</button></div><span id="scan-feedback" class="scan-feedback" hidden><img src="/assets/scout-symbol.svg" alt="" width="36" height="40"><span>Scanning page…<progress aria-label="Reading the page"></progress></span></span><button id="manual-start" class="text-button capture-manual">Enter a date manually</button></section>
       </div>
     </section>
     <section id="tracking-status" class="tracking-status" role="status" hidden><p id="tracking-status-text"></p><button id="tracking-signin" class="button secondary" hidden>Sign in with Google</button></section>
@@ -69,15 +73,16 @@
       </section>
       <section id="watchlist-view" hidden><div id="featured-track" hidden></div><div class="section-heading"><div><h2>Your watchlist</h2></div><div class="watchlist-tools"><span id="review-count" class="muted"></span><label class="sr-only" for="watchlist-layout">Watchlist view</label><select id="watchlist-layout"><option value="all">All in view</option><option value="groups">Group View</option></select><button id="new-group" class="button secondary" hidden>Create group</button></div></div><div id="tracks" aria-busy="true"><div class="watchlist-loading" role="status"><span>Loading your watchlist…</span><i></i><i></i></div></div><aside class="demo-hint" hidden><span class="demo-label">TRY IT OUT</span><div><strong>A deadline you can change.</strong><p>Use Orbit Hack, our fictional hackathon, to see the full before-and-after.</p><a id="demo-link" href="/demo/registration" target="_blank" rel="noreferrer">Open demo registration</a></div></aside></section>
       <section id="timeline-view" hidden><div class="section-heading"><div><p class="eyebrow">THE BIG PICTURE</p><h2>Your timeline</h2></div></div><div id="timeline"></div></section>
-      <div id="profile-popover" popover="auto" aria-label="Profile and settings"><div class="profile-heading"><h2>Profile</h2><button class="icon-button" popovertarget="profile-popover" popovertargetaction="hide" aria-label="Close profile"><img class="ui-icon" src="/assets/icons/x.svg" alt=""></button></div><div class="profile-account"><span class="profile-account-icon" aria-hidden="true"><img class="ui-icon" src="/assets/icons/user.svg" alt=""></span><div class="profile-account-copy"><div id="profile-identity" class="profile-identity" hidden><strong id="profile-display-name"></strong><button id="edit-profile-name" class="text-button" aria-label="Edit name">Edit</button></div><p id="profile-email">Not signed in</p><p id="profile-status"></p></div></div><form id="profile-name-form" hidden><label for="profile-name">Your name</label><div class="form-row"><input id="profile-name" autocomplete="name" maxlength="80" placeholder="Your name"><button id="save-profile-name" class="button secondary" type="submit">Save</button><button id="cancel-profile-name" class="text-button" type="button">Cancel</button></div><p id="profile-name-status" role="status" aria-live="polite"></p></form><div class="profile-actions"><button id="profile-signin" class="button primary">Sign in with Google</button><button id="profile-switch" class="button secondary">Switch Google account</button><button id="sign-out" class="text-button">Sign out</button></div><button id="profile-settings" class="profile-settings" aria-expanded="false" aria-controls="settings-view"><span class="profile-settings-copy"><strong>Settings</strong><small>Calendar, notifications, and account data</small></span><img class="ui-icon" src="/assets/icons/chevron-down.svg" alt=""></button><section id="settings-view" hidden>
-        <div class="section-heading"><div><p class="eyebrow">MAKE IT YOURS</p><h2>Connections & alerts</h2></div></div>
+      <div id="profile-popover" popover="auto" aria-label="Profile and settings"><div class="profile-heading"><h2>Profile</h2><button class="icon-button" popovertarget="profile-popover" popovertargetaction="hide" aria-label="Close profile"><img class="ui-icon" src="/assets/icons/x.svg" alt=""></button></div><div class="profile-account"><span class="profile-account-icon" aria-hidden="true"><img class="ui-icon" src="/assets/icons/user.svg" alt=""></span><div class="profile-account-copy"><div id="profile-identity" class="profile-identity" hidden><strong id="profile-display-name"></strong><button id="edit-profile-name" class="text-button" aria-label="Edit name">Edit</button></div><p id="profile-email">Not signed in</p><p id="profile-status"></p></div></div><form id="profile-name-form" hidden><label for="profile-name">Your name</label><div class="form-row"><input id="profile-name" autocomplete="name" maxlength="80" placeholder="Your name"><button id="save-profile-name" class="button secondary" type="submit">Save</button><button id="cancel-profile-name" class="text-button" type="button">Cancel</button></div><p id="profile-name-status" role="status" aria-live="polite"></p></form><div class="profile-actions"><button id="profile-signin" class="button primary">Sign in with Google</button><button id="profile-switch" class="button secondary">Switch Google account</button><button id="sign-out" class="text-button">Sign out</button></div><button id="profile-settings" class="text-button">Account settings</button></div>
+      <section id="settings-view" aria-labelledby="settings-heading" hidden>
+        <div class="section-heading"><h2 id="settings-heading">Settings</h2></div>
         <section class="card settings-card"><div class="card-heading"><h3>Google Calendar & Tasks</h3><span class="badge" id="google-status">Not connected</span></div><p>Connect your account to create deadline events and dated tasks. Linked entries stay in sync after verified date changes.</p><button id="connect-google" class="button primary">Connect Google</button><button id="disconnect-google" class="text-button" hidden>Disconnect</button><p id="google-help" class="muted"></p><code id="extension-id" class="small-code"></code></section>
         <section class="card settings-card"><div class="card-heading"><h3>Notifications</h3><span id="email-mode" class="badge">Loading</span></div><label class="toggle-line"><span><strong>Browser alerts</strong><small id="browser-alerts-help">Website alerts need this page open. Use the extension for background alerts.</small></span><input id="browser-alerts" type="checkbox" role="switch"></label><label class="toggle-line"><span><strong>Email alerts</strong><small id="recipient-status">Sent to your signed-in Google account.</small></span><input id="email-alerts" type="checkbox" role="switch"></label><button id="test-browser-alert" class="text-button">Send test browser alert</button><p id="browser-alerts-status" class="muted" role="status" aria-live="polite"></p><p id="background-alerts-status" class="muted" role="status" aria-live="polite"></p><button id="test-background-alert" class="text-button" hidden>Send test background alert</button><button id="test-email" class="text-button">Send test email</button></section>
         <section class="card settings-card"><h3>Server connection · advanced</h3><p>Keep the local server address below unless you have hosted Deadline Scout elsewhere. Paste registration websites into the tracking box at the top.</p><label for="backend-url">Deadline Scout server URL</label><div class="form-row"><input id="backend-url" type="url"><button id="save-backend" class="button secondary">Save</button></div><p class="muted" id="model-status"></p></section>
         <section class="card settings-card" id="demo-controls"><div class="card-heading"><h3>Demo control room</h3><span class="badge">Fictional pages only</span></div><p>Change the linked FAQ, then use “Check now” on the tracked demo registration.</p><label for="demo-mode">Demo source state</label><div class="form-row"><select id="demo-mode"><option value="original">Original · 28 November</option><option value="changed">Explicit update · 26 November</option><option value="conflict">Conflicting FAQ · 25 November</option><option value="reworded">Only wording & banner changed</option><option value="failed">FAQ fetch fails</option></select><button id="apply-demo" class="button secondary">Apply</button></div></section>
         <section class="card settings-card"><h3>Email activity</h3><p>“Accepted by Brevo” confirms API acceptance. Demo entries do not send an email.</p><div id="outbox"></div><div id="outbox-load-bar" class="outbox-load-bar" hidden><span id="outbox-count" class="muted"></span><button id="load-more-outbox" class="text-button">Load 5 more</button></div><button id="refresh-outbox" class="text-button">Refresh delivery activity</button></section>
         <section class="card settings-card data-controls"><h3>Account data</h3><p>Clear all tracked registrations, timeline entries, and email activity from this account and this browser. This cannot be undone. Your profile and Google connection stay connected. Existing Google Calendar events and Tasks stay in Google.</p><button id="clear-account-data" class="button danger">Clear account data</button><p id="clear-data-status" role="status" aria-live="polite"></p></section>
-      </section></div>
+      </section>
     </main><footer><img class="ui-icon" src="/assets/icons/clock.svg" alt=""> A source for every date. A reason for every alert.</footer>
         </div>
       </div>
@@ -86,5 +91,5 @@
   <aside id="change-messages" aria-live="polite" aria-label="Date change updates"></aside><div id="toast" role="status" aria-live="polite" hidden></div>
   <dialog id="draft-dialog" aria-labelledby="draft-review-title"><div id="draft" hidden></div></dialog>
   <dialog id="action-dialog"><div class="dialog-heading"><h2 id="dialog-title">Review action</h2><button id="close-dialog" class="icon-button" aria-label="Close dialog"><img class="ui-icon" src="/assets/icons/x.svg" alt=""></button></div><div id="dialog-body"></div></dialog>
-  <script type="module" src="/auth-done.js"></script><script type="module" src="/panel.js?v=applications-1"></script>
+  <script type="module" src="/auth-done.js"></script><script type="module" src="/panel.js?v=dashboard-2"></script>
 </body></html>

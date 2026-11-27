@@ -1,5 +1,5 @@
 import {renderApplication,renderPassport} from './applications.js?v=applications-1';
-import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=intelligence-1';
+import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=dashboard-2';
 import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
 import './shared/signup-success-notices.js';
 import {api,storage,settings,isExtension,connectGoogle} from './api.js';
@@ -20,7 +20,7 @@ function dateTile(m){const d=new Date(m.date+'T12:00:00Z');return '<time class="
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeLink=value=>{try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)?esc(u.href):'#';}catch{return '#';}};
 let dashboardPrefs={groups:[],pinnedIds:[],seenChangeIds:[]},noticesShown=new Set();
-let tracks=[],localTracks=[],changes=[],priorities=[],me={},config={},connected=false,draft=null,view='overview',toastTimer;
+let tracks=[],localTracks=[],changes=[],priorities=[],overview={},me={},config={},connected=false,draft=null,view='overview',toastTimer;
 function toast(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,7000);}
 function trackingStatus(message,signIn=false){$('#scan-feedback').hidden=!/reading|scanning/i.test(message||'');$('#tracking-status').hidden=!message;$('#tracking-status-text').textContent=message;$('#tracking-signin').hidden=!signIn;}
 async function run(button,fn){if(button?.disabled)return;try{if(button)button.disabled=true;await fn();}catch(e){toast(e.message);}finally{if(button)button.disabled=false;}}
@@ -28,12 +28,32 @@ function formatDate(date){if(!date)return 'No date';try{return new Intl.DateTime
 function compactDate(date){return new Intl.DateTimeFormat('en',{day:'numeric',month:'short',timeZone:'UTC'}).format(new Date(date+'T12:00:00Z'));}
 function displayZone(zone){return ['Asia/Kolkata','Asia/Calcutta'].includes(zone)?'IST':zone;}
 function relative(value){if(!value)return 'Not checked yet';const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(value))/60000));return minutes===0?'Just now':minutes<60?`${minutes} min ago`:minutes<1440?`${Math.floor(minutes/60)} hr ago`:new Date(value).toLocaleDateString();}
-const viewNames=['overview','watchlist','timeline','opportunity','intelligence','risk','applications','passport'];
+const mobileNavigation=matchMedia('(max-width:800px)');
+const navButton=$('#toggle-workspace-nav'),sidebar=$('#workspace-sidebar');
+function setNavigation(open){
+  document.body.classList.toggle('navigation-open',open);
+  navButton.setAttribute('aria-expanded',String(open));
+  sidebar.inert=!open;
+  $('#drawer-backdrop').hidden=!(open&&mobileNavigation.matches);
+}
+setNavigation(!mobileNavigation.matches);
+mobileNavigation.addEventListener('change',()=>setNavigation(!mobileNavigation.matches));
+navButton.onclick=()=>setNavigation(!document.body.classList.contains('navigation-open'));
+$('#drawer-backdrop').onclick=()=>{setNavigation(false);navButton.focus();};
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&mobileNavigation.matches&&document.body.classList.contains('navigation-open')){
+    setNavigation(false);navButton.focus();
+  }
+});
+const viewNames=['overview','watchlist','timeline','opportunity','intelligence','risk','applications','passport','settings'];
 let detailRequest=0,intelligenceRequest=0;
 function showView(name){
-  if(name==='settings'){openProfileSettings();return;}
   if(!viewNames.includes(name))return;
   view=name;
+  for(const id of ['profile-popover','notification-menu'])if($('#'+id).matches(':popover-open'))$('#'+id).hidePopover();
+  if(mobileNavigation.matches)setNavigation(false);
+  if(name==='settings'&&connected){renderOutbox().catch(()=>{});void backgroundAlertStatus();}
+
   const navigation=document.querySelector('.workspace-navigation [data-view="'+name+'"]');
   $('#current-view-name').textContent=navigation?.querySelector('.rail-label')?.textContent||navigation?.textContent.trim()||'Opportunity details';
   $('.workspace-hero').hidden=!['overview','watchlist'].includes(name);
@@ -49,7 +69,8 @@ function showView(name){
   if(['intelligence','risk'].includes(name))void loadIntelligence(name);
   if(name!=='opportunity'){
     detailRequest++;
-    if(location.hash.startsWith('#opportunity='))history.replaceState(null,'',location.pathname+location.search);
+    if(name==='settings')history.replaceState(null,'',location.pathname+location.search+'#settings');
+    else if(location.hash.startsWith('#opportunity=')||location.hash==='#settings')history.replaceState(null,'',location.pathname+location.search);
   }
 }
 async function loadIntelligence(name){
@@ -103,11 +124,12 @@ async function refresh(){
     config=await api('/api/config');connected=true;
     if(!await storage.get('token')&&config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);}
     if(await storage.get('token')){
-      try{const workspace=await api('/api/workspace');if(epoch!==workspaceEpoch)return;({tracks,changes,me}=workspace);priorities=workspace.priorities||[];dashboardPrefs=workspace.dashboard||{groups:[],pinnedIds:[],seenChangeIds:[]};}
-      catch(e){if(e.status===401){await storage.set('token',null);tracks=[];priorities=[];me={};if(config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);return refresh();}}else throw e;}
-    }else{tracks=[];priorities=[];me={};}
+      try{const workspace=await api('/api/workspace');if(epoch!==workspaceEpoch)return;({tracks,changes,me}=workspace);priorities=workspace.priorities||[];overview=workspace.overview||{};dashboardPrefs=workspace.dashboard||{groups:[],pinnedIds:[],seenChangeIds:[]};}
+      catch(e){if(e.status===401){await storage.set('token',null);tracks=[];priorities=[];overview={};me={};if(config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);return refresh();}}else throw e;}
+    }else{tracks=[];priorities=[];overview={};me={};}
     await storage.set('cachedTracks',tracks);
-  }catch(e){connected=false;priorities=[];tracks=(await storage.get('cachedTracks')||[]).map(t=>({...t,cached:true}));}
+  }catch(e){connected=false;priorities=[];overview={};tracks=(await storage.get('cachedTracks')||[]).map(t=>({...t,cached:true}));}
+  if(connected&&config.auth==='supabase'&&!await storage.get('token')){location.replace('/');return;}
   if(!me.email)dashboardPrefs=await storage.get('dashboard-local')||{groups:[],pinnedIds:[],seenChangeIds:[]};
   const activeTrackIds=new Set([...tracks,...localTracks].map(t=>t.id));
   changes=[...new Map([...changes,...await storage.get('localChanges')||[]].filter(c=>activeTrackIds.has(c.trackId)).map(c=>[c.id,c])).values()].sort((a,b)=>b.at.localeCompare(a.at));render();
@@ -116,7 +138,7 @@ const statusLabels={watching:['Watching',''],changed:['Date updated','warn'],con
 function render(){
   $('#tracks').setAttribute('aria-busy','false');
   const all=[...tracks,...localTracks.map(t=>({...t,local:true}))];
-  renderOverview($('#opportunity-overview'),all,priorities,today,{esc,formatDate});
+  renderOverview($('#opportunity-overview'),all,priorities,today,{esc,formatDate,overview,timeline:changes.slice(0,3)});
   $('#application-list').innerHTML=tracks.filter(track=>!track.cached).length
     ? '<ul class="workspace-list card">'+tracks.filter(track=>!track.cached).map(track=>`<li>
       <a data-opportunity="${esc(track.id)}" href="#opportunity=${encodeURIComponent(track.id)}">${esc(track.title)}</a>
@@ -126,6 +148,8 @@ function render(){
   if(!me.email){profileNameDirty=false;profileNameEditing=false;}
   $('#profile-identity').hidden=!me.email;$('#profile-display-name').textContent=me.displayName||'Your profile';$('#edit-profile-name').hidden=profileNameEditing;$('#profile-name-form').hidden=!me.email||!profileNameEditing;if(!profileNameEditing&&!profileNameDirty)$('#profile-name').value=me.displayName||'';
   if(outboxOwner!==me.email){outboxOwner=me.email;outboxVisible=3;outboxItems=[];paintOutbox();}
+  $('#radar-title').textContent=me.displayName?'Welcome, '+me.displayName.split(/\s+/)[0]:'Your workspace';
+  $('#notification-summary').textContent=changes.length?changes.length+' date updates in your timeline.':'No date updates yet.';
   $('#track-count').textContent=all.length;$('#change-count').textContent=all.reduce((count,t)=>count+t.milestones.length,0);
   const reviews=all.filter(t=>['conflict','needs_review','check_failed','date_missing'].includes(t.status)).length;$('#review-count').textContent=reviews?`${reviews} need${reviews===1?'s':''} attention`:'';
   const ordered=[...all].filter(t=>t.title.toLowerCase().includes($('#find-event').value.trim().toLowerCase())).sort((a,b)=>{const ad=a.milestones.find(m=>m.kind==='event')?.date||nextMilestone(a).date,bd=b.milestones.find(m=>m.kind==='event')?.date||nextMilestone(b).date;return (ad<today)-(bd<today)||ad.localeCompare(bd);});
@@ -315,7 +339,7 @@ $('#load-more-outbox').onclick=()=>{outboxVisible+=5;paintOutbox();};
 $('#clear-account-data').onclick=e=>run(e.currentTarget,async()=>{
   if(!connected||!await storage.get('token'))throw new Error('Sign in to clear your account data.');
   workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#passport-content').replaceChildren();$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();$('#clear-data-status').textContent='Clearing…';
-  try{await api('/api/account/clear-data','POST',{action:'clear-account-data'});workspaceEpoch++;for(const key of ['localTracks','localChanges','cachedTracks'])await storage.set(key,[]);await storage.set('pendingReview',null);tracks=[];localTracks=[];changes=[];priorities=[];openTracks.clear();outboxItems=[];outboxVisible=3;paintOutbox();if(draft)await closeDraft();await refresh();$('#clear-data-status').textContent='Account activity cleared. Your profile and Google connection are unchanged.';}catch(error){$('#clear-data-status').textContent=error.message;throw error;}
+  try{await api('/api/account/clear-data','POST',{action:'clear-account-data'});workspaceEpoch++;for(const key of ['localTracks','localChanges','cachedTracks'])await storage.set(key,[]);await storage.set('pendingReview',null);tracks=[];localTracks=[];changes=[];priorities=[];overview={};openTracks.clear();outboxItems=[];outboxVisible=3;paintOutbox();if(draft)await closeDraft();await refresh();$('#clear-data-status').textContent='Account activity cleared. Your profile and Google connection are unchanged.';}catch(error){$('#clear-data-status').textContent=error.message;throw error;}
 });
 $('#watchlist-view').onclick=e=>{
   const button=e.target.closest('[data-action]');if(!button)return;
@@ -433,8 +457,8 @@ document.querySelector('.workspace-navigation>.brand').onclick=event=>{
   event.preventDefault();
   showView('overview');
 };
-function openProfileSettings(){const popover=$('#profile-popover');if(!popover.matches(':popover-open'))popover.showPopover();$('#settings-view').hidden=false;$('#profile-settings').setAttribute('aria-expanded','true');if(connected){renderOutbox().catch(()=>{});void backgroundAlertStatus();}}
-$('#profile-settings').onclick=()=>{const expanded=$('#settings-view').hidden;$('#settings-view').hidden=!expanded;$('#profile-settings').setAttribute('aria-expanded',String(expanded));if(expanded&&connected){renderOutbox().catch(()=>{});void backgroundAlertStatus();}};
+function openProfileSettings(){showView('settings');}
+$('#profile-settings').onclick=openProfileSettings;
 function cancelProfileName(){profileNameEditing=false;profileNameDirty=false;$('#profile-name-status').textContent='';render();$('#edit-profile-name').focus();}
 $('#edit-profile-name').onclick=()=>{profileNameEditing=true;profileNameDirty=false;$('#profile-name').value=me.displayName||'';$('#profile-name-status').textContent='';render();$('#profile-name').focus();};
 $('#cancel-profile-name').onclick=cancelProfileName;
@@ -472,17 +496,17 @@ $('#profile-name-form').onsubmit=e=>{e.preventDefault();void run($('#save-profil
   $('#profile-name-status').textContent='Saving…';try{const result=await api('/api/me','PATCH',{displayName:$('#profile-name').value});me.displayName=result.displayName;profileNameDirty=false;profileNameEditing=false;await refresh();toast('Name saved.');if($('#profile-popover').matches(':popover-open'))$('#edit-profile-name').focus();}catch(error){$('#profile-name-status').textContent=error.message;throw error;}
 });};
 $('#profile-signin').onclick=e=>run(e.currentTarget,signIn);
-async function signOut(){workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#passport-content').replaceChildren();$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];priorities=[];me={};await storage.set('cachedTracks',[]);render();}}
+async function signOut(){workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#passport-content').replaceChildren();$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];priorities=[];me={};await storage.set('cachedTracks',[]);location.replace('/');}}
 $('#profile-switch').onclick=e=>run(e.currentTarget,async()=>{await signOut();await signIn();});
 async function signIn(){if(draft){readDraft();await storage.set('pendingReview',draft);}await connectGoogle();await refresh();}
 $('#tracking-signin').onclick=e=>run(e.currentTarget,signIn);
 async function inspectPastedLink(){
   const url=$('#source-url').value.trim();
-  if(!url){trackingStatus('Paste a page URL in the box, then choose Find dates.');$('#source-url').focus();return;}
+  if(!url){trackingStatus('Paste a page URL in the box, then choose Quick Scan.');$('#source-url').focus();return;}
   try{await inspect(url);}catch(error){trackingStatus(error.message,error.status===401);throw error;}
 }
 function updateCaptureAction(){
-  $('#track-active').innerHTML=(isExtension&&!$('#source-url').value.trim()?'Scan this page':'Find dates')+icon('arrow-right');
+  $('#track-active').innerHTML=(isExtension&&!$('#source-url').value.trim()?'Scan this page':'Quick Scan')+icon('arrow-right');
 }
 $('#track-active').onclick=e=>run(e.currentTarget,()=>$('#source-url').value.trim()||!isExtension?inspectPastedLink():activePage());
 $('#inspect-url').onclick=e=>run(e.currentTarget,inspectPastedLink);

@@ -182,7 +182,8 @@ test('dashboard shell keeps watchlist actions and opportunity links accessible o
   const page = await browser.newPage({ viewport: { width: 390, height: 840 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto(f.url);
+  await page.goto(f.url+'/dashboard');
+  await page.getByRole('button',{name:'Toggle navigation'}).click();
   await page.getByRole('button', { name: /^My Watchlist/ }).click();
   await page.locator('#tracks').getByRole('button', { name: 'Check now' }).click();
   await page.locator('#tracks').getByRole('link', { name: 'Orbit Hack' }).click();
@@ -194,6 +195,7 @@ test('dashboard shell keeps watchlist actions and opportunity links accessible o
   await page.reload();
   await page.getByRole('heading', { name: 'Orbit Hack' }).waitFor();
   await page.getByRole('button', { name: 'Back to watchlist' }).click();
+  await page.getByRole('button', { name: 'Toggle navigation' }).click();
   await page.getByRole('link', { name: 'Backup Signup', exact: true }).click();
   await page.waitForURL('**/backup.html');
   assert.deepEqual(errors, []);
@@ -214,7 +216,7 @@ test('desktop sidebar keeps labels visible and comparison review persists', { sk
   const page = await browser.newPage({viewport:{width:1280,height:800},reducedMotion:'reduce'});
   const errors = [];
   page.on('pageerror',error=>errors.push(error.message));
-  await page.goto(f.url);
+  await page.goto(f.url+'/dashboard');
   await page.getByRole('heading',{name:'Upcoming deadlines'}).waitFor();
   assert.equal(await page.getByText('Recent date changes',{exact:true}).count(),0);
   const navigation=page.locator('#workspace-menu');
@@ -279,7 +281,7 @@ test('application notes, checklist and passport can be saved through the dashboa
   const browser=await chromium.launch({executablePath,headless:true});
   t.after(()=>browser.close());
   const page=await browser.newPage({viewport:{width:1280,height:820}});
-  await page.goto(f.url);
+  await page.goto(f.url+'/dashboard');
   await page.getByRole('button',{name:'Application Workspaces'}).click();
   await page.locator('#application-list').getByRole('link',{name:'Orbit Hack'}).click();
   await page.getByLabel('Notes',{exact:true}).fill('Check the organizer instructions.');
@@ -297,4 +299,81 @@ test('application notes, checklist and passport can be saved through the dashboa
   await passport.getByLabel('Value').fill('JavaScript');
   await passport.getByRole('button',{name:'Add entry'}).click();
   await passport.getByText('Skill',{exact:true}).waitFor();
+});
+
+test('public home, profile menu, settings and navigation fit the requested viewports', {skip:!executablePath}, async t=>{
+  const f=await fixture(t);
+  const browser=await chromium.launch({executablePath,headless:true});
+  t.after(()=>browser.close());
+  const page=await browser.newPage({viewport:{width:1440,height:950}});
+  const errors=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  async function capture(name,width) {
+    if(process.env.SCOUT_LAYOUT_SCREENSHOTS)await page.screenshot({
+      path:'data/layout-review/'+name+'-'+width+'.png',animations:'disabled'
+    });
+  }
+  for(const width of [1440,1280,1024,768,390]){
+    await page.setViewportSize({width,height:900});
+    await page.goto(f.url);
+    await page.getByRole('heading',{name:'Never miss what matters.'}).waitFor();
+    assert.equal(await page.locator('#opportunity-overview').count(),0);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Landing '+width);
+    await capture('home',width);
+    if(width===1440){
+      for(const label of ['Scan example page','Find the deadline','Start tracking','Run another check','Show the alert']){
+        await page.getByRole('button',{name:label,exact:true}).click();
+      }
+      await page.getByText('Deadline moved 3 days earlier',{exact:true}).waitFor();
+    }
+    await page.getByRole('button',{name:/Get Started|Go to Dashboard/}).first().click();
+    await page.waitForURL('**/dashboard');
+    await page.getByRole('heading',{name:'Upcoming deadlines'}).waitFor();
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Dashboard '+width);
+    await capture('dashboard',width);
+    const nav=page.locator('#workspace-sidebar');
+    if(width<=800){
+      assert.equal(await nav.isVisible(),false);
+      await page.getByRole('button',{name:'Toggle navigation'}).click();
+      await nav.getByRole('button',{name:/My Watchlist/}).click();
+      assert.equal(await nav.isVisible(),false);
+    }else{
+      assert.equal(await nav.isVisible(),true);
+      await page.getByRole('button',{name:'Toggle navigation'}).click();
+      assert.equal(await nav.isVisible(),false);
+      await page.getByRole('button',{name:'Toggle navigation'}).click();
+    }
+    await page.getByRole('button',{name:'Open profile'}).click();
+    const menu=page.locator('#profile-popover');
+    const box=await menu.boundingBox();
+    assert.ok(box.x>=0&&box.x+box.width<=width&&box.height<400,'Profile '+width);
+    assert.equal(await menu.locator('#settings-view').count(),0);
+    if(width===390||width===1440)await capture('profile',width);
+    await menu.getByRole('button',{name:'Account settings'}).click();
+    await page.getByRole('heading',{name:'Google Calendar & Tasks'}).waitFor();
+    assert.equal(await menu.isVisible(),false);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Settings '+width);
+    if(width===390||width===1440)await capture('settings',width);
+  }
+  assert.deepEqual(errors,[]);
+});
+
+test('signed-out dashboard preserves the extension handoff across the existing Google sign-in return', {skip:!executablePath}, async t=>{
+  const f=await fixture(t);
+  const browser=await chromium.launch({executablePath,headless:true});
+  t.after(()=>browser.close());
+  const page=await browser.newPage();
+  await page.route('**/api/config',route=>route.fulfill({json:{auth:'supabase'}}));
+  await page.route('**/api/auth/prepare',async route=>{
+    const {redirect,challenge}=route.request().postDataJSON();
+    assert.equal(redirect,f.url+'/auth/done');
+    assert.match(challenge,/^[\w-]{43}$/);
+    await route.fulfill({json:{url:f.url+'/auth/done#code=fixture'}});
+  });
+  await page.route('**/api/auth/redeem',route=>route.fulfill({json:{token:f.token}}));
+  await page.goto(f.url+'/#opportunity='+f.track.id);
+  await page.waitForURL(url=>url.pathname==='/'&&!url.hash);
+  await page.getByRole('button',{name:'Log In',exact:true}).click();
+  await page.waitForURL('**/dashboard#opportunity='+f.track.id);
+  await page.getByRole('heading',{name:'Orbit Hack',exact:true}).waitFor();
 });

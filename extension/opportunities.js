@@ -1,23 +1,32 @@
-export function renderOverview(target, tracks, priorities, today, { esc, formatDate }) {
+export function renderOverview(target, tracks, priorities, today, { esc, formatDate, overview, timeline }) {
   const upcoming = tracks.flatMap(track => track.milestones
     .filter(milestone => milestone.date >= today)
     .map(milestone => ({ track, milestone })))
-    .sort((a, b) => a.milestone.date.localeCompare(b.milestone.date)).slice(0, 5);
+    .sort((a, b) => a.milestone.date.localeCompare(b.milestone.date)).slice(0, 4);
   const details = (id, title) =>
     `<a href="#opportunity=${encodeURIComponent(id)}" data-opportunity="${esc(id)}">${esc(title)}</a>`;
-  const deadlines = upcoming.map(({ track, milestone }) => `<li>
-    <div>${details(track.id, track.title)}<small>${esc(milestone.label)}</small></div>
-    <time datetime="${esc(milestone.date)}">${esc(formatDate(milestone.date))}</time>
-  </li>`);
-  target.innerHTML = `<article class="card workspace-card">
-      <h3>Upcoming deadlines</h3>
-      ${deadlines.length ? `<ul class="workspace-list">${deadlines.join('')}</ul>` : '<p class="muted">No upcoming dates. Scan a page or enter a date above.</p>'}
-    </article>${priorities.length ? `<article class="card workspace-card priority-card">
-      <h3>Needs attention</h3><ul class="workspace-list">${priorities.map(item => `<li>
-        <div>${details(item.id,item.title)}<small>${esc(item.next)}</small></div>
-        <span class="risk-badge" data-level="${esc(item.level)}">${esc(item.level)}</span>
-      </li>`).join('')}</ul>
-    </article>` : ''}`;
+  const card = (title, items, empty) => `<article class="card workspace-card overview-card">
+    <h3>${title}</h3>${items.length ? `<ul class="workspace-list">${items.join('')}</ul>` : `<p class="muted">${empty}</p>`}
+  </article>`;
+  const row = (name, label, value='') => `<li><div>${name}${label ? `<small>${esc(label)}</small>` : ''}</div>${value ? `<span>${esc(value)}</span>` : ''}</li>`;
+  const deadlines = upcoming.map(({ track, milestone }) => row(details(track.id,track.title),milestone.label,formatDate(milestone.date)));
+  const tracked = tracks.slice(0,4).map(track=>row(details(track.id,track.title),track.milestones.length+' milestone(s)'));
+  const tasks = (overview.pendingTasks || []).map(task=>row(details(task.trackId,task.label),task.title + (task.blocked?' · Blocked':''),task.due?formatDate(task.due):''));
+  const updates = (overview.websiteChanges || []).map(change=>row(details(change.trackId,change.title),changeLabels[change.category]||change.category,formatDate(change.at.slice(0,10))));
+  const risk = priorities.map(item=>row(details(item.id,item.title),item.next,item.level));
+  const changes = timeline.map(change=>row(details(change.trackId,change.title),change.label,formatDate(change.after.date)));
+  const progress = (overview.progress || []).map(item=>row(details(item.trackId,item.title),'Checklist and tasks',item.done+' / '+item.total));
+  target.innerHTML = `<div class="overview-row overview-row-three">
+    ${card('Upcoming deadlines',deadlines,'No upcoming dates.')}
+    ${card('Tracked opportunities',tracked,'Save an opportunity to start your watchlist.')}
+    ${card('Important pending tasks',tasks,'No open application tasks.')}
+  </div><div class="overview-row">
+    ${card('Recent website changes',updates,'No website changes detected.')}
+    ${card('Deadline risk overview',risk,'No high-risk opportunities.')}
+  </div><div class="overview-row">
+    ${card('Timeline preview',changes,'No date updates yet.')}
+    ${card('Application progress',progress,'Add tasks or requirements to see your progress.')}
+  </div>`;
   target.setAttribute('aria-busy', 'false');
 }
 
