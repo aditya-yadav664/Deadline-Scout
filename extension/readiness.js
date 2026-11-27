@@ -46,9 +46,10 @@ export function renderReadiness(target, detail, today, { esc, formatDate }) {
   const { completed, total, remaining, next } = baseline;
   const state = remaining.length ? 'Needs attention' : total || workspace.tasks.length ? 'Saved plan complete' : 'No plan yet';
   const suggested = applicationCutoff(detail.milestones, today);
-  const dates = detail.milestones.filter(item => validDate(item.date));
+  const dates = detail.milestones.filter(item => validDate(item.date)).sort((a,b)=>a.date.localeCompare(b.date));
+  const defaultDate = suggested || dates.find(item=>item.date>=today);
   target.innerHTML = `<div class="readiness-grid">
-    <article class="card workspace-card plan-card"><div class="plan-card-heading"><h3>Application readiness</h3><span class="plan-tag" data-tone="${remaining.length ? 'attention' : 'neutral'}">${state}</span></div>
+    <article class="card workspace-card plan-card"><div class="plan-card-heading"><h3>Checklist progress</h3><span class="plan-tag" data-tone="${remaining.length ? 'attention' : 'neutral'}">${state}</span></div>
       <p class="readiness-number">${total ? completed + ' of ' + total : '—'}</p>
       ${total ? `<progress aria-label="Required checklist items complete" value="${completed}" max="${total}"></progress><p class="muted">Required checklist items complete</p>` : '<p class="muted">Add required items to measure checklist progress.</p>'}
       ${workspace.checklist.length ? `<ul class="plan-list">${workspace.checklist.map(item => `<li><span>${esc(item.label)}</span><span class="plan-tag" data-tone="${item.done ? 'done' : item.required ? 'attention' : 'neutral'}">${item.done ? 'Complete' : item.required ? 'Required' : 'Optional'}</span></li>`).join('')}</ul>` : ''}
@@ -56,13 +57,13 @@ export function renderReadiness(target, detail, today, { esc, formatDate }) {
       <h4>Suggested next move</h4><p>${next ? 'Work on ' + esc(next.label) + '.' : remaining.length ? 'Review blocked prerequisites in the application workspace.' : total || workspace.tasks.length ? 'Review your application and the official requirements.' : 'Add tasks or checklist items to your application workspace.'}</p>
       <a href="#opportunity=${encodeURIComponent(detail.id)}" data-opportunity="${esc(detail.id)}">Open application workspace</a>
     </article>
-    <article class="card workspace-card plan-card"><h3>Try a scenario</h3>
+    <article class="card workspace-card plan-card"><h3>Estimate your finish date</h3>
       ${remaining.length && dates.length ? `<form class="application-form" data-readiness-form>
-        <label>Compare against<select name="deadline" required aria-label="Compare against"><option value="">Choose a milestone</option>${dates.map((item, index) => `<option value="${index}"${item === suggested ? ' selected' : ''}>${esc(item.label)} · ${esc(formatDate(item.date))}${item.time ? ' · ' + esc(item.time + ' ' + (item.zone || '')) : ''}</option>`).join('')}</select></label>
+        <label>Deadline to compare<select name="deadline" required aria-label="Deadline to compare"><option value="">Choose a milestone</option>${dates.map((item, index) => `<option value="${index}"${item === defaultDate ? ' selected' : ''}>${esc(item.label)} · ${esc(formatDate(item.date))}${item.time ? ' · ' + esc(item.time + ' ' + (item.zone || '')) : ''}</option>`).join('')}</select></label>
         <label>Start in (days)<input name="delay" type="number" value="0" min="0" max="365" required></label>
         <div class="opportunity-buttons"><button type="button" class="button secondary" data-start-days="0">Start today</button><button type="button" class="button secondary" data-start-days="3">Start in 3 days</button></div>
         <fieldset class="readiness-estimates"><legend>Estimated calendar days</legend>${remaining.map((item, index) => `<label><span>${esc(item.label)}<small>${item.type === 'task' ? 'Task' : 'Required item'}</small></span><input name="estimate-${index}" type="number" min="0" max="365" value="1" required></label>`).join('')}</fieldset>
-        <p class="muted">Estimates start at one day per item. Independent work can run in parallel. Task prerequisites finish first, and results compare calendar dates.</p>
+        <p class="muted">Adjust the days for each item. The estimate assumes independent work can happen at the same time.</p>
         <button class="button primary" type="submit">Run scenario</button><output data-readiness-result aria-live="polite"></output>
       </form>` : `<p class="muted">${dates.length ? 'Add an open task or required item to run a scenario.' : 'Save a milestone to compare a scenario against it.'}</p>`}
     </article></div>`;
@@ -74,15 +75,22 @@ export function renderReadiness(target, detail, today, { esc, formatDate }) {
     const deadline = dates[Number(fields.get('deadline'))];
     const estimates = new Map(remaining.map((item, index) => [item.type + ':' + item.id, Number(fields.get('estimate-' + index))]));
     const scenario = simulateReadiness(workspace, { today, deadline: deadline.date, delay: Number(fields.get('delay')), estimates });
-    const result = scenario.slack > 0 ? scenario.slack + ' day(s) before' : scenario.slack < 0
-      ? Math.abs(scenario.slack) + ' day(s) after' : 'the same day as';
-    output.textContent = 'Estimated finish ' + formatDate(scenario.finish) + ' · ' + result + ' ' + deadline.label + '.';
+    const days = Math.abs(scenario.slack);
+    const dayLabel = days === 1 ? ' day' : ' days';
+    const result = scenario.slack > 0 ? days + dayLabel + ' before the deadline' : scenario.slack < 0
+      ? days + dayLabel + ' past the deadline' : 'On the deadline day. Check the closing time';
+    output.textContent = 'Estimated finish: ' + formatDate(scenario.finish) + '. ' + result + '.';
     output.dataset.tone = scenario.slack <= 0 ? 'attention' : 'done';
   }
-  form.addEventListener('input', () => { output.textContent = ''; });
+  function refreshEstimate(){
+    if(form.checkValidity())calculate();
+    else output.textContent='';
+  }
+  form.addEventListener('input',refreshEstimate);
   form.addEventListener('submit', event => { event.preventDefault(); calculate(); });
   form.querySelectorAll('[data-start-days]').forEach(button => button.addEventListener('click', () => {
     form.elements.delay.value = button.dataset.startDays;
-    if (form.reportValidity()) calculate();
+    refreshEstimate();
   }));
+  refreshEstimate();
 }

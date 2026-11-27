@@ -22,3 +22,7 @@ The first readiness release (f459aaa) passed 144 tests and was verified live on 
 ## Where to pick up
 
 Phase 5 covers Smart Page Discovery, a sourced Opportunity Radar, and an on-page extension overlay. Phase 6 covers explicitly shared watchlists and role enforcement. See EXPANSION-PHASE-4.md. The readiness forecast can later support saved scenarios and configurable working days if requested. Gemini remains optional for the existing assistant and needs a server-side key to be active.
+
+## Dashboard and assistant follow-up
+
+The overview now leads with upcoming deadlines and active application work. The sidebar groups secondary sections under More tools. Ask Scout gives an answer from saved data and puts source excerpts behind expandable rows. The optional Gemini summary uses verified public excerpts and the current question. Live Gemini needs GEMINI_API_KEY on the production server. Use GEMINI_ASSISTANT_MODEL to override the assistant's default model. Readiness fetches its own compact data and updates the estimate as inputs change.

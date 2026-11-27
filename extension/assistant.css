@@ -24,3 +24,15 @@
 #backup-embedded .embedded-backup{width:100%;max-width:none;margin:0;padding:0 0 18px}
 #backup-embedded .backup-hero{margin-top:0}
 @media(max-width:480px){.calendar-day{padding:5px;min-height:42px}.calendar-grid{gap:3px}.calendar-toolbar label{flex-basis:130px}}
+
+#assistant-view { max-width: 820px; margin-inline: auto; }
+#assistant-form { display: grid; gap: 12px; padding: clamp(14px, 3vw, 24px); }
+#assistant-form button[type=submit] { justify-self: start; min-width: 100px; }
+#assistant-form .assistant-availability { font-size: .82rem; }
+.assistant-question-label { font-size: .85rem; color: #90c6db; }
+.assistant-summary { color: #e7f0f8; font-weight: 550; line-height: 1.55; }
+.assistant-source-summary { margin-block: 12px; border-left: 3px solid #5ecad5; padding: 8px 13px; background: #14232e; border-radius: 0 8px 8px 0; }
+.assistant-source-summary strong { font-size: .82rem; color: #b6e9ef; }
+.assistant-history { margin-top: 20px; }
+.assistant-history summary, .assistant-answer details summary { cursor: pointer; color: #a8d7e6; }
+.assistant-answer .workspace-list li > div { width: 100%; }

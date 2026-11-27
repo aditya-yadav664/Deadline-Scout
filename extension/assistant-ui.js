@@ -16,34 +16,56 @@ function appendLink(parent,label,href){
 export function renderAnswers(target,entries){
   target.replaceChildren();
   if(!entries.length){target.textContent='Your answers will appear here.';return;}
-  for(const entry of entries){
+  const history=document.createElement('details');
+  history.className='assistant-history';
+  const historyLabel=document.createElement('summary');
+  historyLabel.textContent='Previous questions ('+(entries.length-1)+')';
+  history.append(historyLabel);
+  for(const [index,entry] of entries.entries()){
     const article=document.createElement('article');
     article.className='card workspace-card assistant-answer';
-    const question=document.createElement('p'),heading=document.createElement('h3'),note=document.createElement('p');
-    question.className='muted';question.textContent=entry.question;
+    const question=document.createElement('p'),heading=document.createElement('h3'),summary=document.createElement('p');
+    question.className='assistant-question-label';question.textContent=entry.question;
     heading.textContent=entry.heading;
-    note.className='muted';note.textContent=entry.note||(entry.mode==='gemini'?'Evidence prioritized by Gemini':'From your workspace');
-    article.append(question,heading,note);
-    if(!entry.items.length){
-      const empty=document.createElement('p');empty.textContent='No matching records were found.';article.append(empty);
+    summary.className='assistant-summary';
+    summary.textContent=entry.summary||(!entry.items.length?'No saved records match this question.':'');
+    article.append(question,heading,summary);
+    if(entry.sourceSummary){
+      const block=document.createElement('div'),label=document.createElement('strong'),body=document.createElement('p');
+      block.className='assistant-source-summary';label.textContent='Gemini source summary';body.textContent=entry.sourceSummary;
+      block.append(label,body);article.append(block);
     }
-    const list=document.createElement('ul');
-    list.className='workspace-list';
-    for(const item of entry.items){
-      const row=document.createElement('li'),body=document.createElement('div'),fact=document.createElement('p');
-      const link=appendLink(body,item.title,'#opportunity='+encodeURIComponent(item.trackId));
-      link.dataset.opportunity=item.trackId;
-      fact.textContent=item.text;
-      body.append(fact);
-      if(item.quote){
-        const quote=document.createElement('blockquote');quote.className='evidence';quote.textContent=item.quote;body.append(quote);
+    if(entry.note){
+      const note=document.createElement('p');note.className='muted';note.textContent=entry.note;article.append(note);
+    }
+    if(entry.items.length){
+      const list=document.createElement('ul');
+      list.className='workspace-list';
+      for(const item of entry.items){
+        const row=document.createElement('li'),body=document.createElement('div'),fact=document.createElement('p');
+        const link=appendLink(body,item.title,'#opportunity='+encodeURIComponent(item.trackId));
+        link.dataset.opportunity=item.trackId;
+        fact.textContent=item.text;
+        body.append(fact);
+        if(item.quote){
+          const sourceDetails=document.createElement('details'),label=document.createElement('summary'),quote=document.createElement('blockquote');
+          label.textContent=item.cited?'Source used by Gemini':'Source excerpt';quote.className='evidence';quote.textContent=item.quote;
+          sourceDetails.append(label,quote);body.append(sourceDetails);
+        }
+        const url=safeLink(item.url);
+        if(url&&item.quote){const source=appendLink(body,'Open source',url);source.target='_blank';source.rel='noopener noreferrer';}
+        row.append(body);list.append(row);
       }
-      const url=safeLink(item.url);
-      if(url){const source=appendLink(body,'Open tracked source',url);source.target='_blank';source.rel='noopener noreferrer';}
-      row.append(body);list.append(row);
+      article.append(list);
+      if(entry.total>entry.items.length){
+        const more=document.createElement('p');more.className='muted';
+        more.textContent='Showing '+entry.items.length+' of '+entry.total+' matches. Include an opportunity name to narrow the results.';
+        article.append(more);
+      }
     }
-    article.append(list);target.append(article);
+    if(index)history.append(article);else target.append(article);
   }
+  if(entries.length>1)target.append(history);
 }
 
 export function renderMemory(target,entries,esc){
@@ -62,8 +84,12 @@ export function renderMemory(target,entries,esc){
 const insightLabels={activeOpportunities:'Tracked opportunities',upcomingDeadlines:'Upcoming milestones',pendingTasks:'Open tasks',
   completedRequirements:'Checklist items complete',recentlyUpdated:'Updated in the last 7 days',needsAttention:'High or critical risk'};
 export function renderProductivity(target,data,esc){
+  const links={activeOpportunities:['watchlist','Open watchlist'],upcomingDeadlines:['heatmap','Open calendar'],
+    pendingTasks:['applications','Open applications'],completedRequirements:['applications','View checklists'],
+    recentlyUpdated:['intelligence','View source changes'],needsAttention:['risk','Review priorities']};
   target.innerHTML=`<ul class="overview-grid productivity-grid">${Object.entries(insightLabels).map(([key,label])=>
-    `<li class="card workspace-card"><strong>${esc(data.insights[key])}</strong><span>${label}</span></li>`).join('')}</ul>`;
+    `<li class="card workspace-card"><strong>${esc(data.insights[key])}</strong><span>${label}</span>
+      <button type="button" class="text-button" data-workspace-jump="${links[key][0]}">${links[key][1]}</button></li>`).join('')}</ul>`;
 }
 
 export function renderHeatmap(target,data,esc){
@@ -75,8 +101,10 @@ export function renderHeatmap(target,data,esc){
   </div><div class="calendar-period"><button type="button" class="icon-button" data-cal-shift="-1" aria-label="Previous period">‹</button>
     <strong data-cal-title></strong><button type="button" class="icon-button" data-cal-shift="1" aria-label="Next period">›</button>
     <button type="button" class="text-button" data-cal-today>Today</button></div>
-  <div class="calendar-grid" data-cal-grid></div><section class="card workspace-card" data-cal-details aria-live="polite"></section>`;
-  let selected=data.today,anchor=selected;
+  <p class="muted calendar-help">Select a date to see its items. The number shows how many are scheduled or recorded that day.</p><div class="calendar-grid" data-cal-grid></div><section class="card workspace-card" data-cal-details aria-live="polite"></section>`;
+  const nearest=data.events.filter(event=>event.date>=data.today&&event.type!=='change')
+    .map(event=>event.date).sort()[0];
+  let selected=nearest||data.today,anchor=selected;
   const period=target.querySelector('[data-cal-period]'),track=target.querySelector('[data-cal-track]'),kind=target.querySelector('[data-cal-kind]');
   const grid=target.querySelector('[data-cal-grid]'),detail=target.querySelector('[data-cal-details]');
   const month=new Intl.DateTimeFormat('en',{month:'long',year:'numeric',timeZone:'UTC'});
@@ -84,7 +112,8 @@ export function renderHeatmap(target,data,esc){
   function draw(){
     const weekly=period.value==='week',first=weekly?anchor:anchor.slice(0,7)+'-01';
     const start=addDays(first,-((new Date(first).getUTCDay()+6)%7));
-    const title=weekly?start+' to '+addDays(start,6):month.format(new Date(first));
+    const shortDate=new Intl.DateTimeFormat('en-IN',{day:'numeric',month:'short',timeZone:'UTC'});
+    const title=weekly?shortDate.format(new Date(start))+' – '+shortDate.format(new Date(addDays(start,6))):month.format(new Date(first));
     target.querySelector('[data-cal-title]').textContent=title;
     const filtered=data.events.filter(event=>(!track.value||track.value===event.trackId)&&
       (!kind.value||kind.value===event.type||kind.value==='risk'&&['Critical','High'].includes(event.risk)));
@@ -98,7 +127,7 @@ export function renderHeatmap(target,data,esc){
     }
     grid.innerHTML=days.join('');
     const list=(indexed.get(selected)||[]).map(event=>`<li><div><a data-opportunity="${esc(event.trackId)}" href="#opportunity=${encodeURIComponent(event.trackId)}">${esc(event.label)}</a>
-      <small>${esc(event.title)} · ${esc(event.type)}${event.risk&&['High','Critical'].includes(event.risk)?' · '+esc(event.risk)+' risk':''}</small></div></li>`);
+      <small>${esc(event.title)} · ${esc({deadline:'Milestone',task:'Task',change:'Change'}[event.type]||event.type)}${event.risk&&['High','Critical'].includes(event.risk)?' · '+esc(event.risk)+' risk':''}</small></div></li>`);
     detail.innerHTML=`<h3>${fullDate.format(new Date(selected))}</h3>${list.length?`<ul class="workspace-list">${list.join('')}</ul>`:'<p class="muted">No matching items on this date.</p>'}`;
   }
   target.onchange=draw;

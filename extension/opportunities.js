@@ -1,4 +1,4 @@
-import { applicationCutoff } from './readiness.js?v=1';
+import { applicationCutoff } from './readiness.js?v=2';
 
 export function renderOverview(target, tracks, priorities, today, { esc, formatDate, overview }) {
   const upcoming = tracks.flatMap(track => track.milestones
@@ -38,51 +38,23 @@ export function renderOverview(target, tracks, priorities, today, { esc, formatD
       : '<p class="muted">Add required items to track checklist progress.</p>'}
     ${focusProgress ? `<p class="muted">${focusProgress.openTasks} open tasks</p>` : ''}
   </article>` : '';
-  const steps = [
-    ['Track', tracks.length + ' saved', 'watchlist', tracks.length ? 'done' : ''],
-    ['Prepare', focusProgress ? focusProgress.done + ' of ' + focusProgress.total + ' plan items complete' : (overview.openTaskCount || 0) + ' open tasks', 'applications', tracks.length ? 'current' : ''],
-    ['Check readiness', (overview.openRequirements || 0) + ' required items open', 'readiness', ''],
-    ['Review dates', upcoming.length ? 'Upcoming milestones' : 'No upcoming dates', 'timeline', '']
-  ];
-  const shortcuts = [
-    ['assistant', 'scan', 'Ask Scout', 'Search your saved evidence'],
-    ['applications', 'list-details', 'Applications', 'Manage tasks and requirements'],
-    ['readiness', 'check', 'Run a scenario', 'Compare a plan to a deadline'],
-    ['heatmap', 'calendar', 'Deadline Heatmap', 'See your workload by date']
-  ];
+  const nextActions=[...tasks.slice(0,2),...requirements.slice(0,2)];
   target.innerHTML = `<div class="scout-overview-grid"><div class="scout-overview-main">
-    <article class="card workspace-card plan-card journey-card">
-      <div class="plan-card-heading"><h3>Application plan</h3>${focus ? `<span class="plan-focus">Application focus · ${details(focus.track.id, focus.track.title)}</span>` : ''}</div>
-      <ol class="plan-journey">${steps.map(([title, detail, view, state], index) =>
-        `<li data-step-state="${state}"><button type="button" data-workspace-jump="${view}" ${view === 'readiness' ? readinessAttributes : ''}>
-          <span class="plan-step-mark" aria-hidden="true">${state === 'done' ? '✓' : index + 1}</span><span><strong>${title}</strong><small>${detail}</small></span>
-        </button></li>`).join('')}</ol>
-    </article>
-    <div class="scout-shortcuts">${shortcuts.map(([view, symbol, title, description]) =>
-      `<button type="button" class="scout-shortcut" data-workspace-jump="${view}" ${view === 'readiness' ? readinessAttributes : ''}>
-        <span class="shortcut-icon">${icon(symbol)}</span><span><strong>${title}</strong><small>${description}</small></span>
-      </button>`).join('')}</div>
-    <div class="scout-work-grid">
-      ${card('Tasks', tasks, 'No open application tasks.', jump('applications', 'Workspaces'))}
-      ${card('Document checklist', requirements, 'No checklist items saved.', jump('applications', 'Workspaces'))}
-      ${card('Upcoming deadlines', deadlines, 'No upcoming dates.', jump('timeline', 'Timeline'))}
-    </div>
+    ${card('Upcoming deadlines', deadlines, tracks.length?'No upcoming dates in your watchlist.':'Paste a public link above to find your first deadline.', jump('watchlist', 'Open watchlist'))}
+    ${nextActions.length ? card('Application to-dos', nextActions, '', jump('applications', 'Open applications')) : ''}
+    ${attention.length ? card('Needs attention', attention.map(item => row(details(item.id, item.title), item.next, item.level, 'attention')),
+      '', jump('risk', 'See all')) : ''}
   </div>
-  <aside class="scout-overview-rail" aria-label="Scout assistant and next steps">
+  <aside class="scout-overview-rail" aria-label="Scout assistant and application readiness">
     <article class="card workspace-card plan-card scout-advisor">
-      <div class="plan-card-heading"><h3>${icon('scan')} Scout assistant</h3></div>
-      <p class="muted">Ask about your saved deadlines, changed dates, or what to work on first.</p>
-      <div class="scout-questions">
-        ${jump('assistant', 'What should I do first?', 'data-question="What should I do first?"')}
-        ${jump('assistant', 'Which deadlines are coming up?', 'data-question="Which deadlines are coming up?"')}
-      </div>
-      <form data-scout-shortcut><label class="sr-only" for="scout-overview-question">Ask Scout a question</label>
-      <input id="scout-overview-question" type="text" autocomplete="off" maxlength="500" placeholder="Ask about your workspace">
-      <button type="submit" class="button secondary">Open assistant</button></form>
+      <div class="plan-card-heading"><h3>${icon('scan')} Ask Scout</h3></div>
+      <form data-scout-shortcut>
+        <label class="sr-only" for="scout-overview-question">Ask Scout a question</label>
+        <input id="scout-overview-question" type="text" autocomplete="off" maxlength="500" placeholder="What should I work on first?">
+        <button type="submit" class="button secondary">Open assistant</button>
+      </form>
     </article>
-    ${readinessCard}
-    ${card('Needs attention', attention.map(item => row(details(item.id, item.title), item.next, item.level, 'attention')),
-    'No high or critical risks in your watchlist.', jump('risk', 'Risk overview'))}
+    ${focusProgress ? readinessCard : ''}
   </aside></div>`;
   target.setAttribute('aria-busy', 'false');
 }

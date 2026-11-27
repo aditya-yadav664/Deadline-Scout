@@ -69,6 +69,7 @@ export async function loadAccountRoute(store,owner,path,method,auth,params) {
   const opportunity=path.match(/^\/api\/opportunities\/([\w-]+)/);
   if(opportunity){
     const id=opportunity[1];
+    if(method==='GET'&&params.get('view')==='readiness')return load(byId('track',id),byId('applicationWorkspace',id));
     const scopes=[byId('track',id),byId('intelligence',id)];
     if(method==='GET')scopes.push(byId('sourceHistory',id),byId('applicationWorkspace',id),byTrack('change',id),
       {...byTrack('signup',id),projection:'metadata'},byTrack('googleLink',id));

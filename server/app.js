@@ -321,6 +321,13 @@ export function createApp(options={}) {
         }
         const opportunity=path.match(/^\/api\/opportunities\/([a-zA-Z0-9_-]{1,100})$/);
         if(opportunity&&req.method==='GET'){
+          if(u.searchParams.get('view')==='readiness'){
+            const track=store.get(owner,'track',opportunity[1]);
+            if(!track)throw fail('Opportunity not found.',404);
+            const {id,title,milestones}=track;
+            return send({id,title,milestones:milestones.map(({kind,label,date,time,zone})=>({kind,label,date,time,zone})),
+              application:readApplication(store,owner,id)});
+          }
           const detail=opportunityDetail(store,owner,opportunity[1]);
           if(!detail)throw fail('Opportunity not found.',404);
           return send({...detail, application:readApplication(store,owner,detail.id),

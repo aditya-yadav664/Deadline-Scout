@@ -1,7 +1,7 @@
-import {renderReadiness} from './readiness.js?v=1';
-import {renderAnswers,renderMemory,renderHeatmap,renderProductivity} from './assistant-ui.js?v=1';
+import {renderReadiness} from './readiness.js?v=2';
+import {renderAnswers,renderMemory,renderHeatmap,renderProductivity} from './assistant-ui.js?v=2';
 import {renderApplication,renderPassport} from './applications.js?v=readiness-1';
-import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=egress-1';
+import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=clarity-1';
 import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
 import './shared/signup-success-notices.js?v=egress-1';
 import {api,storage,settings,isExtension,connectGoogle} from './api.js';
@@ -58,6 +58,8 @@ function showView(name,options={}){
   if(name==='settings'&&connected){renderOutbox().catch(()=>{});void backgroundAlertStatus();}
 
   const navigation=document.querySelector('.workspace-navigation [data-view="'+name+'"]');
+  if(navigation?.closest('.nav-more'))navigation.closest('.nav-more').open=true;
+  $('.topbar-search').hidden=name!=='watchlist';
   $('#current-view-name').textContent=navigation?.querySelector('.rail-label')?.textContent||navigation?.textContent.trim()||'Opportunity details';
   $('.workspace-hero').hidden=!['overview','watchlist'].includes(name);
   if(name==='passport')void loadPassport();
@@ -108,7 +110,7 @@ async function openReadiness(preferred){
   select.value=selected;
   target.textContent='Loading application plan…';
   try{
-    const detail=await api('/api/opportunities/'+encodeURIComponent(selected));
+    const detail=await api('/api/opportunities/'+encodeURIComponent(selected)+'?view=readiness');
     if(view==='readiness'&&request===readinessRequest&&epoch===workspaceEpoch){
       renderReadiness(target,detail,today,{esc,formatDate});
     }
@@ -191,7 +193,9 @@ $('#timeline-more').onclick=()=>void loadTimeline({more:true});
 function render(){
   $('#tracks').setAttribute('aria-busy','false');
   const all=[...tracks,...localTracks.map(t=>({...t,local:true}))];
+  const overviewQuestion=$('#scout-overview-question')?.value;
   renderOverview($('#opportunity-overview'),all,priorities,today,{esc,formatDate,overview});
+  if(overviewQuestion)$('#scout-overview-question').value=overviewQuestion;
   $('#application-list').innerHTML=tracks.filter(track=>!track.cached).length
     ? '<ul class="workspace-list card">'+tracks.filter(track=>!track.cached).map(track=>`<li>
       <a data-opportunity="${esc(track.id)}" href="#opportunity=${encodeURIComponent(track.id)}">${esc(track.title)}</a>
@@ -469,10 +473,13 @@ async function loadPlanning(name){
     const data=await api(route);
     if(request!==planningRequest||epoch!==workspaceEpoch||view!==name)return;
     if(name==='assistant'){
-      answerEntries=data.entries;
+      if(!$('#clear-assistant').disabled)answerEntries=data.entries;
       renderAnswers(target,answerEntries);
       $('#assistant-gemini').disabled=!data.geminiConfigured;
-      $('#assistant-availability').textContent=data.geminiConfigured?'Gemini is optional. Keep private information out of questions you send.':'Workspace answers are available. Gemini is not configured.';
+      $('#assistant-gemini').closest('label').hidden=!data.geminiConfigured;
+      $('#assistant-availability').textContent=data.geminiConfigured
+        ? 'When enabled, your question and verified public excerpts are sent to Gemini.'
+        : 'Answers use your saved dates, changes, and application plans.';
     }else if(name==='memory')renderMemory(target,data.entries,esc);
     else if(name==='heatmap')renderHeatmap(target,data,esc);
     else renderProductivity(target,data,esc);
@@ -490,7 +497,7 @@ $('#assistant-form').onsubmit=event=>{
     const epoch=workspaceEpoch, status=$('#assistant-status'), clear=$('#clear-assistant');
     if(clear.disabled)return;
     clear.disabled=true;
-    status.textContent='Looking through your workspace…';
+    status.textContent=$('#assistant-gemini').checked?'Checking your workspace and public sources…':'Checking your workspace…';
     try{
       const {answer,receipt}=await api('/api/assistant/answer','POST',{
         question:$('#assistant-question').value,useGemini:!$('#assistant-gemini').disabled&&$('#assistant-gemini').checked
@@ -542,6 +549,7 @@ async function savePassport(input){
 async function saveApplication(section,input){
   const id=section.dataset.workspaceId;
   await api('/api/opportunities/'+encodeURIComponent(id)+'/application','PATCH',input);
+  await refresh();
   if(view==='opportunity'&&section.isConnected)await openOpportunity(id,{focus:false});
   toast('Application workspace saved.');
 }
@@ -694,20 +702,20 @@ async function signIn(){if(draft){readDraft();await storage.set('pendingReview',
 $('#tracking-signin').onclick=e=>run(e.currentTarget,signIn);
 async function inspectPastedLink(){
   const url=$('#source-url').value.trim();
-  if(!url){trackingStatus('Paste a page URL in the box, then choose Quick Scan.');$('#source-url').focus();return;}
+  if(!url){trackingStatus('Paste a page URL in the box, then choose Find dates.');$('#source-url').focus();return;}
   try{await inspect(url);}catch(error){trackingStatus(error.message,error.status===401);throw error;}
 }
 function updateCaptureAction(){
-  $('#track-active').innerHTML=(isExtension&&!$('#source-url').value.trim()?'Scan this page':'Quick Scan')+icon('arrow-right');
+  $('#track-active').innerHTML=(isExtension&&!$('#source-url').value.trim()?'Scan this page':'Find dates')+icon('arrow-right');
 }
 $('#track-active').onclick=e=>run(e.currentTarget,()=>$('#source-url').value.trim()||!isExtension?inspectPastedLink():activePage());
 $('#inspect-url').onclick=e=>run(e.currentTarget,inspectPastedLink);
 $('#source-url').oninput=updateCaptureAction;
-$('#source-url').placeholder='Paste a public page URL';
+$('#source-url').placeholder='Paste a public page link';
 $('#inspect-url').textContent='Find';
 $('#inspect-url').style.fontSize='.8rem';
 updateCaptureAction();
-$('#source-url').onkeydown=e=>{if(e.key==='Enter')$('#inspect-url').click();};
+$('#source-url').onkeydown=e=>{if(e.key==='Enter'){$('#track-active').click();}};
 $('#manual-start').onclick=()=>{const url=$('#source-url').value.trim();if(!/^https?:\/\//i.test(url)){toast('Paste the original page URL first, then enter its date manually.');$('#source-url').focus();return;}draft={url,title:'My tracked page',sources:[url],links:[],milestones:[manualMilestone(url)],monitoring:false};renderDraft();};
 $('#close-dialog').onclick=closeDialog;
 $('#connect-google').onclick=e=>run(e.currentTarget,async()=>{await signIn();toast('Google connected.');});
@@ -777,7 +785,7 @@ if(location.pathname!=='/auth/done'){
 }
 let refreshing=false;
 async function refreshVisibleWorkspace(){
-  if(refreshing||document.visibilityState!=='visible'||draft||$('#action-dialog').open||!['overview','watchlist','timeline','applications'].includes(view))return;
+  if(refreshing||document.visibilityState!=='visible'||draft||document.activeElement?.id==='scout-overview-question'||$('#action-dialog').open||!['overview','watchlist','timeline','applications'].includes(view))return;
   refreshing=true;try{await refresh();}finally{refreshing=false;}
 }
 setInterval(()=>void refreshVisibleWorkspace(),60000);

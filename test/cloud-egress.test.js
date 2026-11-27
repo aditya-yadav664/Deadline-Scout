@@ -99,6 +99,12 @@ test('scoped cloud APIs execute against Postgres and transfer only the records t
   assert.equal(email.data.entries.length,3);
   assert.ok(email.data.next);
   assert.equal(queries.some(q=>q.rows.some(row=>row.body?.html)),false);
+  const readiness=await request('/api/opportunities/one?view=readiness');
+  assert.equal(readiness.status,200);
+  assert.equal(readiness.data.milestones[0].date,'2099-12-01');
+  assert.equal('sources' in readiness.data,false);
+  assert.equal(queries.some(query=>query.params?.includes('sourceHistory')),false);
+  assert.equal((await request('/api/opportunities/two?view=readiness')).status,404);
   assert.equal((await request('/api/signup-confirmations')).data[0].receipt,'fixture');
   assert.equal((await request('/api/signups/legacy/files/other')).status,404);
   assert.equal(queries.some(q=>q.params?.includes('signupFile')),false);
