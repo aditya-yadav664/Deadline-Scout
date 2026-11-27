@@ -123,6 +123,33 @@ test('scoped cloud APIs execute against Postgres and transfer only the records t
   const checked=await db.query("SELECT body FROM public.deadline_scout_records WHERE owner='alice' AND kind='track'");
   assert.ok(checked.rows[0].body.lastAttempt);
   assert.ok(checked.rows[0].body.nextCheck>now);
+  // Future, changed, due and pre-metadata drafts must remain distinguishable in Postgres.
+  const future = now + 86400000;
+  const drafts = await CloudStore.open(client,{initialize:false});
+  const safeTrack = {...track,nextCheck:future,missing:[]};
+  drafts.put('alice','track','one',safeTrack);
+  const schedule={milestoneId:milestone.id,deadline:[milestone.date,null,null]};
+  const armed=(id,backupAt,extra={})=>({id,status:'Armed',trackId:track.id,backupAt,
+    schedule,sealed:secrets.seal({title:id,rule:'fixed',mode:'reminder',reviewedAll:true,
+      milestoneId:milestone.id,deadline:milestone,steps:[{fields:[],title:'Form',url:source}],formUrl:source}),...extra});
+  const stable=armed('stable',future,{sealed:'s'.repeat(500000)});
+  drafts.put('alice','signup',stable.id,stable);
+  drafts.put('alice','signup','changed',armed('changed',future,{schedule:{...schedule,deadline:['2099-11-28',null,null]},
+    sealed:secrets.seal({title:'changed',rule:'fixed',mode:'reminder',milestoneId:milestone.id,
+      deadline:{...milestone,date:'2099-11-28'},steps:[{fields:[],title:'Form',url:source}],formUrl:source})}));
+  drafts.put('alice','signup','due',armed('due',now-1000));
+  drafts.put('alice','signup','old',armed('old',future,{schedule:undefined}));
+  drafts.put('alice','delivery','due-mail',{id:'due-mail',type:'welcome',channel:'email',status:'queued',
+    to:'alice@example.test',nextTry:now-1000,attempts:0,subject:'Fixture',text:'Fixture'});
+  await drafts.flush();
+  await db.query('COMMIT');
+  assert.equal((await request('/api/cron',{auth:'Bearer fixture-cron'})).status,200);
+  assert.equal(queries.some(q=>q.rows.some(row=>row.id==='stable')),false);
+  assert.equal(queries.some(q=>q.rows.some(row=>row.id==='old'&&row.body?.sealed)),true);
+  const statuses=await db.query("SELECT id,body->>'status' AS status FROM public.deadline_scout_records WHERE owner='alice' AND id IN ('stable','changed','due','old','due-mail')");
+  assert.deepEqual(Object.fromEntries(statuses.rows.map(({id,status})=>[id,status])),{
+    stable:'Armed',changed:'Needs review',due:'Ready to finish',old:'Armed','due-mail':'demo'
+  });
   assert.equal((await request('/api/account/clear-data',{method:'POST',body:{action:'clear-account-data'}})).status,200);
   assert.equal((await request('/api/workspace?compact=1')).data.tracks.length,0);
   assert.ok((await db.query("SELECT id FROM public.deadline_scout_records WHERE owner='bob' AND kind='signupFile'")).rows.length);

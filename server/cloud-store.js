@@ -11,7 +11,7 @@ export class CloudStore {
  allTracks(){return [...this.rows.values()].filter(r=>r.kind==='track').map(r=>({owner:r.owner,track:structuredClone(r.body)}));}
  allSignups(){return [...this.rows.values()].filter(r=>r.kind==='signup').map(r=>({owner:r.owner,record:structuredClone(r.body)}));}
  pendingEmailOwners(){return [...new Set([...this.rows.values()].filter(r=>r.kind==='delivery'&&r.body.channel==='email'&&['queued','retry','sending'].includes(r.body.status)).map(r=>r.owner))];}
- transaction(fn){const previous=structuredClone(this.rows),dirty=structuredClone(this.dirty),bulkClears=structuredClone(this.bulkClears);try{return fn();}catch(error){this.rows=previous;this.dirty=dirty;this.bulkClears=bulkClears;throw error;}}
+ transaction(fn){const previous=new Map(this.rows),dirty=new Map(this.dirty),bulkClears=new Map(this.bulkClears);try{return fn();}catch(error){this.rows=previous;this.dirty=dirty;this.bulkClears=bulkClears;throw error;}}
  close(){}
  async queryRows(sql, params) {
    const {rows}=await this.client.query(sql,params);
@@ -30,9 +30,10 @@ export class CloudStore {
    const bind=value=>{values.push(value);return '$'+values.length;};
    const ownerParam=owner===null?null:bind(owner);
    const parts=scopes.map(scope=>{
-     const {kind,id,trackId,filter,projection,changeIds,signupId,accountOwner}=typeof scope==='string'?{kind:scope}:scope;
+     const {kind,id,trackId,filter,projection,changeIds,signupId,accountOwner,excludeIds}=typeof scope==='string'?{kind:scope}:scope;
      const condition=['kind='+bind(kind)];
      if(ownerParam)condition.push('owner='+ownerParam);
+     if(excludeIds?.length)condition.push('NOT (id=ANY('+bind(excludeIds)+'::text[]))');
      if(id!==undefined)condition.push('id=ANY('+bind(Array.isArray(id)?id:[id])+'::text[])');
      if(filter==='trackDelivery')condition.push("(body->>'trackId'="+bind(trackId)+" OR body->>'changeId'=ANY("+bind(changeIds)+"::text[]))");
      else if(trackId!==undefined)condition.push("body->>'trackId' = ANY("+bind(Array.isArray(trackId)?trackId:[trackId])+"::text[])");
@@ -40,7 +41,6 @@ export class CloudStore {
      if(accountOwner!==undefined)condition.push("body->>'owner'="+bind(accountOwner));
      if(filter==='pending')condition.push("body->>'status' IN ('queued','retry','sending')");
      if(filter==='expired')condition.push("jsonb_typeof(body->'expires')='number'","body->'expires' <= to_jsonb("+bind(Date.now())+"::bigint)");
-     if(filter==='due')condition.push("jsonb_typeof(body->'nextCheck')='number'","body->'nextCheck' <= to_jsonb("+bind(Date.now())+"::bigint)","EXISTS (SELECT 1 FROM jsonb_array_elements(body->'milestones') AS m(milestone) WHERE milestone->'manual' IS DISTINCT FROM 'true'::jsonb)");
      if(filter==='armed')condition.push("body->>'status'='Armed'");
      if(filter==='active')condition.push("body->>'status' IS DISTINCT FROM 'Deleted'");
      if(filter==='confirmed')condition.push("body->>'status'='Confirmed'");
@@ -120,38 +120,64 @@ export class CloudStore {
    await this.load(owner,{kind:'track',id:[...new Set(tracks)],projection:'idOnly'});
  }
  async loadDeliveries(owner){
-   const deliveries=await this.load(owner,{kind:'delivery',filter:'email'});
+   const existing=this.list(owner,'delivery').filter(row=>row.channel==='email'&&['queued','retry','sending'].includes(row.status)&&row.nextTry<=Date.now());
+   const deliveries=[...existing.map(body=>({body})),...await this.load(owner,{kind:'delivery',filter:'email',excludeIds:existing.map(row=>row.id)})];
    const ids=key=>[...new Set(deliveries.map(row=>row.body[key]).filter(Boolean))];
    const changes=ids('changeId'),signups=ids('signupId'),tracks=ids('trackId');
-   if(deliveries.length)await this.load(owner,{kind:'profile',id:'me'},
-     {kind:'change',id:changes},{kind:'signup',id:signups,projection:'metadata'});
+   if(deliveries.length)await this.load(owner,
+     ...(!this.rows.has(this.key(owner,'profile','me'))?[{kind:'profile',id:'me'}]:[]),
+     {kind:'change',id:changes.filter(id=>!this.rows.has(this.key(owner,'change',id))),projection:'changeIds'},
+     {kind:'signup',id:signups,projection:'metadata'});
    // Older delivery records can reference the track through a change only.
    for(const id of changes){const change=this.get(owner,'change',id);if(change?.trackId)tracks.push(change.trackId);}
-   if(tracks.length)await this.load(owner,{kind:'track',id:tracks});
+   const missingTracks=[...new Set(tracks)].filter(id=>!this.rows.has(this.key(owner,'track',id)));
+   if(missingTracks.length)await this.load(owner,{kind:'track',id:missingTracks,projection:'idOnly'});
  }
- async loadCron(){
-   const due=await this.load(null,{kind:'track',filter:'due'});
-   this.dueTracks=due.map(({owner,id})=>({owner,id}));
-   await this.load(null,{kind:'signup',filter:'armed'});
-   const owners=new Map();
-   function collect(owner,id,due){
-     if(!id)return;
-     if(!owners.has(owner))owners.set(owner,{tracks:new Set(),checks:new Set()});
-     const scope=owners.get(owner);
-     scope.tracks.add(id);
-     if(due)scope.checks.add(id);
-   }
-   for(const row of due)collect(row.owner,row.id,true);
-   for(const {owner,record} of this.allSignups())collect(owner,record.trackId,false);
-   for(const [owner,{tracks,checks}] of owners){
-     const scopes=[{kind:'track',id:[...tracks].filter(id=>!checks.has(id))},{kind:'profile',id:'me'}];
-     if(checks.size)scopes.push({kind:'sourceHistory',id:[...checks]},{kind:'intelligence',id:[...checks]},{kind:'googleLink',trackId:[...checks]});
-     await this.load(owner,...scopes);
-   }
+ async scheduledChecks(){
+   const {rows}=await this.client.query(`SELECT owner,id FROM public.deadline_scout_records
+      WHERE kind='track' AND jsonb_typeof(body->'nextCheck')='number' AND body->'nextCheck' <= to_jsonb($1::bigint)
+        AND EXISTS (SELECT 1 FROM jsonb_array_elements(body->'milestones') AS m(milestone)
+          WHERE milestone->'manual' IS DISTINCT FROM 'true'::jsonb)`,[Date.now()]);
+   this.recordRead(rows);
+   return rows;
+ }
+ async loadScheduledCheck(owner,id){
+   await this.load(owner,{kind:'track',id},{kind:'profile',id:'me'},{kind:'sourceHistory',id},
+     {kind:'intelligence',id},{kind:'googleLink',trackId:id});
+ }
+ async scheduledSignups(){
+   // A future backup still needs review if its source or approved milestone changed.
+   // Drafts saved before schedule metadata was added follow the full legacy check.
+   const {rows}=await this.client.query(`SELECT signup.owner,signup.id,signup.body->>'trackId' AS "trackId"
+     FROM public.deadline_scout_records AS signup
+     LEFT JOIN public.deadline_scout_records AS track
+       ON track.owner=signup.owner AND track.kind='track' AND track.id=signup.body->>'trackId'
+     WHERE signup.kind='signup' AND signup.body->>'status'='Armed'
+       AND (track.id IS NULL OR signup.body->'schedule' IS NULL
+         OR jsonb_typeof(signup.body->'backupAt') IS DISTINCT FROM 'number'
+         OR signup.body->'backupAt' <= to_jsonb($1::bigint)
+         OR track.body->>'status'='check_failed'
+         OR track.body->'conflicts'->0 IS NOT NULL
+         OR track.body->'uncertain'->0 IS NOT NULL
+         OR track.body->'missing'->0 IS NOT NULL
+         OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(track.body->'milestones') AS m(milestone)
+           WHERE milestone->>'id'=signup.body->'schedule'->>'milestoneId'
+             AND jsonb_build_array(milestone->'date',milestone->'time',milestone->'zone')=signup.body->'schedule'->'deadline'))`,[Date.now()]);
+   this.recordRead(rows);
+   return rows;
+ }
+ async scheduledEmailOwners(){
    const {rows}=await this.client.query(`SELECT DISTINCT owner FROM public.deadline_scout_records WHERE kind='delivery'
      AND body->>'channel'='email' AND body->>'status' IN ('queued','retry','sending') AND body->'nextTry' <= to_jsonb($1::bigint)`,[Date.now()]);
    this.recordRead(rows);
-   this.dueEmailOwners=rows.map(row=>row.owner);
+   return rows.map(row=>row.owner);
+ }
+ async releaseBatch(){
+   // Persist into the existing outer transaction before releasing this batch's objects.
+   await this.flush();
+   this.rows.clear();
+   this.dirty.clear();
+   this.bulkClears.clear();
  }
  async flush(){for(const [owner,kinds] of this.bulkClears)await this.client.query('DELETE FROM public.deadline_scout_records WHERE owner=$1 AND kind=ANY($2::text[])',[owner,[...kinds]]);for(const r of this.dirty.values())if(r.removed)await this.client.query('DELETE FROM public.deadline_scout_records WHERE owner=$1 AND kind=$2 AND id=$3',[r.owner,r.kind,r.id]);else await this.client.query('INSERT INTO public.deadline_scout_records(owner,kind,id,body) VALUES($1,$2,$3,$4::jsonb) ON CONFLICT(owner,kind,id) DO UPDATE SET body=EXCLUDED.body',[r.owner,r.kind,r.id,JSON.stringify(r.body)]);}
  static async open(client,{readOnly=false,initialize=true,diagnostics=false}={}){await client.query('BEGIN');if(readOnly){await client.query('SET TRANSACTION READ ONLY');await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');}await client.query("SET LOCAL lock_timeout = '30s'");await client.query("SET LOCAL idle_in_transaction_session_timeout = '180s'");if(!readOnly)await client.query('SELECT pg_advisory_xact_lock(43174317)');if(initialize){await client.query('CREATE TABLE IF NOT EXISTS public.deadline_scout_records(owner text NOT NULL,kind text NOT NULL,id text NOT NULL,body jsonb NOT NULL,PRIMARY KEY(owner,kind,id))');await client.query('ALTER TABLE public.deadline_scout_records ENABLE ROW LEVEL SECURITY');}const store=new CloudStore(client,[]);store.diagnostics=diagnostics;return store;}

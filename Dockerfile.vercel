@@ -3,7 +3,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends chromium poppler-utils ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
-COPY . .
+COPY server ./server
+COPY extension ./extension
 ENV BROWSER_EXECUTABLE=/usr/bin/chromium
 ENV HOST=0.0.0.0 PORT=3000 DATA_DIR=/tmp/deadline-scout ENABLE_DEMO=false NODE_ENV=production CLOUD_MODE=true
 EXPOSE 3000

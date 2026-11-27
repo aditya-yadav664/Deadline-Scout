@@ -14,7 +14,7 @@ export class Engine {
       const t=this.store.get(owner,'track',id);if(!t)throw new Error('Tracking record not found.');
       if(t.milestones.every(m=>m.manual)){t.status='manual';t.lastAttempt=new Date().toISOString();this.store.put(owner,'track',id,t);return t;}
       const observations=verifiedObservations||[],errors=[];
-      for(const url of verifiedObservations?[]:t.sources){if(!this.store.get(owner,'track',id))throw new Error('Tracked page was removed. Check cancelled.');try{this.reading.add(lock);observations.push({...await this.readPage(url),requestedUrl:url});}catch(e){errors.push({url,message:e.message});}finally{this.reading.delete(lock);}if(!this.store.get(owner,'track',id))throw new Error('Tracked page was removed. Check cancelled.');}
+      for(const url of verifiedObservations?[]:t.sources){if(!this.store.get(owner,'track',id))throw new Error('Tracked page was removed. Check cancelled.');try{this.reading.add(lock);const {rawHtml,...observation}=await this.readPage(url);observations.push({...observation,requestedUrl:url});}catch(e){errors.push({url,message:e.message});}finally{this.reading.delete(lock);}if(!this.store.get(owner,'track',id))throw new Error('Tracked page was removed. Check cancelled.');}
       const now=new Date().toISOString();t.lastAttempt=now;t.nextCheck=Date.now()+t.intervalMinutes*60000;t.errors=errors;
       // Do not adopt a one-sided change if an approved source could not be read.
       if(errors.length){if(errors.some(e=>/ENOTFOUND|EAI_AGAIN|ETIMEOUT|timed out|ECONNRESET|busy|HTTP (?:429|50[234])/i.test(e.message)))t.nextCheck=Date.now()+60000;t.status='check_failed';
@@ -47,7 +47,7 @@ export class Engine {
     // create entries for unlinked milestones, or write an unverified date.
     if(!this.store.get(owner,'track',t.id))return;
     if(t.conflicts?.length||t.uncertain?.length||t.missing?.length)return;
-    const errors=[];
+    const errors=[],oldError=t.googleError;
     for(const link of this.store.list(owner,'googleLink').filter(l=>l.trackId===t.id&&l.state==='linked')) {
       if(!this.store.get(owner,'track',t.id))return;
       const m=t.milestones.find(m=>m.id===link.milestoneId);
@@ -55,7 +55,7 @@ export class Engine {
       try{await this.google.perform(owner,t,m,link.channel,link.minutes);}catch(e){errors.push(e.message);}
     }
     if(errors.length)t.googleError='Google sync pending: '+[...new Set(errors)].join(' ');else delete t.googleError;
-    if(this.store.get(owner,'track',t.id))this.store.put(owner,'track',t.id,t);
+    if(oldError!==t.googleError&&this.store.get(owner,'track',t.id))this.store.put(owner,'track',t.id,t);
   }
   async deliver(owner) {
     if(this.delivering.has(owner))return;this.delivering.add(owner);
@@ -75,11 +75,21 @@ export class Engine {
     }}finally{this.delivering.delete(owner);}
   }
   async tick(){
-    if(this.store.loadCron){
-      await this.store.loadCron();
-      for(const {owner,id} of this.store.dueTracks)await this.check(owner,id,{deferDelivery:true}).catch(()=>{});
-      await this.backups?.tick();
-      for(const owner of new Set([...this.store.dueEmailOwners,...this.store.pendingEmailOwners()]))await this.deliver(owner);
+    if(this.store.scheduledChecks){
+      for(const {owner,id} of await this.store.scheduledChecks()){
+        await this.store.loadScheduledCheck(owner,id);
+        await this.check(owner,id,{deferDelivery:true}).catch(()=>{});
+        await this.store.releaseBatch();
+      }
+      for(const {owner,id,trackId} of await this.store.scheduledSignups()){
+        await this.store.load(owner,{kind:'signup',id},{kind:'track',id:trackId});
+        await this.backups?.tick(owner,id);
+        await this.store.releaseBatch();
+      }
+      for(const owner of await this.store.scheduledEmailOwners()){
+        await this.deliver(owner);
+        await this.store.releaseBatch();
+      }
       return;
     }
     const owners=new Set(this.store.pendingEmailOwners());

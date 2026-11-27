@@ -16,8 +16,9 @@ export function demoSignupSchema(){return {version:1,open:true,fee:0,terms:'Demo
  ]};}
 export class Signups {
  constructor({store,secrets,base}){Object.assign(this,{store,secrets,base});}
- read(owner,id){const r=this.store.get(owner,'signup',id);if(!r)throw fail('Signup draft not found.',404);const {summary,sealed,...metadata}=r;return {...this.secrets.open(sealed),...metadata};}
- save(owner,d){const {sealed,...plain}=d;this.store.put(owner,'signup',d.id,{id:d.id,trackId:d.trackId,status:d.status,backupAt:d.backupAt,summary:this.secrets.seal(draftSummary(d)),sealed:this.secrets.seal(plain)});return d;}
+ read(owner,id){const r=this.store.get(owner,'signup',id);if(!r)throw fail('Signup draft not found.',404);const {summary,schedule,sealed,...metadata}=r;return {...this.secrets.open(sealed),...metadata};}
+ save(owner,d){const {sealed,...plain}=d;
+  const schedule=d.status==='Armed'&&d.deadline?{milestoneId:d.milestoneId,deadline:[d.deadline.date,d.deadline.time,d.deadline.zone]}:undefined;this.store.put(owner,'signup',d.id,{id:d.id,trackId:d.trackId,status:d.status,backupAt:d.backupAt,schedule,summary:this.secrets.seal(draftSummary(d)),sealed:this.secrets.seal(plain)});return d;}
  list(owner){return this.store.list(owner,'signup').filter(r=>r.status!=='Deleted').map(r=>this.read(owner,r.id));}
  summaries(owner){return this.store.list(owner,'signup').filter(r=>r.status!=='Deleted').map(r=>r.summary?this.secrets.open(r.summary):draftSummary(this.read(owner,r.id)));}
  schema(){const s=this.store.get('_system','demoOrganizer','schema')||demoSignupSchema();return {...s,fields:this.capture({url:this.base+'/signup-demo.html',fields:s.fields}).fields};}

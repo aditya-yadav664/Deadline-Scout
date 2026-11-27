@@ -562,6 +562,10 @@ test('dashboard loads more timeline and email rows on demand',{skip:!executableP
       before:{date},after:{date,sourceUrl:track.url,quote:'Original evidence'}});
     f.store.put('local-demo','delivery',id,{id,at,channel:'email',subject:'Email '+i,status:'failed'});
   }
+  // This test exercises paging, independently of the transient notification overlay.
+  f.store.put('local-demo','dashboard','preferences',{
+    groups:[],pinnedIds:[],seenChangeIds:Array.from({length:23},(_,index)=>'page-'+index)
+  });
   const browser=await chromium.launch({executablePath,headless:true});
   t.after(()=>browser.close());
   const page=await browser.newPage();

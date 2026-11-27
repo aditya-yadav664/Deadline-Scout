@@ -2,7 +2,7 @@ import {databaseOptions} from './cloud-database.js';
 import http from 'node:http';
 import pg from 'pg';
 import {timingSafeEqual} from 'node:crypto';
-import {createApp,isPublicFilePath} from './app.js';
+import {createApp} from './app.js';
 import {CloudStore} from './cloud-store.js';
 const pool=new pg.Pool({...(process.env.DATABASE_URL?databaseOptions(process.env.DATABASE_URL):{}),max:3,idleTimeoutMillis:60000});
 const defaultEnv={...process.env,HOST:'0.0.0.0',DATA_DIR:'/tmp/deadline-scout',CLOUD_MODE:'true'};
@@ -13,18 +13,24 @@ export function startCloud(options={}){
  const publicApp=createApp({env,store:new CloudStore(null,[])});
  const server=http.createServer(async(req,res)=>{
  const publicPath=new URL(req.url,env.APP_URL).pathname;
- if(req.method==='OPTIONS'||req.method==='GET'&&(isPublicFilePath(publicPath)||['/api/config','/health'].includes(publicPath)))return publicApp.server.listeners('request')[0](req,res);
+ const needsState=publicPath.startsWith('/api/')||['/auth/start','/auth/callback','/demo/registration','/demo/faq'].includes(publicPath);
+ if(req.method==='OPTIONS'||!needsState||req.method==='GET'&&['/api/config','/health'].includes(publicPath)){
+   return publicApp.server.listeners('request')[0](req,res);
+ }
  if(publicPath==='/api/cron'&&!cronAuthorized(req.headers.authorization,env)){res.writeHead(401,{'Content-Type':'application/json'});return res.end(JSON.stringify({error:'Unauthorized'}));}
  let client;const originalEnd=res.end.bind(res),originalWrite=res.write,originalWriteHead=res.writeHead;let ended=false;const restore=()=>{res.write=originalWrite;res.writeHead=originalWriteHead;res.end=originalEnd;};
  const fail=async(error)=>{if(ended)return;ended=true;restore();await client?.query('ROLLBACK').catch(()=>{});console.error('Cloud request failed:',error.code||error.name);if(!res.headersSent){res.statusCode=503;res.setHeader('Content-Type','application/json');originalEnd(JSON.stringify({error:'Service temporarily unavailable. Retry shortly.'}));}else originalEnd();};
  try{
- client=await dbPool.connect();const path=req.url.split('?')[0];const readOnly=req.method==='POST'&&path==='/api/assistant/answer'||req.method==='GET'&&!path.startsWith('/api/captures/')&&!path.startsWith('/api/signup-captures/')&&path!=='/auth/callback'&&path!=='/api/cron';const store=await CloudStore.open(client,{readOnly,initialize:false,diagnostics:env.EGRESS_DIAGNOSTICS==='true'});const app=createApp({env,store});
+ client=await dbPool.connect();const path=req.url.split('?')[0];const readOnly=req.method==='POST'&&['/api/assistant/answer','/api/inspect'].includes(path)||req.method==='GET'&&!path.startsWith('/api/captures/')&&!path.startsWith('/api/signup-captures/')&&path!=='/auth/callback'&&path!=='/api/cron';const store=await CloudStore.open(client,{readOnly,initialize:false,diagnostics:env.EGRESS_DIAGNOSTICS==='true'});const app=createApp({env,store});
  // Buffer the small JSON/HTML responses until their database writes commit.
  const chunks=[];res.writeHead=function(status,reason,headers){this.statusCode=status;for(const [key,value] of Object.entries((typeof reason==='object'?reason:headers)||{}))this.setHeader(key,value);return this;};
  res.write=function(chunk,encoding,callback){chunks.push(Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk,typeof encoding==='string'?encoding:undefined));if(typeof encoding==='function')encoding();else callback?.();return true;};
- await new Promise((resolve,reject)=>{res.end=function(chunk,encoding,callback){if(ended)return this;ended=true;if(chunk)chunks.push(Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk,typeof encoding==='string'?encoding:undefined));(async()=>{try{await store.flush();await client.query('COMMIT');restore();const payload=Buffer.concat(chunks);if(env.EGRESS_DIAGNOSTICS==='true')console.info('egress',JSON.stringify({method:req.method,route:['/api/workspace','/api/cron','/api/signups','/api/alerts','/api/deliveries','/api/signup-confirmations'].includes(path)?path:'other',status:res.statusCode,...store.readStats,responseBytes:payload.length}));originalEnd(payload);if(typeof encoding==='function')encoding();else callback?.();resolve();}catch(error){ended=false;reject(error);}})();return this;};
- if(req.url.split('?')[0]==='/api/cron'){
-   (async()=>{if(!cronAuthorized(req.headers.authorization,env)){res.statusCode=401;res.end(JSON.stringify({error:'Unauthorized'}));return;}await app.engine.tick();res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true}));})().catch(reject);
+ await new Promise((resolve,reject)=>{res.end=function(chunk,encoding,callback){if(ended)return this;ended=true;const payload=chunks.length
+   ? Buffer.concat(chunk?[...chunks,Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk,typeof encoding==='string'?encoding:undefined)]:chunks)
+   : chunk;
+   (async()=>{try{await store.flush();await client.query('COMMIT');restore();if(env.EGRESS_DIAGNOSTICS==='true')console.info('egress',JSON.stringify({method:req.method,route:['/api/workspace','/api/cron','/api/signups','/api/alerts','/api/deliveries','/api/signup-confirmations'].includes(path)?path:'other',status:res.statusCode,...store.readStats,nodeRssBytes:process.memoryUsage.rss(),responseBytes:payload?Buffer.byteLength(payload):0}));originalEnd(payload,typeof encoding==='string'?encoding:undefined);if(typeof encoding==='function')encoding();else callback?.();resolve();}catch(error){ended=false;reject(error);}})();return this;};
+ if(path==='/api/cron'){
+   (async()=>{await app.engine.tick();res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true}));})().catch(reject);
  }else Promise.resolve(app.server.listeners('request')[0](req,res)).catch(reject);
  });
  }catch(error){await fail(error);}finally{client?.release();}

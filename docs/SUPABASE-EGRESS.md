@@ -22,3 +22,10 @@ The frontend talks to the Node API. Supabase Auth handles the Google authorizati
 ## Remaining transfer
 
 Full drafts and approved PDF handoffs still need their contents. The owner-scoped assistant and heatmap read the history needed to answer questions and display date activity. Explicit legacy history endpoints still allow a full owner-scoped read. Source pages and Google APIs are external traffic rather than Supabase egress. A production comparison should use Supabase per-service egress across comparable traffic windows after deployment. For larger datasets, check Postgres execution plans for the due-work and cursor queries before adding indexes.
+
+## Follow-up · scheduled work and Vercel memory
+
+- Cron reads identifiers first, then loads, processes and releases one due track or backup at a time. Final commit and the existing scheduler lock still cover the entire run. An eligible future backup with an unchanged approved deadline stays encrypted and unloaded. Legacy drafts, due drafts and drafts affected by a changed, missing, conflicted or failed source still run through the scheduler.
+- Email delivery loads existence checks and signup metadata where possible. Source checks discard raw HTML once parsing is done, and the browser reuses its parsed HTML result if the visible text has no milestones. Existing resource limits also cover Firestore Listen reads.
+- Source previews no longer hold the global write lock. Public pages and unknown non-API paths bypass Postgres. Most cloud responses avoid constructing a second full copy before commit. The Vercel image includes the runtime directories and dependencies.
+- EGRESS_DIAGNOSTICS also reports Node RSS at response completion. It is a point-in-time reading of the Node process, excluding the Chromium child process. Compare Vercel's provisioned-memory usage across comparable traffic windows. The dashboard metric is not a direct measurement of Node heap.
