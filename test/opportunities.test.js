@@ -514,6 +514,10 @@ test('overview opens a readiness scenario and pre-fills the existing assistant',
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(f.url + '/dashboard');
   await page.locator('#opportunity-overview').getByRole('link', {name:'Recommendation'}).waitFor();
+  const feature=page.locator('.deadline-feature');
+  assert.equal(await feature.getByRole('heading').textContent(),'Orbit Hack');
+  assert.match(await feature.textContent(),/Jun 20, 2099/);
+  assert.equal(await page.locator('.scout-overview-main .date-line').count(),0);
   const main = await page.locator('.scout-overview-main').boundingBox();
   const rail = await page.locator('.scout-overview-rail').boundingBox();
   assert.ok(rail.x >= main.x + main.width && rail.y === main.y);

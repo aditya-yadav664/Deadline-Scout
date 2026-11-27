@@ -1,7 +1,7 @@
 import {renderReadiness} from './readiness.js?v=2';
 import {renderAnswers,renderMemory,renderHeatmap,renderProductivity} from './assistant-ui.js?v=2';
 import {renderApplication,renderPassport} from './applications.js?v=readiness-1';
-import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=clarity-1';
+import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=overview-2';
 import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
 import './shared/signup-success-notices.js?v=egress-1';
 import {api,storage,settings,isExtension,connectGoogle} from './api.js';
@@ -53,6 +53,7 @@ let detailRequest=0,intelligenceRequest=0,readinessRequest=0;
 function showView(name,options={}){
   if(!viewNames.includes(name))return;
   view=name;
+  document.body.dataset.workspaceView=name;
   for(const id of ['profile-popover','notification-menu'])if($('#'+id).matches(':popover-open'))$('#'+id).hidePopover();
   if(mobileNavigation.matches)setNavigation(false);
   if(name==='settings'&&connected){renderOutbox().catch(()=>{});void backgroundAlertStatus();}
@@ -61,6 +62,7 @@ function showView(name,options={}){
   if(navigation?.closest('.nav-more'))navigation.closest('.nav-more').open=true;
   $('.topbar-search').hidden=name!=='watchlist';
   $('#current-view-name').textContent=navigation?.querySelector('.rail-label')?.textContent||navigation?.textContent.trim()||'Opportunity details';
+  $('#radar-title').textContent=name==='watchlist'?'Track a page':'Your deadlines';
   $('.workspace-hero').hidden=!['overview','watchlist'].includes(name);
   if(name==='passport')void loadPassport();
   if(['assistant','heatmap','productivity','memory'].includes(name))void loadPlanning(name);
@@ -205,7 +207,6 @@ function render(){
   if(!me.email){profileNameDirty=false;profileNameEditing=false;}
   $('#profile-identity').hidden=!me.email;$('#profile-display-name').textContent=me.displayName||'Your profile';$('#edit-profile-name').hidden=profileNameEditing;$('#profile-name-form').hidden=!me.email||!profileNameEditing;if(!profileNameEditing&&!profileNameDirty)$('#profile-name').value=me.displayName||'';
   if(outboxOwner!==me.email){outboxOwner=me.email;outboxCursor=null;outboxAt=0;outboxItems=[];paintOutbox();}
-  $('#radar-title').textContent=me.displayName?'Welcome, '+me.displayName.split(/\s+/)[0]:'Your workspace';
   $('#notification-summary').textContent=changes.length?'Date updates are available in your timeline.':'No date updates yet.';
   $('#track-count').textContent=all.length;$('#change-count').textContent=all.reduce((count,t)=>count+t.milestones.length,0);
   const reviews=all.filter(t=>['conflict','needs_review','check_failed','date_missing'].includes(t.status)).length;$('#review-count').textContent=reviews?`${reviews} need${reviews===1?'s':''} attention`:'';

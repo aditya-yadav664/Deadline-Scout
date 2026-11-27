@@ -4,58 +4,91 @@ export function renderOverview(target, tracks, priorities, today, { esc, formatD
   const upcoming = tracks.flatMap(track => track.milestones
     .filter(milestone => milestone.date >= today)
     .map(milestone => ({ track, milestone })))
-    .sort((a, b) => a.milestone.date.localeCompare(b.milestone.date)).slice(0, 4);
-  const applicationDates = tracks.filter(track => !track.local && !track.cached)
-    .map(track => ({ track, milestone: applicationCutoff(track.milestones, today) }))
-    .filter(item => item.milestone).sort((a, b) => a.milestone.date.localeCompare(b.milestone.date));
-  const planned = new Set((overview.progress || []).map(item => item.trackId));
-  const focus = applicationDates.find(item => planned.has(item.track.id)) || applicationDates[0];
-  const details = (id, title) =>
-    `<a href="#opportunity=${encodeURIComponent(id)}" data-opportunity="${esc(id)}">${esc(title)}</a>`;
+    .sort((a, b) => a.milestone.date.localeCompare(b.milestone.date) ||
+      (a.milestone.time || '23:59').localeCompare(b.milestone.time || '23:59'));
+  const [next,...later] = upcoming;
+  const progress = new Map((overview.progress || []).map(item=>[item.trackId,item]));
+  const focused = tracks.filter(track => !track.cached && !track.local && progress.has(track.id))
+    .map(track => ({track,milestone:applicationCutoff(track.milestones,today)||upcoming.find(item=>item.track.id===track.id)?.milestone}))
+    .filter(item=>item.milestone).sort((a,b)=>a.milestone.date.localeCompare(b.milestone.date))[0];
+  const details = (id, title, className='') =>
+    `<a class="${className}" href="#opportunity=${encodeURIComponent(id)}" data-opportunity="${esc(id)}">${esc(title)}</a>`;
   const jump = (view, title, attributes = '') =>
-    `<button type="button" class="text-button" data-workspace-jump="${view}" ${attributes}>${title}</button>`;
-  const icon = name => `<img src="/assets/icons/${name}.svg" alt="" width="19" height="19">`;
-  const card = (title, items, empty, action) => `<article class="card workspace-card plan-card">
-    <div class="plan-card-heading"><h3>${title}</h3>${action}</div>
-    ${items.length ? `<ul class="plan-list">${items.join('')}</ul>` : `<p class="muted">${empty}</p>`}
-  </article>`;
-  const row = (name, description, value = '', tone = '') => `<li><div>${name}${description ? `<small>${esc(description)}</small>` : ''}</div>
-    ${value ? `<span class="plan-tag" data-tone="${tone}">${esc(value)}</span>` : ''}</li>`;
-  const deadlines = upcoming.map(({ track, milestone }) =>
-    row(details(track.id, track.title), milestone.label, formatDate(milestone.date)));
-  const tasks = (overview.pendingTasks || []).map(task =>
-    row(details(task.trackId, task.label), task.title, task.blocked ? 'Blocked' : task.due ? formatDate(task.due) : 'Open', task.blocked ? 'attention' : 'neutral'));
-  const requirements = (overview.requirements || []).map(item =>
-    row(details(item.trackId, item.label), item.title, item.done ? 'Complete' : item.required ? 'Required' : 'Optional', item.done ? 'done' : item.required ? 'attention' : 'neutral'));
-  const attention = priorities.filter(item => ['Critical', 'High'].includes(item.level)).slice(0, 2);
-  const focusProgress = focus && overview.progress?.find(item => item.trackId === focus.track.id);
-  const readinessAttributes = focus ? `data-readiness-track="${esc(focus.track.id)}"` : '';
-  const readinessCard = focus ? `<article class="card workspace-card plan-card scout-readiness">
-    <div class="plan-card-heading"><h3>Readiness at a glance</h3>${jump('readiness', 'Simulate', readinessAttributes)}</div>
-    <p>${details(focus.track.id, focus.track.title)}<small>${esc(focus.milestone.label)} · ${esc(formatDate(focus.milestone.date))}</small></p>
-    ${focusProgress?.requiredTotal ? `<p><strong>${focusProgress.requiredDone} of ${focusProgress.requiredTotal}</strong> required items complete</p>
+    `<button type="button" class="overview-action" data-workspace-jump="${view}" ${attributes}>${title}</button>`;
+  const dateStamp = value => {
+    const date = new Date(value+'T00:00:00Z');
+    return {day:date.getUTCDate(),month:date.toLocaleDateString('en-GB',{month:'short',timeZone:'UTC'})};
+  };
+  const clock = item => item.time ? item.time+' '+(item.zone||'') : '';
+  const deadlineRows = picks => picks.map(({track,milestone})=>{
+    const stamp=dateStamp(milestone.date);
+    return `<li class="date-line">
+      <time datetime="${esc(milestone.date)}"><strong>${stamp.day}</strong> ${esc(stamp.month)}</time>
+      <div>${details(track.id,track.title)}<small>${esc(milestone.label)}</small></div>
+      <span>${esc(clock(milestone))}</span></li>`;
+  }).join('');
+  const tasks=(overview.pendingTasks||[]).slice(0,3).map(task=>
+    `<li><div>${details(task.trackId,task.label)}<small>${esc(task.title)}</small></div>
+      <small>${esc(task.blocked?'Blocked':task.due?formatDate(task.due):'Open')}</small></li>`);
+  const requirements=(overview.requirements||[]).filter(item=>item.required&&!item.done).slice(0,3).map(item=>
+    `<li><div>${details(item.trackId,item.label)}<small>${esc(item.title)}</small></div><small>Required</small></li>`);
+  const work=[...tasks,...requirements].slice(0,5);
+  const urgent=priorities.slice(0,2);
+  const focusProgress=focused&&progress.get(focused.track.id);
+  const focusCard=focused?`<article class="overview-section scout-readiness">
+    <div class="overview-section-heading"><h3>Readiness at a glance</h3>${jump('readiness','Simulate',`data-readiness-track="${esc(focused.track.id)}"`)}</div>
+    <p>${details(focused.track.id,focused.track.title)}</p>
+    ${focusProgress.requiredTotal?`<p class="readiness-count"><strong>${focusProgress.requiredDone} / ${focusProgress.requiredTotal}</strong> required items complete</p>
       <progress aria-label="Required items complete for the featured application" value="${focusProgress.requiredDone}" max="${focusProgress.requiredTotal}"></progress>`
-      : '<p class="muted">Add required items to track checklist progress.</p>'}
-    ${focusProgress ? `<p class="muted">${focusProgress.openTasks} open tasks</p>` : ''}
-  </article>` : '';
-  const nextActions=[...tasks.slice(0,2),...requirements.slice(0,2)];
-  target.innerHTML = `<div class="scout-overview-grid"><div class="scout-overview-main">
-    ${card('Upcoming deadlines', deadlines, tracks.length?'No upcoming dates in your watchlist.':'Paste a public link above to find your first deadline.', jump('watchlist', 'Open watchlist'))}
-    ${nextActions.length ? card('Application to-dos', nextActions, '', jump('applications', 'Open applications')) : ''}
-    ${attention.length ? card('Needs attention', attention.map(item => row(details(item.id, item.title), item.next, item.level, 'attention')),
-      '', jump('risk', 'See all')) : ''}
-  </div>
-  <aside class="scout-overview-rail" aria-label="Scout assistant and application readiness">
-    <article class="card workspace-card plan-card scout-advisor">
-      <div class="plan-card-heading"><h3>${icon('scan')} Ask Scout</h3></div>
-      <form data-scout-shortcut>
-        <label class="sr-only" for="scout-overview-question">Ask Scout a question</label>
-        <input id="scout-overview-question" type="text" autocomplete="off" maxlength="500" placeholder="What should I work on first?">
-        <button type="submit" class="button secondary">Open assistant</button>
-      </form>
-    </article>
-    ${focusProgress ? readinessCard : ''}
-  </aside></div>`;
+      :`<p class="readiness-count">${focusProgress.openTasks} open tasks</p>`}
+  </article>`:'';
+  let feature;
+  if(next){
+    const {track,milestone}=next;
+    const days=Math.round((Date.parse(milestone.date)-Date.parse(today))/86400000);
+    const stamp=dateStamp(milestone.date);
+    const remaining=days===0?'Today':days===1?'Tomorrow':days<365?days+' days away':milestone.date.slice(0,4);
+    feature=`<section class="deadline-feature">
+      <div class="feature-copy">
+        <span class="feature-label">Next on your watchlist</span>
+        <h3>${esc(track.title)}</h3>
+        <p>${esc([milestone.label,formatDate(milestone.date),clock(milestone)].filter(Boolean).join(' · '))}</p>
+        ${details(track.id,'View opportunity','feature-link')}
+      </div>
+      <div class="feature-date" aria-label="${esc(formatDate(milestone.date))}"><span>${esc(stamp.month)}</span><strong>${stamp.day}</strong><small>${remaining}</small></div>
+    </section>`;
+  }else{
+    feature=`<section class="deadline-feature feature-empty"><div class="feature-copy">
+      <h3>${tracks.length?'No upcoming deadlines':'Keep track of your first deadline'}</h3>
+      <p>${tracks.length?'Open your watchlist to review earlier dates or track a new opportunity.':'Paste a public link above to find dates worth saving.'}</p>
+      ${jump('watchlist',tracks.length?'Open watchlist':'Track a page','data-focus-scan')}
+    </div></section>`;
+  }
+  target.innerHTML=`${feature}<div class="scout-overview-grid">
+    <div class="scout-overview-main">
+      <section class="overview-section">
+        <div class="overview-section-heading"><h3>Upcoming deadlines</h3>${jump('watchlist','Open watchlist')}</div>
+        ${later.length?`<ul class="overview-lines">${deadlineRows(later.slice(0,5))}</ul>`:
+          `<p class="overview-empty">${next?'No other deadlines coming up.':'Future dates will appear here.'}</p>`}
+      </section>
+      ${work.length?`<section class="overview-section">
+        <div class="overview-section-heading"><h3>Application to-dos</h3>${jump('applications','Open applications')}</div>
+        <ul class="overview-lines">${work.join('')}</ul>
+      </section>`:''}
+    </div>
+    <aside class="scout-overview-rail" aria-label="Planning tools">
+      ${urgent.length?`<section class="overview-section"><div class="overview-section-heading"><h3>Needs attention</h3>${jump('risk','See all')}</div>
+        <ul class="overview-lines">${urgent.map(item=>`<li><div>${details(item.id,item.title)}<small>${esc(item.next)}</small></div></li>`).join('')}</ul></section>`:''}
+      ${focusCard}
+      <section class="overview-section scout-advisor">
+        <div class="overview-section-heading"><h3>Ask Scout</h3></div>
+        <form data-scout-shortcut>
+          <label class="sr-only" for="scout-overview-question">Ask Scout a question</label>
+          <input id="scout-overview-question" type="text" autocomplete="off" maxlength="500" placeholder="What should I work on first?">
+          <button type="submit" class="overview-action">Open assistant <span aria-hidden="true">↗</span></button>
+        </form>
+      </section>
+    </aside></div>`;
   target.setAttribute('aria-busy', 'false');
 }
 
