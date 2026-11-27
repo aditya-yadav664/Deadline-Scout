@@ -1,5 +1,5 @@
 import {api,storage,connectGoogle} from './api.js';
-import './shared/signup-success-notices.js';
+import './shared/signup-success-notices.js?v=egress-1';
 import {suggestField,validateFiles,validateAnswer,selectedChoices} from './shared/signup.js';
 import {isLegacyGoogleCapture,sameSignupForm} from './shared/google-forms.js';
 import {instant,validDate} from './shared/dates.js';
@@ -30,7 +30,10 @@ function suggestStep(step){
  }
  return draft;
 }
-async function refresh(){({me,tracks}=await api('/api/workspace'));[drafts,profile]=await Promise.all([api('/api/signups'),api('/api/signup-profile')]);passportEntries=await api('/api/application-passport').catch(()=>[]);$('#backup-account').textContent=me.email?'Your Google account is connected.':'';for(const k of ['name','phone','college'])$('#signup-profile').elements[k].value=profile[k]||(k==='name'?me.displayName:'');$('#saved-links').innerHTML='';profile.links.forEach(addLink);paintList();groupDraftCards();}
+async function refresh(){[me,tracks,drafts,profile,passportEntries]=await Promise.all([
+  api('/api/me'),api('/api/tracks?summary=signup'),api('/api/signups?summary=1'),api('/api/signup-profile'),
+  api('/api/application-passport').catch(()=>[])
+]);$('#backup-account').textContent=me.email?'Your Google account is connected.':'';for(const k of ['name','phone','college'])$('#signup-profile').elements[k].value=profile[k]||(k==='name'?me.displayName:'');$('#saved-links').innerHTML='';profile.links.forEach(addLink);paintList();groupDraftCards();}
 function showStage(n){stage=n;for(let i=1;i<=3;i++){$('#stage-'+i).hidden=i!==n;const stepButton=$('#flow-'+i);stepButton.classList.toggle('current',i===n);if(i===n)stepButton.setAttribute('aria-current','step');else stepButton.removeAttribute('aria-current');}$('#signup-feedback').textContent='';if(n===3){previewTime();showPickerFiles(editing);}}
 function filterDrafts(){
   const query=$('#draft-search').value.trim().toLowerCase();
@@ -355,4 +358,19 @@ if(me.email&&location.pathname==='/backup.html') await openBackupTarget(new URLS
 
 if(!me.email){$('#backup-account').textContent='Sign in on the dashboard, then return here.';const b=document.createElement('button');b.className='button primary';b.textContent='Sign in with Google';b.onclick=()=>action(async()=>{sessionStorage.setItem('dd:backup-handoff',location.pathname+location.hash);await connectGoogle();});$('#backup-account').append(b);}
 
-setInterval(async()=>{if(busy||!me.email)return;try{const latest=await api('/api/signups');if(JSON.stringify(latest)!==JSON.stringify(drafts)){drafts=latest;paintList();groupDraftCards();}}catch{}},15000);
+let updatingSummaries=false;
+async function updateSummaries(){
+  const shell=$('.backup-shell');
+  if(updatingSummaries||busy||!me.email||document.visibilityState!=='visible'||shell.closest('[hidden]'))return;
+  updatingSummaries=true;
+  const started=epoch;
+  try{
+    const token=await storage.get('token');
+    const latest=await api('/api/signups?summary=1');
+    if(!busy&&started===epoch&&token===await storage.get('token')&&JSON.stringify(latest)!==JSON.stringify(drafts)){
+      drafts=latest;paintList();groupDraftCards();
+    }
+  }catch{}finally{updatingSummaries=false;}
+}
+setInterval(()=>void updateSummaries(),30000);
+document.addEventListener('visibilitychange',()=>void updateSummaries());

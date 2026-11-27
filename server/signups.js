@@ -4,6 +4,9 @@ import {formSignature,validateAnswer,validateFiles} from '../extension/shared/si
 import {isGoogleForms,sameSignupForm} from '../extension/shared/google-forms.js';
 import {instant} from '../extension/shared/dates.js';
 import {renderSignupEmail} from './email-template.js';
+const draftSummary = d => ({id:d.id,trackId:d.trackId,status:d.status,backupAt:d.backupAt,
+ title:d.title,formUrl:d.formUrl,mode:d.mode,receipt:d.receipt,notice:d.notice,steps:d.steps.map(({title,url})=>({title,url})),
+ createdAt:d.createdAt,revision:d.revision});
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 export function demoSignupSchema(){return {version:1,open:true,fee:0,terms:'Demo terms: no real organizer receives your data.',fields:[
  {key:'id:name',id:'name',name:'name',label:'Full name',type:'text',required:true,options:[]},
@@ -13,9 +16,10 @@ export function demoSignupSchema(){return {version:1,open:true,fee:0,terms:'Demo
  ]};}
 export class Signups {
  constructor({store,secrets,base}){Object.assign(this,{store,secrets,base});}
- read(owner,id){const r=this.store.get(owner,'signup',id);if(!r)throw fail('Signup draft not found.',404);return {...this.secrets.open(r.sealed),...r,sealed:undefined};}
- save(owner,d){const {sealed,...plain}=d;this.store.put(owner,'signup',d.id,{id:d.id,trackId:d.trackId,status:d.status,backupAt:d.backupAt,sealed:this.secrets.seal(plain)});return d;}
+ read(owner,id){const r=this.store.get(owner,'signup',id);if(!r)throw fail('Signup draft not found.',404);const {summary,sealed,...metadata}=r;return {...this.secrets.open(sealed),...metadata};}
+ save(owner,d){const {sealed,...plain}=d;this.store.put(owner,'signup',d.id,{id:d.id,trackId:d.trackId,status:d.status,backupAt:d.backupAt,summary:this.secrets.seal(draftSummary(d)),sealed:this.secrets.seal(plain)});return d;}
  list(owner){return this.store.list(owner,'signup').filter(r=>r.status!=='Deleted').map(r=>this.read(owner,r.id));}
+ summaries(owner){return this.store.list(owner,'signup').filter(r=>r.status!=='Deleted').map(r=>r.summary?this.secrets.open(r.summary):draftSummary(this.read(owner,r.id)));}
  schema(){const s=this.store.get('_system','demoOrganizer','schema')||demoSignupSchema();return {...s,fields:this.capture({url:this.base+'/signup-demo.html',fields:s.fields}).fields};}
  capture(input,{withAnswers=false}={}){safeUrl(input.url);const url=new URL(input.url).href;if(!Array.isArray(input.fields)||input.fields.length>100)throw fail('Invalid form capture.');
   const choiceLimit=value=>Number.isInteger(value)&&value>=0&&value<=100?value:undefined;
@@ -46,10 +50,15 @@ export class Signups {
   const id=randomUUID(),file={id,name:String(input.name).slice(0,200),size:bytes.length,type:'application/pdf',sha256:hash(bytes),version:id,expires:Date.now()+7*86400000};
   this.store.put(owner,'signupFile',id,{...file,sealed:this.secrets.seal({data:bytes.toString('base64')})});return file;
  }
- approvedFiles(owner,d){for(const step of d.steps)for(const f of step.fields.filter(f=>f.type==='file'))for(const ref of step.files?.[f.key]||[]){const file=this.store.get(owner,'signupFile',ref.id);if(!file||file.expires<Date.now()||file.sha256!==ref.sha256||file.version!==ref.version||hash(Buffer.from(this.secrets.open(file.sealed).data,'base64'))!==ref.sha256)throw fail('Approved file missing, expired or replaced. Review '+f.label+'.');}}
+ async approvedFiles(owner,d){
+  const ids=[...new Set(d.steps.flatMap(step=>step.fields.filter(f=>f.type==='file').flatMap(f=>(step.files?.[f.key]||[]).map(ref=>ref.id))))];
+  const missing=ids.filter(id=>!this.store.get(owner,'signupFile',id));
+  if(missing.length)await this.store.load?.(owner,{kind:'signupFile',id:missing});
+ for(const step of d.steps)for(const f of step.fields.filter(f=>f.type==='file'))for(const ref of step.files?.[f.key]||[]){const file=this.store.get(owner,'signupFile',ref.id);if(!file||file.expires<Date.now()||file.sha256!==ref.sha256||file.version!==ref.version||hash(Buffer.from(this.secrets.open(file.sealed).data,'base64'))!==ref.sha256)throw fail('Approved file missing, expired or replaced. Review '+f.label+'.');}}
  cancelNotices(owner,id){for(const d of this.store.list(owner,'delivery'))if(d.signupId===id&&['queued','retry','sending'].includes(d.status))this.store.put(owner,'delivery',d.id,{...d,status:'cancelled'});}
  async browserPoll(owner,id,revision,b={}){
   let d=this.read(owner,id);if(d.revision!==revision||!d.reviewedAll||d.mode!=='browser-auto')throw fail('Signup approval changed. Schedule it again.',409);
+  await this.store.load?.(owner,{kind:'track',id:d.trackId});
   if(!this.store.get(owner,'track',d.trackId)){d.status='Cancelled';this.save(owner,d);return {stop:true,status:d.status};}
   if(b.runId){
    if(d.browserRunId!==b.runId)throw fail('Wrong browser execution.',409);
@@ -57,17 +66,20 @@ export class Signups {
    if(b.result==='confirmed'){
     let receiptUrl;try{receiptUrl=new URL(b.receipt?.url);}catch{throw fail('Invalid organizer receipt.');}
     if(receiptUrl.origin!==new URL(d.formUrl).origin||!String(b.receipt?.receiptId||'').match(/^[A-Za-z0-9_-]{4,200}$/)||!b.receipt?.message)throw fail('Invalid organizer receipt.');
-    d.status='Confirmed';d.receipt=String(b.receipt.receiptId);d.receiptUrl=receiptUrl.href;d.notice='Organizer confirmed registration. Receipt: '+d.receipt+'\nReceipt page: '+d.receiptUrl;this.save(owner,d);this.notify(owner,d,d.notice);return {stop:true,status:d.status};
+    d.status='Confirmed';d.receipt=String(b.receipt.receiptId);d.receiptUrl=receiptUrl.href;d.notice='Organizer confirmed registration. Receipt: '+d.receipt+'\nReceipt page: '+d.receiptUrl;this.save(owner,d);await this.store.load?.(owner,{kind:'profile',id:'me'});this.notify(owner,d,d.notice);return {stop:true,status:d.status};
    }
    if(b.check&&d.status==='Submission requested')return {allowed:true};
    if(b.check){const track=this.store.get(owner,'track',d.trackId),m=track.milestones.find(m=>m.id===d.milestoneId);if(!m||this.deadlineTime(m)<=Date.now()||track.conflicts?.length||track.missing?.length||track.uncertain?.length||JSON.stringify([m.date,m.time,m.zone])!==JSON.stringify([d.deadline.date,d.deadline.time,d.deadline.zone]))throw fail('The deadline needs review before continuing.',409);return {allowed:true};}
-   d.status=b.result==='attempted'?'Submission requested':'Needs review';d.notice=b.result==='attempted'?'The browser requested submission once. Check the organizer for a receipt.':'Browser automation paused: '+String(b.message||'Review the form.').slice(0,500);this.save(owner,d);this.notify(owner,d,d.notice);return {stop:true,status:d.status};
+   d.status=b.result==='attempted'?'Submission requested':'Needs review';d.notice=b.result==='attempted'?'The browser requested submission once. Check the organizer for a receipt.':'Browser automation paused: '+String(b.message||'Review the form.').slice(0,500);this.save(owner,d);await this.store.load?.(owner,{kind:'profile',id:'me'});this.notify(owner,d,d.notice);return {stop:true,status:d.status};
   }
-  await this.tick(owner);d=this.read(owner,id);
+  await this.tick(owner,id);d=this.read(owner,id);
   if(d.status==='Armed')return {waiting:true,backupAt:d.backupAt};
   if(d.status==='Browser running'&&d.browserStartedAt<Date.now()-30*60000){d.status='Needs review';d.notice='The browser run did not report an outcome. Check the organizer before trying again.';this.save(owner,d);}
   if(d.status!=='Waiting for browser')return {stop:true,status:d.status};
   d.status='Browser running';d.browserStartedAt=Date.now();d.browserRunId=randomToken();d.notice='Claimed by your extension. Keep your browser running; uncertain attempts are not automatically repeated.';this.save(owner,d);
+  const ids=[...new Set(d.steps.flatMap(step=>step.fields.filter(f=>f.type==='file').flatMap(f=>(step.files?.[f.key]||[]).map(ref=>ref.id))))];
+  const missing=ids.filter(id=>!this.store.get(owner,'signupFile',id));
+  if(missing.length)await this.store.load?.(owner,{kind:'signupFile',id:missing});
   const filePayload=[];let bytes=0;for(const [stepIndex,step]of d.steps.entries())for(const field of step.fields.filter(f=>f.type==='file'))for(const ref of step.files?.[field.key]||[]){const file=await this.route(owner,'/api/signups/'+id+'/files/'+ref.id,'GET',{});bytes+=file.size;if(bytes>4*1024*1024)throw fail('Saved PDFs exceed the 4 MB session limit.');filePayload.push({stepIndex,key:field.key,id:ref.id,...file});}
   return {draft:d,filePayload,runId:d.browserRunId};
  }
@@ -83,6 +95,7 @@ export class Signups {
    // Cancelling a schedule leaves the owner's reviewed answers available for manual fill.
    const d=this.read(owner,fileMatch[1]);if(!d.reviewedAll||['Deleted','Confirmed','Already registered'].includes(d.status))throw fail('Save and review this draft before attaching files.');
    const ref=d.steps.flatMap(s=>s.fields.filter(f=>f.type==='file').flatMap(f=>s.files?.[f.key]||[])).find(f=>f.id===fileMatch[2]);
+   if(ref&&!this.store.get(owner,'signupFile',ref.id))await this.store.load?.(owner,{kind:'signupFile',id:ref.id});
    const file=ref&&this.store.get(owner,'signupFile',ref.id);if(!file||file.expires<Date.now()||file.sha256!==ref.sha256||file.version!==ref.version)throw fail('Saved PDF missing or expired. Choose it again.',404);
    const {data}=this.secrets.open(file.sealed);if(hash(Buffer.from(data,'base64'))!==file.sha256)throw fail('Saved PDF integrity check failed.');
    return {name:file.name,type:file.type,size:file.size,sha256:file.sha256,data};
@@ -90,6 +103,7 @@ export class Signups {
   if(path==='/api/signups/run'&&method==='POST'){await this.tick(owner);return {ok:true};}
   if(path==='/api/signups'&&method==='GET')return this.list(owner);
   if(path==='/api/signups'&&method==='POST'){
+   if(typeof b.id==='string')await this.store.load?.(owner,{kind:'signup',id:b.id},{kind:'delivery',signupId:b.id,filter:'pending'});
    const old=b.id?this.read(owner,b.id):null;if(old&&['Confirmed','Already registered','Deleted'].includes(old.status))throw fail('Completed drafts cannot be edited.');if(old&&b.revision!==undefined&&b.revision!==(old.revision||0))throw fail('This draft changed in another tab. Reopen it before saving.',409);
    if(!this.store.get(owner,'track',b.trackId))throw fail('Select an active tracked page.');
    const steps=(b.steps||[]).slice(0,12).map(s=>({...this.capture(s),answers:Object.fromEntries(Object.entries(s.answers||{}).slice(0,100).map(([k,v])=>[k,String(v).slice(0,10000)])),sources:s.sources||{},sharing:s.sharing||{},files:s.files||{}}));
@@ -137,11 +151,12 @@ export class Signups {
   if(d.mode==='demo-auto'){
    if(d.steps.some(s=>s.warnings?.length))throw fail('Resolve manual controls before automatic submission.');
    if(d.steps.length!==1||new URL(d.formUrl).href!==this.base+'/signup-demo.html')throw fail('Automatic submission is supported only by the built-in demo organizer.');
+   await this.store.load?.('_system',{kind:'demoOrganizer',id:'schema'});
    const schema=this.schema();if(schema.fee||schema.open!==true||schema.terms!==d.steps[0].terms)throw fail('Demo terms, fee or availability need review.');
    if(JSON.stringify(schema.fields)!==JSON.stringify(d.steps[0].fields))throw fail('Demo form changed. Capture its latest version.');
-   this.approvedFiles(owner,d);d.organizerVersion=schema.version;
+   await this.approvedFiles(owner,d);d.organizerVersion=schema.version;
   }
-  if(d.mode==='browser-auto'){this.approvedFiles(owner,d);const bytes=d.steps.flatMap(s=>Object.values(s.files||{}).flat()).reduce((sum,f)=>sum+f.size,0);if(bytes>4*1024*1024)throw fail('Saved PDFs exceed the 4 MB session limit.');delete d.browserRunId;}
+  if(d.mode==='browser-auto'){await this.approvedFiles(owner,d);const bytes=d.steps.flatMap(s=>Object.values(s.files||{}).flat()).reduce((sum,f)=>sum+f.size,0);if(bytes>4*1024*1024)throw fail('Saved PDFs exceed the 4 MB session limit.');delete d.browserRunId;}
   d.revision=(d.revision||0)+1;d.approvedAt=new Date().toISOString();d.status='Armed';delete d.notice;return this.save(owner,d);
  }
  notify(owner,d,message){
@@ -149,9 +164,9 @@ export class Signups {
   this.store.put(owner,'delivery',id+':browser',{id:id+':browser',channel:'browser',status:'queued',signupId:d.id,trackId:d.trackId,notice:{title:d.title,label:d.status,message,url}});
   if(p?.emailEnabled&&p.emailVerified)this.store.put(owner,'delivery',id+':email',{id:id+':email',channel:'email',status:'queued',signupId:d.id,trackId:d.trackId,to:p.email,subject:d.status+': '+d.title,text:message+'\n\nResume signup: '+url,html:renderSignupEmail(d.status+': '+d.title,message,url),attempts:0,createdAt:Date.now(),nextTry:Date.now()});
  }
- async tick(onlyOwner){
+ async tick(onlyOwner,onlyId){
   for(const {owner,record} of this.store.allSignups()){
-   if(onlyOwner&&owner!==onlyOwner||record.status!=='Armed')continue;const d=this.read(owner,record.id),track=this.store.get(owner,'track',d.trackId);
+   if(onlyOwner&&owner!==onlyOwner||onlyId&&record.id!==onlyId||record.status!=='Armed')continue;const d=this.read(owner,record.id),track=this.store.get(owner,'track',d.trackId);
    if(!track){d.status='Cancelled';this.save(owner,d);continue;}
    try{
     if(track.conflicts?.length||track.uncertain?.length||track.missing?.length||track.status==='check_failed')throw fail('The tracked deadline needs review.');
@@ -163,18 +178,21 @@ export class Signups {
     if(d.backupAt>Date.now())continue;
     this.validate(owner,d);
     if(this.deadlineTime(m)<=Date.now())throw fail('Registration may have closed. Review now.');
-    if(d.mode==='browser-auto'){this.approvedFiles(owner,d);d.status='Waiting for browser';d.notice='Approved background signup is due. Your connected extension will run it while your browser is open.';}
+    if(d.mode==='browser-auto'){await this.approvedFiles(owner,d);d.status='Waiting for browser';d.notice='Approved background signup is due. Your connected extension will run it while your browser is open.';}
     else if(d.mode==='reminder'){d.status='Ready to finish';d.notice='Reopen the form, restore reviewed answers, attach the listed files, and submit yourself.';}
     else{
-     const schema=this.schema();if(schema.open!==true||schema.fee||schema.version!==d.organizerVersion||schema.terms!==d.steps[0].terms||JSON.stringify(schema.fields)!==JSON.stringify(d.steps[0].fields))throw fail('Organizer form, terms, fee or registration status changed.');
-     this.approvedFiles(owner,d);
-     const email=d.steps[0].answers['id:email'],key=hash(owner+'|demo|'+email.toLowerCase()),existing=this.store.get('_system','demoSignup',key);
+     await this.store.load?.('_system',{kind:'demoOrganizer',id:'schema'});
+   const schema=this.schema();if(schema.open!==true||schema.fee||schema.version!==d.organizerVersion||schema.terms!==d.steps[0].terms||JSON.stringify(schema.fields)!==JSON.stringify(d.steps[0].fields))throw fail('Organizer form, terms, fee or registration status changed.');
+     await this.approvedFiles(owner,d);
+     const email=d.steps[0].answers['id:email'],key=hash(owner+'|demo|'+email.toLowerCase());
+     await this.store.load?.('_system',{kind:'demoSignup',id:key,projection:'metadata'});
+     const existing=this.store.get('_system','demoSignup',key);
      if(existing){d.status=existing.draftId===d.id?'Confirmed':'Already registered';d.receipt=existing.id;}
      else{const files=Object.values(d.steps[0].files||{}).flat().map(ref=>{const file=this.store.get(owner,'signupFile',ref.id);return {name:file.name,type:file.type,sha256:file.sha256,...this.secrets.open(file.sealed)};});const receipt={owner,key,id:'DEMO-'+randomToken().slice(0,10),draftId:d.id,at:new Date().toISOString(),sealedRegistration:this.secrets.seal({answers:d.steps[0].answers,files})};this.store.put('_system','demoSignup',key,receipt);if(schema.timeoutOnce){schema.timeoutOnce=false;this.store.put('_system','demoOrganizer','schema',schema);throw Object.assign(new Error('Demo timeout; checking organizer status on next run.'),{retry:true});}d.status='Confirmed';d.receipt=receipt.id;}
      d.notice='Demo organizer receipt: '+d.receipt+'. No external registration was submitted.';
     }
    }catch(e){if(e.retry){d.notice=e.message;this.save(owner,d);continue;}d.status='Needs review';d.notice=e.message;}
-   this.save(owner,d);this.notify(owner,d,d.notice);
+   this.save(owner,d);await this.store.load?.(owner,{kind:'profile',id:'me'});this.notify(owner,d,d.notice);
   }
  }
  deadlineTime(m){return m.time?Date.parse(instant(m)):Date.parse(m.date+'T23:59:00+05:30');}

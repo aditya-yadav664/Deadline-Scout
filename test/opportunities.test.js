@@ -524,3 +524,33 @@ test('overview opens a readiness scenario and pre-fills the existing assistant',
   assert.equal(await page.locator('#assistant-question').inputValue(), 'What closes next week?');
   assert.deepEqual(errors, []);
 });
+
+test('dashboard loads more timeline and email rows on demand',{skip:!executablePath},async t=>{
+  const f=await fixture(t);
+  const track=f.track;
+  const date='2099-01-01';
+  for(let i=0;i<23;i++){
+    const id='page-'+i, at=new Date(Date.UTC(2026,11,1,0,i)).toISOString();
+    f.store.put('local-demo','change',id,{id,trackId:track.id,at,title:'Change '+i,label:'Date changed',
+      before:{date},after:{date,sourceUrl:track.url,quote:'Original evidence'}});
+    f.store.put('local-demo','delivery',id,{id,at,channel:'email',subject:'Email '+i,status:'failed'});
+  }
+  const browser=await chromium.launch({executablePath,headless:true});
+  t.after(()=>browser.close());
+  const page=await browser.newPage();
+  const requests=[];
+  page.on('request',r=>requests.push(new URL(r.url()).pathname));
+  await page.goto(f.url+'/dashboard');
+  await page.getByRole('heading',{name:'Upcoming deadlines'}).waitFor();
+  assert.equal(requests.includes('/api/changes'),false);
+  assert.equal(requests.includes('/api/deliveries'),false);
+  await page.locator('#workspace-sidebar').getByRole('button',{name:/Timeline/}).click();
+  await page.getByRole('button',{name:'Load older changes'}).click();
+  await page.locator('#timeline').getByRole('heading',{name:'Change 0',exact:true}).waitFor();
+  assert.equal(await page.locator('#timeline').getByRole('heading',{name:/^Change \d+$/}).count(),23);
+  await page.locator('#workspace-sidebar').getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByText('3 shown',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Load 5 more'}).click();
+  await page.getByText('8 shown',{exact:true}).waitFor();
+  assert.equal(await page.locator('#outbox .outbox-item').count(),8);
+});

@@ -18,10 +18,29 @@ export async function settings(){
   if(!hostedBackendMigrationV1)await storage.set('hostedBackendMigrationV1',true);
   return {...saved,backendUrl:backendOrigin(saved?.backendUrl,HOSTED_BACKEND)};
 }
+const reads = new Map();
+const configs = new Map();
 export async function api(path,method='GET',body) {
   const s=await settings(),token=await storage.get('token');
-  let r;try{r=await fetch(s.backendUrl+path,{method,signal:AbortSignal.timeout(65000),headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});}catch{throw new Error('Backend unreachable. Start the Node server or check your backend URL.');}
-  const data=await r.json();if(!r.ok){const e=new Error(data.error||'Request failed.');e.status=r.status;throw e;}return data;
+  const key=JSON.stringify([s.backendUrl,token,path]);
+  // One-time capture URLs are consumed by the server and are never shared.
+  const shared=method==='GET'&&!path.startsWith('/api/captures/')&&!path.startsWith('/api/signup-captures/');
+  const cached=method==='GET'&&path==='/api/config'?configs.get(s.backendUrl):null;
+  if(cached?.expires>Date.now())return structuredClone(cached.data);
+  if(shared&&reads.has(key))return structuredClone(await reads.get(key));
+  if(method!=='GET')reads.clear();
+  const request=(async()=>{
+    let r;try{r=await fetch(s.backendUrl+path,{method,signal:AbortSignal.timeout(65000),headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});}catch{throw new Error('Backend unreachable. Start the Node server or check your backend URL.');}
+    const data=await r.json();if(!r.ok){const e=new Error(data.error||'Request failed.');e.status=r.status;throw e;}
+    if(method==='GET'&&path==='/api/config')configs.set(s.backendUrl,{expires:Date.now()+300000,data:structuredClone(data)});
+    return data;
+  })();
+  if(shared)reads.set(key,request);
+  try{return await request;}
+  finally{
+    if(shared&&reads.get(key)===request)reads.delete(key);
+    if(method!=='GET')reads.clear();
+  }
 }
 export async function connectGoogle() {
   const s=await settings(),bytes=crypto.getRandomValues(new Uint8Array(32));

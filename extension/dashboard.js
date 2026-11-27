@@ -1,9 +1,9 @@
 import {renderReadiness} from './readiness.js?v=1';
 import {renderAnswers,renderMemory,renderHeatmap,renderProductivity} from './assistant-ui.js?v=1';
 import {renderApplication,renderPassport} from './applications.js?v=readiness-1';
-import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=readiness-2';
+import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=egress-1';
 import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
-import './shared/signup-success-notices.js';
+import './shared/signup-success-notices.js?v=egress-1';
 import {api,storage,settings,isExtension,connectGoogle} from './api.js';
 import {extract,labels} from './shared/extract.js';
 import {compare} from './shared/compare.js';
@@ -13,7 +13,7 @@ const $=s=>document.querySelector(s);
 const icon=name=>'<img class="ui-icon" src="/assets/icons/'+name+'.svg" alt="">';
 const openTracks=new Set();
 const googleNamesRequested=new Set();
-let profileNameDirty=false,profileNameEditing=false,workspaceEpoch=0,outboxVisible=3,outboxOwner=null,outboxItems=[],webAlertsBusy=false;
+let profileNameDirty=false,profileNameEditing=false,workspaceEpoch=0,outboxCursor=null,outboxOwner=null,outboxItems=[],outboxAt=0,outboxRequest=0,webAlertsBusy=false;
 const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata'}).format(new Date());
 $('#today-label').textContent=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'long',year:'numeric',timeZone:'Asia/Kolkata'}).format(new Date())+' · IST';
 function nextMilestone(t){const dates=[...t.milestones].sort((a,b)=>a.date.localeCompare(b.date));return dates.find(m=>m.date>=today)||dates.at(-1);}
@@ -22,6 +22,7 @@ function dateTile(m){const d=new Date(m.date+'T12:00:00Z');return '<time class="
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeLink=value=>{try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)?esc(u.href):'#';}catch{return '#';}};
 let dashboardPrefs={groups:[],pinnedIds:[],seenChangeIds:[]},noticesShown=new Set();
+let timelineEntries=[],timelineCursor=null,timelineRequest=0,timelineLoading=false,timelineStatus='';
 let tracks=[],localTracks=[],changes=[],priorities=[],overview={},me={},config={},connected=false,draft=null,view='overview',toastTimer;
 function toast(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,7000);}
 function trackingStatus(message,signIn=false){$('#scan-feedback').hidden=!/reading|scanning/i.test(message||'');$('#tracking-status').hidden=!message;$('#tracking-status-text').textContent=message;$('#tracking-signin').hidden=!signIn;}
@@ -61,6 +62,7 @@ function showView(name,options={}){
   $('.workspace-hero').hidden=!['overview','watchlist'].includes(name);
   if(name==='passport')void loadPassport();
   if(['assistant','heatmap','productivity','memory'].includes(name))void loadPlanning(name);
+  if(name==='timeline')void loadTimeline();
   if(name==='backup')void mountBackup();
   if(name==='readiness'){
     if(location.hash.startsWith('#opportunity='))history.replaceState(null,'',location.pathname+location.search);
@@ -153,7 +155,7 @@ async function refresh(){
     config=await api('/api/config');connected=true;
     if(!await storage.get('token')&&config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);}
     if(await storage.get('token')){
-      try{const workspace=await api('/api/workspace');if(epoch!==workspaceEpoch)return;({tracks,changes,me}=workspace);priorities=workspace.priorities||[];overview=workspace.overview||{};dashboardPrefs=workspace.dashboard||{groups:[],pinnedIds:[],seenChangeIds:[]};}
+      try{const workspace=await api('/api/workspace?compact=1');if(epoch!==workspaceEpoch)return;({tracks,changes,me}=workspace);priorities=workspace.priorities||[];overview=workspace.overview||{};dashboardPrefs=workspace.dashboard||{groups:[],pinnedIds:[],seenChangeIds:[]};}
       catch(e){if(e.status===401){await storage.set('token',null);tracks=[];priorities=[];overview={};me={};if(config.auth==='local'){const s=await api('/api/local-session','POST',{});await storage.set('token',s.token);return refresh();}}else throw e;}
     }else{tracks=[];priorities=[];overview={};me={};}
     await storage.set('cachedTracks',tracks);
@@ -162,8 +164,30 @@ async function refresh(){
   if(!me.email)dashboardPrefs=await storage.get('dashboard-local')||{groups:[],pinnedIds:[],seenChangeIds:[]};
   const activeTrackIds=new Set([...tracks,...localTracks].map(t=>t.id));
   changes=[...new Map([...changes,...await storage.get('localChanges')||[]].filter(c=>activeTrackIds.has(c.trackId)).map(c=>[c.id,c])).values()].sort((a,b)=>b.at.localeCompare(a.at));render();
+  if(view==='timeline')void loadTimeline();
 }
 const statusLabels={watching:['Watching',''],changed:['Date updated','warn'],conflict:['Sources disagree','warn'],needs_review:['Review date','warn'],check_failed:['Check failed','warn'],date_missing:['Date missing','warn'],manual:['Manual reminder','neutral']};
+async function loadTimeline({more=false}={}){
+  if(timelineLoading||!connected||!me.email||more&&!timelineCursor)return;
+  const request=++timelineRequest,epoch=workspaceEpoch,cursor=more?timelineCursor:null;
+  timelineLoading=true;
+  timelineStatus='Loading date changes…';
+  $('#timeline-status').textContent=timelineStatus;
+  $('#timeline-more').disabled=true;
+  try{
+    const page=await api('/api/changes?limit=20'+(cursor?'&after='+encodeURIComponent(cursor):''));
+    if(request!==timelineRequest||epoch!==workspaceEpoch)return;
+    const known=new Set(timelineEntries.map(entry=>entry.id));
+    const keepOlder=more||timelineEntries.length>20&&page.entries.some(entry=>known.has(entry.id));
+    timelineEntries=[...new Map([...(keepOlder?timelineEntries:[]),...page.entries].map(entry=>[entry.id,entry])).values()];
+    if(more||!keepOlder)timelineCursor=page.next;
+    timelineStatus='';
+  }catch(error){if(request===timelineRequest&&epoch===workspaceEpoch)timelineStatus=error.message;}
+  finally{
+    if(request===timelineRequest){timelineLoading=false;if(view==='timeline')render();}
+  }
+}
+$('#timeline-more').onclick=()=>void loadTimeline({more:true});
 function render(){
   $('#tracks').setAttribute('aria-busy','false');
   const all=[...tracks,...localTracks.map(t=>({...t,local:true}))];
@@ -176,9 +200,9 @@ function render(){
   $('#profile-email').textContent=me.email||'Not signed in';$('#profile-status').textContent=me.email?(me.googleConnected?'Google Calendar & Tasks connected':'Google account signed in'):'Sign in to connect your Google account.';$('#profile-avatar').innerHTML=me.email?esc((me.displayName||me.email)[0].toUpperCase()):icon('user');$('#profile-signin').hidden=!!me.email;$('#profile-switch').hidden=!me.email;$('#sign-out').hidden=!me.email;
   if(!me.email){profileNameDirty=false;profileNameEditing=false;}
   $('#profile-identity').hidden=!me.email;$('#profile-display-name').textContent=me.displayName||'Your profile';$('#edit-profile-name').hidden=profileNameEditing;$('#profile-name-form').hidden=!me.email||!profileNameEditing;if(!profileNameEditing&&!profileNameDirty)$('#profile-name').value=me.displayName||'';
-  if(outboxOwner!==me.email){outboxOwner=me.email;outboxVisible=3;outboxItems=[];paintOutbox();}
+  if(outboxOwner!==me.email){outboxOwner=me.email;outboxCursor=null;outboxAt=0;outboxItems=[];paintOutbox();}
   $('#radar-title').textContent=me.displayName?'Welcome, '+me.displayName.split(/\s+/)[0]:'Your workspace';
-  $('#notification-summary').textContent=changes.length?changes.length+' date updates in your timeline.':'No date updates yet.';
+  $('#notification-summary').textContent=changes.length?'Date updates are available in your timeline.':'No date updates yet.';
   $('#track-count').textContent=all.length;$('#change-count').textContent=all.reduce((count,t)=>count+t.milestones.length,0);
   const reviews=all.filter(t=>['conflict','needs_review','check_failed','date_missing'].includes(t.status)).length;$('#review-count').textContent=reviews?`${reviews} need${reviews===1?'s':''} attention`:'';
   const ordered=[...all].filter(t=>t.title.toLowerCase().includes($('#find-event').value.trim().toLowerCase())).sort((a,b)=>{const ad=a.milestones.find(m=>m.kind==='event')?.date||nextMilestone(a).date,bd=b.milestones.find(m=>m.kind==='event')?.date||nextMilestone(b).date;return (ad<today)-(bd<today)||ad.localeCompare(bd);});
@@ -189,7 +213,14 @@ function render(){
   $('#tracks').innerHTML=$('#watchlist-layout').value==='groups'?renderGroups(ordered):ordered.map(t=>renderTrack(t)).join('')||'<div class="empty"><h3>'+ (all.length?'No matching saved names':'Your watchlist is empty')+'</h3><p>'+(all.length?'Try a different name.':'Paste a public page URL above to find dates.')+'</p></div>';
   $('#tracks').querySelectorAll('[data-group-edit]').forEach(b=>b.onclick=()=>groupDialog(b.dataset.groupEdit));
   void showChangeMessages();
-  const history=changes.length?changes.map(c=>`<article class="event"><time>${esc(new Date(c.at).toLocaleString())}</time><h3>${esc(c.title)}</h3><p>${esc(c.label)}</p><div class="diff-box"><div><small>Before</small><strong>${esc(formatDate(c.before.date))}</strong><span class="date-meta">${esc(c.before.time?c.before.time+' '+c.before.zone:'Date only')}</span></div><div><small>After</small><strong>${esc(formatDate(c.after.date))}</strong><span class="date-meta">${esc(c.after.time?c.after.time+' '+c.after.zone:'Date only')}</span></div></div><p class="impact">${esc(c.impact)}</p><blockquote class="evidence">${esc(c.after.quote)}</blockquote><a href="${safeLink(c.after.sourceUrl)}" target="_blank" rel="noreferrer">View source</a></article>`).join(''):'<div class="empty"><div class="empty-symbol">'+icon('list-details')+'</div><h3>No changes. No noise.</h3><p>When a tracked date changes, you’ll see the before, after, and evidence here.</p></div>';
+  const timelineHistory=[...new Map([...(connected&&me.email?timelineEntries:changes),
+    ...changes.filter(change=>localTracks.some(track=>track.id===change.trackId))]
+    .filter(change=>all.some(track=>track.id===change.trackId)).map(change=>[change.id,change])).values()]
+    .sort((a,b)=>b.at.localeCompare(a.at));
+  $('#timeline-more').hidden=!timelineCursor;
+  $('#timeline-more').disabled=timelineLoading;
+  $('#timeline-status').textContent=timelineStatus;
+  const history=timelineHistory.length?timelineHistory.map(c=>`<article class="event"><time>${esc(new Date(c.at).toLocaleString())}</time><h3>${esc(c.title)}</h3><p>${esc(c.label)}</p><div class="diff-box"><div><small>Before</small><strong>${esc(formatDate(c.before.date))}</strong><span class="date-meta">${esc(c.before.time?c.before.time+' '+c.before.zone:'Date only')}</span></div><div><small>After</small><strong>${esc(formatDate(c.after.date))}</strong><span class="date-meta">${esc(c.after.time?c.after.time+' '+c.after.zone:'Date only')}</span></div></div><p class="impact">${esc(c.impact)}</p><blockquote class="evidence">${esc(c.after.quote)}</blockquote><a href="${safeLink(c.after.sourceUrl)}" target="_blank" rel="noreferrer">View source</a></article>`).join(''):'<div class="empty"><div class="empty-symbol">'+icon('list-details')+'</div><h3>No changes. No noise.</h3><p>When a tracked date changes, you’ll see the before, after, and evidence here.</p></div>';
   const milestones=all.flatMap(t=>t.milestones.map(m=>({track:t,m}))).sort((a,b)=>a.m.date.localeCompare(b.m.date)||(a.m.time||'').localeCompare(b.m.time||'')||a.track.title.localeCompare(b.track.title));
   function scheduleRows(rows){return rows.map(({track:t,m})=>`<article class="event schedule-event"><time datetime="${esc(m.date)}">${esc(formatDate(m.date))}${m.time?' · '+esc(m.time)+' '+esc(displayZone(m.zone||DEFAULT_TIMEZONE)):' · Date only'}</time><h3>${esc(t.title)}</h3><p>${esc(m.label)}</p>${m.manual?'<p class="muted">Manual reminder · not monitored</p>':''}<a href="${safeLink(t.url)}" target="_blank" rel="noreferrer">Open event page</a></article>`).join('');}
   const upcoming=milestones.filter(({m})=>m.date>=today),past=milestones.filter(({m})=>m.date<today);
@@ -231,7 +262,7 @@ async function inspect(url,captured){
   if(!/^https?:\/\//i.test(url))throw new Error('Use a public HTTP(S) page. Browser settings and local files cannot be tracked.');
   trackingStatus('Reading the page with dates…');
   let page,monitoring=true;
-  if(connected){try{page=await api('/api/inspect','POST',{url});}catch(e){if(!captured)throw e;page=captured;monitoring=false;toast(e.message+' Captured dates can be saved as manual reminders.');}}
+  if(connected){try{page=await api('/api/inspect','POST',{url,summary:true});}catch(e){if(!captured)throw e;page=captured;monitoring=false;toast(e.message+' Captured dates can be saved as manual reminders.');}}
   else if(captured){page=captured;monitoring=false;}
   else{
     if(!isExtension)throw new Error('Start the backend to inspect URLs.');
@@ -265,7 +296,7 @@ function renderDraft(){
   $('#cancel-draft').onclick=closeDraft;
   $('#add-manual').onclick=()=>{readDraft();draft.milestones.push(manualMilestone(draft.url));renderDraft();};
   box.querySelectorAll('[data-add-source]').forEach(button=>button.onclick=()=>run(button,async()=>{
-    readDraft();if(!connected)throw new Error('Start the backend to add a monitored supporting source.');const page=await api('/api/inspect','POST',{url:button.dataset.addSource});draft.sources.push(button.dataset.addSource);const added=page.milestones.map(m=>({...m,detected:{time:m.time??null,zone:m.zone??null},confirmed:false}));draft.milestones=dedupeMilestones([...draft.milestones,...added]);draft.catalog.push(...structuredClone(added));renderDraft();toast('Supporting source added. Repeated copies are filtered; distinct milestones can share a date.');
+    readDraft();if(!connected)throw new Error('Start the backend to add a monitored supporting source.');const page=await api('/api/inspect','POST',{url:button.dataset.addSource,summary:true});draft.sources.push(button.dataset.addSource);const added=page.milestones.map(m=>({...m,detected:{time:m.time??null,zone:m.zone??null},confirmed:false}));draft.milestones=dedupeMilestones([...draft.milestones,...added]);draft.catalog.push(...structuredClone(added));renderDraft();toast('Supporting source added. Repeated copies are filtered; distinct milestones can share a date.');
   }));
   $('#save-draft').onclick=e=>run(e.currentTarget,saveDraft);
   box.querySelectorAll('[data-candidate]').forEach(node=>{
@@ -360,15 +391,28 @@ function resolveDialog(t,kind,index,milestoneId){
   });
 }
 function paintOutbox(){
-  const shown=outboxItems.slice(0,outboxVisible);$('#outbox').innerHTML=shown.map(d=>`<div class="outbox-item"><strong>${esc(d.subject||'Email alert')}</strong><p>${esc(d.to)} · ${esc(d.status)}</p><p>${esc(d.label||d.error||'Queued')}</p>${d.status==='demo'?`<pre>${esc(d.text)}</pre>`:''}</div>`).join('')||'<p class="muted">No email activity yet.</p>';
-  $('#outbox-load-bar').hidden=outboxItems.length===0;$('#outbox-count').textContent=shown.length+' of '+outboxItems.length;$('#load-more-outbox').hidden=shown.length>=outboxItems.length;
+  $('#outbox').innerHTML=outboxItems.map(d=>`<div class="outbox-item"><strong>${esc(d.subject||'Email alert')}</strong><p>${esc(d.to)} · ${esc(d.status)}</p><p>${esc(d.label||d.error||'Queued')}</p>${d.status==='demo'?`<pre>${esc(d.text)}</pre>`:''}</div>`).join('')||'<p class="muted">No email activity yet.</p>';
+  $('#outbox-load-bar').hidden=!outboxItems.length;
+  $('#outbox-count').textContent=outboxItems.length+' shown';
+  $('#load-more-outbox').hidden=!outboxCursor;
 }
-async function renderOutbox(){const epoch=workspaceEpoch,owner=me.email;if(outboxOwner!==me.email){outboxOwner=me.email;outboxVisible=3;}const items=await api('/api/deliveries');if(epoch!==workspaceEpoch||owner!==me.email)return;outboxItems=items.filter(d=>d.channel!=='browser').sort((a,b)=>String(b.at||'').localeCompare(String(a.at||'')));paintOutbox();}
-$('#load-more-outbox').onclick=()=>{outboxVisible+=5;paintOutbox();};
+async function renderOutbox({more=false,force=false}={}){
+  if(!more&&!force&&outboxAt>Date.now()-30000)return;
+  const epoch=workspaceEpoch,owner=me.email,request=++outboxRequest;
+  const cursor=more?outboxCursor:null;
+  if(more&&!cursor)return;
+  const page=await api('/api/deliveries?limit='+(more?5:3)+(cursor?'&after='+encodeURIComponent(cursor):''));
+  if(epoch!==workspaceEpoch||owner!==me.email||request!==outboxRequest)return;
+  outboxItems=more?[...outboxItems,...page.entries]:page.entries;
+  outboxCursor=page.next;
+  outboxAt=Date.now();
+  paintOutbox();
+}
+$('#load-more-outbox').onclick=event=>void run(event.currentTarget,()=>renderOutbox({more:true}));
 $('#clear-account-data').onclick=e=>run(e.currentTarget,async()=>{
   if(!connected||!await storage.get('token'))throw new Error('Sign in to clear your account data.');
-  workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#passport-content').replaceChildren();for(const id of ['assistant-results','memory-content','heatmap-content','productivity-content'])$('#'+id).replaceChildren();answerEntries=[];$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();$('#clear-data-status').textContent='Clearing…';
-  try{await api('/api/account/clear-data','POST',{action:'clear-account-data'});workspaceEpoch++;for(const key of ['localTracks','localChanges','cachedTracks'])await storage.set(key,[]);await storage.set('pendingReview',null);tracks=[];localTracks=[];changes=[];priorities=[];overview={};openTracks.clear();outboxItems=[];outboxVisible=3;paintOutbox();if(draft)await closeDraft();await refresh();$('#clear-data-status').textContent='Account activity cleared. Your profile and Google connection are unchanged.';}catch(error){$('#clear-data-status').textContent=error.message;throw error;}
+  workspaceEpoch++;timelineRequest++;timelineEntries=[];timelineCursor=null;timelineLoading=false;timelineStatus='';showView('overview');$('#opportunity-detail').replaceChildren();$('#passport-content').replaceChildren();for(const id of ['assistant-results','memory-content','heatmap-content','productivity-content'])$('#'+id).replaceChildren();answerEntries=[];$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();$('#clear-data-status').textContent='Clearing…';
+  try{await api('/api/account/clear-data','POST',{action:'clear-account-data'});workspaceEpoch++;for(const key of ['localTracks','localChanges','cachedTracks'])await storage.set(key,[]);await storage.set('pendingReview',null);tracks=[];localTracks=[];changes=[];priorities=[];overview={};openTracks.clear();outboxItems=[];outboxCursor=null;outboxAt=0;paintOutbox();if(draft)await closeDraft();await refresh();$('#clear-data-status').textContent='Account activity cleared. Your profile and Google connection are unchanged.';}catch(error){$('#clear-data-status').textContent=error.message;throw error;}
 });
 $('#watchlist-view').onclick=e=>{
   const button=e.target.closest('[data-action]');if(!button)return;
@@ -405,7 +449,7 @@ function mountBackup(){
       stylesheet.rel='stylesheet';stylesheet.href='/backup.css?v=4';
       document.head.append(stylesheet);
       target.replaceChildren(section);
-      return await import('./backup.js?v=phase4-1');
+      return await import('./backup.js?v=egress-1');
     })().catch(error=>{target.textContent=error.message;backupMount=null;});
   }
   return backupMount;
@@ -600,7 +644,7 @@ $('#opportunity-detail').addEventListener('submit',event=>{
 $('#find-event').addEventListener('input',()=>{
   if($('#find-event').value.trim()&&view!=='watchlist')showView('watchlist');
 });
-document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{showView(button.dataset.view);if(view==='settings'&&connected)renderOutbox().catch(()=>{});});
+document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{showView(button.dataset.view);});
 document.querySelector('.workspace-navigation>.brand').onclick=event=>{
   event.preventDefault();
   showView('overview');
@@ -644,7 +688,7 @@ $('#profile-name-form').onsubmit=e=>{e.preventDefault();void run($('#save-profil
   $('#profile-name-status').textContent='Saving…';try{const result=await api('/api/me','PATCH',{displayName:$('#profile-name').value});me.displayName=result.displayName;profileNameDirty=false;profileNameEditing=false;await refresh();toast('Name saved.');if($('#profile-popover').matches(':popover-open'))$('#edit-profile-name').focus();}catch(error){$('#profile-name-status').textContent=error.message;throw error;}
 });};
 $('#profile-signin').onclick=e=>run(e.currentTarget,signIn);
-async function signOut(){workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#passport-content').replaceChildren();for(const id of ['assistant-results','memory-content','heatmap-content','productivity-content'])$('#'+id).replaceChildren();answerEntries=[];$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];priorities=[];me={};await storage.set('cachedTracks',[]);location.replace('/');}}
+async function signOut(){workspaceEpoch++;timelineRequest++;timelineEntries=[];timelineCursor=null;timelineLoading=false;timelineStatus='';showView('overview');$('#opportunity-detail').replaceChildren();$('#passport-content').replaceChildren();for(const id of ['assistant-results','memory-content','heatmap-content','productivity-content'])$('#'+id).replaceChildren();answerEntries=[];$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];priorities=[];me={};await storage.set('cachedTracks',[]);location.replace('/');}}
 $('#profile-switch').onclick=e=>run(e.currentTarget,async()=>{await signOut();await signIn();});
 async function signIn(){if(draft){readDraft();await storage.set('pendingReview',draft);}await connectGoogle();await refresh();}
 $('#tracking-signin').onclick=e=>run(e.currentTarget,signIn);
@@ -673,7 +717,7 @@ function websiteNotification(title,body,tag,url){
   return new Promise((resolve,reject)=>{const notification=new Notification(title,{body,icon:'/icon128.png',tag});const timer=setTimeout(()=>reject(new Error('No notification confirmation received. Check your browser and system notification settings.')),15000);notification.onshow=()=>{clearTimeout(timer);resolve();};notification.onerror=()=>{clearTimeout(timer);reject(new Error('The browser could not show the notification. Check your browser and system notification settings.'));};notification.onclick=()=>{window.focus();if(url&&new URL(url).origin===location.origin)location.assign(url);else showView('timeline');notification.close();};});
 }
 async function surfaceWebsiteAlerts(){
-  if(isExtension||webAlertsBusy||!connected||!me.email||!('Notification' in window)||Notification.permission!=='granted'||!await storage.get('webAlerts:'+me.email))return;
+  if(document.visibilityState!=='visible'||isExtension||webAlertsBusy||!connected||!me.email||!('Notification' in window)||Notification.permission!=='granted'||!await storage.get('webAlerts:'+me.email))return;
   webAlertsBusy=true;try{await deliverBrowserAlerts({load:()=>api('/api/alerts'),notify:alert=>{if(alert.notice)return websiteNotification(alert.notice.title+': '+alert.notice.label,alert.notice.message,alert.id,alert.notice.url);const c=alert.change;return websiteNotification(c.title+': '+c.label,c.before.date+' → '+c.after.date+'\n'+c.impact,alert.id);},ack:id=>api('/api/alerts/ack','POST',{id})});$('#browser-alerts-status').textContent='Website alerts connected. Keep this page open.';}catch(error){$('#browser-alerts-status').textContent=error.message;}finally{webAlertsBusy=false;}
 }
 $('#browser-alerts').onchange=e=>run(null,async()=>{
@@ -693,7 +737,7 @@ $('#test-browser-alert').onclick=e=>run(e.currentTarget,async()=>{
   $('#browser-alerts-status').textContent='Test sent. If no banner appears, check Windows notification settings and Do not disturb.';
 });
 $('#email-alerts').onchange=e=>run(null,async()=>{try{await api('/api/settings','PATCH',{emailEnabled:e.target.checked});await refresh();}catch(error){e.target.checked=!e.target.checked;throw error;}});
-$('#test-email').onclick=e=>run(e.currentTarget,async()=>{const d=await api('/api/email/test','POST',{});toast(d.label);await renderOutbox();});
+$('#test-email').onclick=e=>run(e.currentTarget,async()=>{const d=await api('/api/email/test','POST',{});toast(d.label);await renderOutbox({force:true});});
 $('#save-backend').onclick=e=>run(e.currentTarget,async()=>{
   const u=new URL($('#backend-url').value);if(!['https:','http:'].includes(u.protocol)||u.pathname!=='/'||u.username||u.password)throw new Error('Enter a backend origin, such as https://api.example.com.');
   if(u.protocol==='http:'&&!['localhost','127.0.0.1'].includes(u.hostname))throw new Error('Hosted backends require HTTPS.');
@@ -701,7 +745,7 @@ $('#save-backend').onclick=e=>run(e.currentTarget,async()=>{
   await storage.set('settings',{backendUrl:u.origin});await storage.set('token',null);await refresh();toast('Backend connection saved.');
 });
 $('#apply-demo').onclick=e=>run(e.currentTarget,async()=>{await api('/api/demo','POST',{mode:$('#demo-mode').value});toast('Fictional source updated. Use Check now on your demo registration.');});
-$('#refresh-outbox').onclick=e=>run(e.currentTarget,renderOutbox);
+$('#refresh-outbox').onclick=e=>run(e.currentTarget,()=>renderOutbox({force:true}));
 $('#sign-out').onclick=e=>run(e.currentTarget,async()=>{await signOut();toast('Signed out.');});
 async function openCapturedReview(token){
   const captured=await api('/api/captures/'+encodeURIComponent(token));
@@ -710,7 +754,7 @@ async function openCapturedReview(token){
   const current={url:captured.url,title:captured.title,sources:[captured.url],links:captured.links||[],verifying:true,monitoring:false,milestones:preview.length?preview:[manualMilestone(captured.url)]};
   current.catalog=structuredClone(current.milestones);draft=current;renderDraft();
   // Show the extension's evidence first. Re-reading a rendered source can be slow.
-  let serverPage=null;try{serverPage=await api('/api/inspect','POST',{url:captured.url});}catch{/* Preserve captured evidence if source verification fails. */}
+  let serverPage=null;try{serverPage=await api('/api/inspect','POST',{url:captured.url,summary:true});}catch{/* Preserve captured evidence if source verification fails. */}
   if(draft!==current)return; // Closing the review must not reopen it after the request finishes.
   const all=mergeCapturedMilestones(captured.milestones,serverPage?.milestones).map(m=>({...m,confirmed:false,detected:{time:m.time??null,zone:m.zone??null}}));
   Object.assign(current,{verifying:false,monitoring:!!serverPage?.milestones.length,milestones:all.length?all:[manualMilestone(captured.url)]});
@@ -732,9 +776,14 @@ if(location.pathname!=='/auth/done'){
   else {const setup=await storage.get('pendingBackgroundSetup');if(setup&&setup.expires>Date.now())await finishBackgroundSetup(setup);else{const pending=await storage.get('pendingReview');if(pending){draft=pending;renderDraft();}if(['#settings','#timeline','#watchlist'].includes(location.hash))showView(location.hash.slice(1));else if(fragment.has('opportunity'))await openOpportunity(fragment.get('opportunity'),{focus:false});}}
 }
 let refreshing=false;
-setInterval(async()=>{
-  if(refreshing||document.visibilityState!=='visible'||draft||$('#action-dialog').open||view==='settings')return;
+async function refreshVisibleWorkspace(){
+  if(refreshing||document.visibilityState!=='visible'||draft||$('#action-dialog').open||!['overview','watchlist','timeline','applications'].includes(view))return;
   refreshing=true;try{await refresh();}finally{refreshing=false;}
-},15000);
-
-void surfaceWebsiteAlerts();setInterval(()=>void surfaceWebsiteAlerts(),15000);
+}
+setInterval(()=>void refreshVisibleWorkspace(),60000);
+void surfaceWebsiteAlerts();
+setInterval(()=>void surfaceWebsiteAlerts(),30000);
+document.addEventListener('visibilitychange',()=>{
+  void refreshVisibleWorkspace();
+  void surfaceWebsiteAlerts();
+});

@@ -1,3 +1,4 @@
+import {accountActivity,loadAccountRoute} from './cloud-scope.js';
 import {askScout, productivity, readScoutData, saveScoutData, updateMemory} from './assistant.js';
 import {Signups} from './signups.js';
 import {dedupeMilestones,milestoneKey} from '../extension/shared/milestone-selection.js';
@@ -50,7 +51,7 @@ export function createApp(options={}) {
   async function readPage(url) {
     const u=safeUrl(url);
     // This exact fixture is generated in-process, never fetched over a network.
-    if(u.origin===new URL(base).origin&&/^\/demo\/(registration|faq)$/.test(u.pathname)&&!u.search){const state=store.get('_system','demo','state')||{mode:'original'};return {...readHtml(demoHtml(u.pathname,state),u.href),url:u.href};}
+    if(u.origin===new URL(base).origin&&/^\/demo\/(registration|faq)$/.test(u.pathname)&&!u.search){await store.load?.('_system',{kind:'demo',id:'state'});const state=store.get('_system','demo','state')||{mode:'original'};return {...readHtml(demoHtml(u.pathname,state),u.href),url:u.href};}
     const page=await readRegistrationSource(u.href);
     if(env.GEMINI_API_KEY){
       const assisted=await modelExtract(page.text,u.href,env);
@@ -65,7 +66,20 @@ export function createApp(options={}) {
   async function body(req,limit=300000) {let bytes=0,chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>limit)throw fail('Request too large.',413);chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{throw fail('Invalid JSON.');}}
   function profileFor(owner) {return store.get(owner,'profile','me')||{email:'',emailEnabled:false,emailVerified:false};}
   function changesFor(owner){const active=new Set(store.list(owner,'track').map(t=>t.id));return store.list(owner,'change').filter(c=>active.has(c.trackId)).sort((a,b)=>b.at.localeCompare(a.at));}
-  function enrich(owner,t) {return {...t,signupDrafts:signups.list(owner).filter(d=>d.trackId===t.id).map(d=>({id:d.id,title:d.title,status:d.status,formUrl:d.formUrl})),googleLinks:store.list(owner,'googleLink').filter(l=>l.trackId===t.id)};}
+  function compactChanges(owner,dashboard){
+    const history=changesFor(owner),latest=new Map(),seen=new Set(dashboard.seenChangeIds||[]);
+    for(const change of history)if(!latest.has(change.trackId))latest.set(change.trackId,change);
+    return [...new Map([...latest.values(),...history.filter(change=>!seen.has(change.id)).slice(0,12)].map(change=>[change.id,change])).values()]
+      .sort((a,b)=>b.at.localeCompare(a.at));
+  }
+  function enrichList(owner,tracks){
+    const drafts=Map.groupBy(signups.summaries(owner),draft=>draft.trackId);
+    const links=Map.groupBy(store.list(owner,'googleLink'),link=>link.trackId);
+    return tracks.map(track=>enrich(owner,track,drafts.get(track.id)||[],links.get(track.id)||[]));
+  }
+  function enrich(owner,t,drafts=signups.summaries(owner).filter(d=>d.trackId===t.id),links=store.list(owner,'googleLink').filter(l=>l.trackId===t.id)) {
+    return {...t,signupDrafts:drafts.map(({id,title,status,formUrl})=>({id,title,status,formUrl})),googleLinks:links};
+  }
   const buckets=new Map();
   const server=http.createServer(async(req,res)=>{
     const origin=req.headers.origin;
@@ -79,21 +93,24 @@ export function createApp(options={}) {
       if(req.method==='OPTIONS'){res.writeHead(204);return res.end();}
       const u=new URL(req.url,base),path=u.pathname;
       if(path==='/api/config')return send({name:'Deadline Scout',auth:liveAuth?'supabase':'local',email:email.mode,model:!!env.GEMINI_API_KEY,base,googleConfigured:liveAuth&&!!env.GOOGLE_CLIENT_ID&&!!env.GOOGLE_CLIENT_SECRET});
-      if(path==='/api/demo-organizer/schema'&&req.method==='GET')return send(signups.schema());
-      if(path==='/api/signup-captures'&&req.method==='POST'){const key='signup-capture:'+req.socket.remoteAddress,q=buckets.get(key)||{count:0,until:Date.now()+60000};if(q.until<Date.now()){q.count=0;q.until=Date.now()+60000;}q.count++;buckets.set(key,q);if(q.count>20)throw fail('Too many form captures. Wait one minute.',429);for(const old of store.list('_system','signupCapture'))if(old.expires<Date.now())store.remove('_system','signupCapture',old.id);const b=await body(req),inputs=b.steps||[b.step];if(!Array.isArray(inputs)||!inputs.length||inputs.length>12)throw fail('Capture between 1 and 12 pages.');const steps=inputs.map(s=>signups.capture(s,{withAnswers:true})),step=steps[0],token=randomToken();if(steps.some(s=>new URL(s.url).origin!==new URL(step.url).origin))throw fail('Capture one form site at a time.');store.put('_system','signupCapture',hash(token),{id:hash(token),expires:Date.now()+600000,sealed:secrets.seal({step,steps,extensionId:b.extensionId})});return send({url:base+'/backup.html#capture='+token});}
+      if(path==='/api/demo-organizer/schema'&&req.method==='GET'){await store.load?.('_system',{kind:'demoOrganizer',id:'schema'});return send(signups.schema());}
+      if(path==='/api/signup-captures'&&req.method==='POST'){const key='signup-capture:'+req.socket.remoteAddress,q=buckets.get(key)||{count:0,until:Date.now()+60000};if(q.until<Date.now()){q.count=0;q.until=Date.now()+60000;}q.count++;buckets.set(key,q);if(q.count>20)throw fail('Too many form captures. Wait one minute.',429);await store.load?.('_system',{kind:'signupCapture',filter:'expired',projection:'metadata'});for(const old of store.list('_system','signupCapture'))if(old.expires<Date.now())store.remove('_system','signupCapture',old.id);const b=await body(req),inputs=b.steps||[b.step];if(!Array.isArray(inputs)||!inputs.length||inputs.length>12)throw fail('Capture between 1 and 12 pages.');const steps=inputs.map(s=>signups.capture(s,{withAnswers:true})),step=steps[0],token=randomToken();if(steps.some(s=>new URL(s.url).origin!==new URL(step.url).origin))throw fail('Capture one form site at a time.');store.put('_system','signupCapture',hash(token),{id:hash(token),expires:Date.now()+600000,sealed:secrets.seal({step,steps,extensionId:b.extensionId})});return send({url:base+'/backup.html#capture='+token});}
       if(path==='/health')return send({ok:true});
       if(path==='/api/captures'&&req.method==='POST'){
         const key='capture:'+req.socket.remoteAddress,b=buckets.get(key)||{count:0,until:Date.now()+60000};if(b.until<Date.now()){b.count=0;b.until=Date.now()+60000;}b.count++;buckets.set(key,b);if(b.count>20)throw fail('Too many scans. Wait one minute.',429);
+        await store.load?.('_system',{kind:'capture',filter:'expired',projection:'metadata'});
         return send(saveCapture(store,secrets,await body(req),base),201);
       }
-      if(/^\/api\/captures\/[A-Za-z0-9_-]{43}$/.test(path)&&req.method==='GET')return send(consumeCapture(store,secrets,path.split('/').at(-1)));
+      if(/^\/api\/captures\/[A-Za-z0-9_-]{43}$/.test(path)&&req.method==='GET'){await store.load?.('_system',{kind:'capture',id:hash(path.split('/').at(-1))});return send(consumeCapture(store,secrets,path.split('/').at(-1)));}
       if(path==='/api/inspect'&&req.method==='POST'){
         const key='preview:'+req.socket.remoteAddress;
         const bucket=buckets.get(key)||{count:0,until:Date.now()+60000};
         if(bucket.until<Date.now()){bucket.count=0;bucket.until=Date.now()+60000;}
         bucket.count++;buckets.set(key,bucket);
         if(bucket.count>20)throw fail('Too many URL previews. Wait one minute.',429);
-        const b=await body(req);return send(await readPage(b.url));
+        const b=await body(req),page=await readPage(b.url);
+        if(b.summary===true){const {url,title,milestones,links,notice}=page;return send({url,title,milestones,links,notice});}
+        return send(page);
       }
       if(path==='/api/local-session'&&req.method==='POST'){
         if(liveAuth||!loopback)throw fail('Local demo sign-in is disabled.',403);
@@ -107,14 +124,14 @@ export function createApp(options={}) {
         return send({url:base+'/auth/start?flow='+id});
       }
       if(path==='/auth/start'){
-        const flow=u.searchParams.get('flow'),state=store.get('_system','oauth',hash(flow||''));if(!state||state.expires<Date.now())throw fail('Sign-in expired. Start again.');
+        const flow=u.searchParams.get('flow');await store.load?.('_system',{kind:'oauth',id:hash(flow||'')});const state=store.get('_system','oauth',hash(flow||''));if(!state||state.expires<Date.now())throw fail('Sign-in expired. Start again.');
         const callback=base+'/auth/callback?flow='+encodeURIComponent(flow);
         const url=new URL(env.SUPABASE_URL+'/auth/v1/authorize');
         url.search=new URLSearchParams({provider:'google',redirect_to:callback,scopes:'openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.settings.readonly https://www.googleapis.com/auth/tasks',code_challenge:sha256url(secrets.open(state.verifier)),code_challenge_method:'s256',access_type:'offline',prompt:'select_account consent'});
         return redirect(url.href,`dd_oauth=${hash(flow)}; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=600${base.startsWith('https:')?'; Secure':''}`);
       }
       if(path==='/auth/callback'){
-        const flow=u.searchParams.get('flow'),key=hash(flow||''),state=store.get('_system','oauth',key);
+        const flow=u.searchParams.get('flow'),key=hash(flow||'');await store.load?.('_system',{kind:'oauth',id:key});const state=store.get('_system','oauth',key);
         if(!state||state.expires<Date.now()||!req.headers.cookie?.split(';').some(c=>c.trim()===`dd_oauth=${key}`))throw fail('Sign-in state expired or browser cookie missing. Start again.');
         store.remove('_system','oauth',key);
         if(!u.searchParams.get('code'))throw fail('Google sign-in was cancelled or not authorized.');
@@ -122,6 +139,7 @@ export function createApp(options={}) {
         const s=await r.json();if(!r.ok)throw fail('Supabase code exchange failed. Check the callback allowlist and Google provider configuration.');
         const userResponse=await oauthFetch(env.SUPABASE_URL+'/auth/v1/user',{signal:AbortSignal.timeout(15000),headers:{apikey:env.SUPABASE_PUBLISHABLE_KEY,Authorization:`Bearer ${s.access_token}`}});
         const user=await userResponse.json();if(!userResponse.ok||!user.id||!user.email_confirmed_at)throw fail('Google account email could not be verified.',401);
+        await store.load?.(user.id,{kind:'profile',id:'me'});
         const existing=store.get(user.id,'profile','me'),p=existing||{},old=p.google?secrets.open(p.google):{};
         Object.assign(p,{email:user.email,googleEmail:user.email,emailVerified:true,local:false,emailEnabled:p.emailEnabled??true});
         const googleName=user.user_metadata?.full_name||user.user_metadata?.name;if(typeof googleName==='string')p.googleName=googleName.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,80);
@@ -139,19 +157,21 @@ export function createApp(options={}) {
         return redirect(state.redirect+'#code='+code,'dd_oauth=; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=0');
       }
       if(path==='/api/auth/redeem'&&req.method==='POST'){
-        const b=await body(req),key=hash(b.code||''),r=store.get('_system','redeem',key);
+        const b=await body(req),key=hash(b.code||'');await store.load?.('_system',{kind:'redeem',id:key});const r=store.get('_system','redeem',key);
         if(!r||r.expires<Date.now()||sha256url(b.verifier||'')!==r.challenge||r.extensionId&&(b.extensionId!==r.extensionId||origin&&origin!=='chrome-extension://'+r.extensionId))throw fail('Invalid sign-in exchange.',401);
-        if(r.parentSession){const parent=store.get('_system','session',r.parentSession);if(!parent||parent.owner!==r.owner||parent.expires<Date.now())throw fail('Website sign-in expired. Sign in and restart alert setup.',401);}
+        if(r.parentSession){await store.load?.('_system',{kind:'session',id:r.parentSession});const parent=store.get('_system','session',r.parentSession);if(!parent||parent.owner!==r.owner||parent.expires<Date.now())throw fail('Website sign-in expired. Sign in and restart alert setup.',401);}
+        if(r.scope==='browser-alerts')await store.load?.(r.owner,{kind:'profile',id:'me'});
         store.remove('_system','redeem',key);return send({token:session(r.owner,r.scope,r.parentSession),...(r.scope==='browser-alerts'?{email:profileFor(r.owner).email}:{})});
       }
       if(path.startsWith('/api/')){
-        const token=req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];const auth=token&&store.get('_system','session',hash(token));
+        const token=req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];if(token)await store.load?.('_system',{kind:'session',id:hash(token)});const auth=token&&store.get('_system','session',hash(token));
         if(!auth||auth.expires<Date.now()||liveAuth&&auth.owner==='local-demo')throw fail('Sign in to continue.',401);
         const owner=auth.owner;
-        if(['browser-alerts','browser-signup'].includes(auth.scope)&&auth.parentSession){const parent=store.get('_system','session',auth.parentSession);if(!parent||parent.owner!==owner||parent.expires<Date.now())throw fail('Sign in to the dashboard and reconnect the extension.',401);}
+        if(['browser-alerts','browser-signup'].includes(auth.scope)&&auth.parentSession){await store.load?.('_system',{kind:'session',id:auth.parentSession});const parent=store.get('_system','session',auth.parentSession);if(!parent||parent.owner!==owner||parent.expires<Date.now())throw fail('Sign in to the dashboard and reconnect the extension.',401);}
         if(auth.scope==='browser-alerts'&&!['GET /api/me','GET /api/alerts','POST /api/alerts/ack','POST /api/logout'].includes(req.method+' '+path))throw fail('This session is limited to browser alerts.',403);
         if(auth.scope==='browser-signup'&&(path!=='/api/signup-browser/poll'||req.method!=='POST'))throw fail('This session is limited to the approved signup.',403);
         const bucket=buckets.get(owner)||{count:0,until:Date.now()+60000};if(bucket.until<Date.now()){bucket.count=0;bucket.until=Date.now()+60000;}bucket.count++;buckets.set(owner,bucket);if(bucket.count>180)throw fail('Too many requests. Wait one minute.',429);
+        await loadAccountRoute(store,owner,path,req.method,auth,u.searchParams);
         if(path==='/api/signup-browser/poll'&&req.method==='POST'){if(auth.scope!=='browser-signup')throw fail('Use the scoped signup connection.',403);const b=await body(req),result=await signups.browserPoll(owner,auth.signupId,auth.revision,b);if(b.result==='confirmed')await engine.deliver(owner);return send(result);}
         const browserSession=path.match(/^\/api\/signups\/([\w-]+)\/browser-session$/);
         if(browserSession&&req.method==='POST'){
@@ -163,7 +183,11 @@ export function createApp(options={}) {
           const code=randomToken();store.put('_system','redeem',hash(code),{owner,challenge:b.challenge,extensionId:b.extensionId,scope:'browser-alerts',parentSession:hash(token),expires:Date.now()+60000});return send({code});
         }
         if(path.startsWith('/api/signup')||path.startsWith('/api/signups')){
-          if(path.startsWith('/api/signup-captures/')&&req.method==='GET'){const key=hash(path.split('/').at(-1)),c=store.get('_system','signupCapture',key);if(!c||c.expires<Date.now())throw fail('Capture expired. Scan the form again.',404);store.remove('_system','signupCapture',key);return send(secrets.open(c.sealed));}
+          if(path.startsWith('/api/signup-captures/')&&req.method==='GET'){const key=hash(path.split('/').at(-1));await store.load?.('_system',{kind:'signupCapture',id:key});const c=store.get('_system','signupCapture',key);if(!c||c.expires<Date.now())throw fail('Capture expired. Scan the form again.',404);store.remove('_system','signupCapture',key);return send(secrets.open(c.sealed));}
+          if(path==='/api/signup-confirmations'&&req.method==='GET')return send(signups.summaries(owner).filter(draft=>draft.status==='Confirmed'&&draft.mode==='browser-auto'&&draft.receipt));
+          if(path==='/api/signups'&&req.method==='GET'){
+            if(u.searchParams.get('summary')==='1')return send(signups.summaries(owner));
+          }
           return send(await signups.route(owner,path,req.method,req.method==='GET'?{}:await body(req,path==='/api/signup-files'?2900000:300000)));
         }
         if(path==='/api/productivity'&&req.method==='GET'){
@@ -216,7 +240,7 @@ export function createApp(options={}) {
           if([...engine.locks].some(key=>key.startsWith(owner+':'))||engine.delivering.has(owner))throw fail('A check or delivery is running. Try again when it finishes.',409);
           const deleted=store.transaction(()=>{
             for(const r of store.list('_system','demoSignup'))if(r.owner===owner&&r.key)store.remove('_system','demoSignup',r.key);
-            const count=store.clearKinds(owner,['track','change','delivery','googleLink','signup','signupFile','signupProfile','dashboard','sourceHistory','intelligence','applicationWorkspace','applicationPassport','assistantHistory','scoutMemory']);
+            const count=store.clearKinds(owner,accountActivity);
             store.put(owner,'assistantHistoryRevision','me',{id:randomUUID()});
             return count;
           });return send({ok:true,deleted});
@@ -232,7 +256,11 @@ export function createApp(options={}) {
             .map(({id,at,title,category})=>({id,at,title,category,trackId:track.id})))
             .sort((a,b)=>b.at.localeCompare(a.at)).slice(0,3);
           const overview={...applicationOverview(store,owner,tracks),websiteChanges};
-          return send({me,tracks:tracks.map(t=>enrich(owner,t)),changes:changesFor(owner),priorities,overview,dashboard:store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]}});
+          const dashboard=store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]};
+          const changes=u.searchParams.get('compact')==='1'
+            ? store.workspaceChanges?await store.workspaceChanges(owner):compactChanges(owner,dashboard)
+            : changesFor(owner);
+          return send({me,tracks:enrichList(owner,tracks),changes,priorities,overview,dashboard});
         }
         if(path==='/api/dashboard'&&req.method==='PATCH'){
           const b=await body(req),p=store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]},active=new Set(store.list(owner,'track').map(t=>t.id));
@@ -240,7 +268,16 @@ export function createApp(options={}) {
           if(b.pinnedIds!==undefined){if(!Array.isArray(b.pinnedIds))throw fail('Invalid pins.');p.pinnedIds=[...new Set(b.pinnedIds)].filter(id=>active.has(id));}store.put(owner,'dashboard','preferences',p);return send(p);
         }
         if(path==='/api/dashboard/seen'&&req.method==='POST'){
-          const b=await body(req),p=store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]},active=new Set(changesFor(owner).map(c=>c.id));if(!Array.isArray(b.ids)||b.ids.length>100)throw fail('Invalid notification list.');p.seenChangeIds=[...new Set([...(p.seenChangeIds||[]),...b.ids.filter(id=>active.has(id))])].slice(-2000);store.put(owner,'dashboard','preferences',p);return send({ok:true});
+          const b=await body(req);
+          if(!Array.isArray(b.ids)||b.ids.length>100||b.ids.some(id=>typeof id!=='string'||id.length>200))throw fail('Invalid notification list.');
+          const p=store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]};
+          await store.load?.(owner,{kind:'change',id:b.ids,projection:'changeIds'});
+          const candidates=b.ids.map(id=>store.get(owner,'change',id)).filter(Boolean);
+          if(candidates.length)await store.load?.(owner,{kind:'track',id:[...new Set(candidates.map(c=>c.trackId))],projection:'idOnly'});
+          const active=candidates.filter(c=>store.get(owner,'track',c.trackId)).map(c=>c.id);
+          p.seenChangeIds=[...new Set([...(p.seenChangeIds||[]),...active])].slice(-2000);
+          store.put(owner,'dashboard','preferences',p);
+          return send({ok:true});
         }
         if(path==='/api/profile/google-name'&&req.method==='POST'){
           let p=profileFor(owner);if(!p.googleName&&p.google){const info=await google.api(owner,'https://openidconnect.googleapis.com/v1/userinfo');p=profileFor(owner);if(typeof info.name==='string'){p.googleName=info.name.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,80);store.put(owner,'profile','me',p);}}
@@ -270,9 +307,6 @@ export function createApp(options={}) {
         if(path==='/api/email/test'&&req.method==='POST'){
           const p=profileFor(owner);if(!p.emailVerified&&!(email.mode==='demo'&&p.local))throw fail('Verify your email first.');
           const id=randomUUID(),d={id,channel:'test',to:p.email,subject:'Deadline Scout test email',text:emailGreeting(p)+'\n\nDeadline Scout email alerts are connected. This is a user-requested test.',at:new Date().toISOString()};Object.assign(d,await email.send(d));store.put(owner,'delivery',id,d);return send(d);
-        }
-        if(path==='/api/inspect'&&req.method==='POST'){
-          const b=await body(req);return send(await readPage(b.url));
         }
         if(path==='/api/application-passport'){
           if(req.method==='GET')return send(readPassport(store,secrets,owner));
@@ -316,7 +350,11 @@ export function createApp(options={}) {
           store.put(owner,'intelligence',id,entry);
           return send({reviewedAt:change.reviewedAt});
         }
-        if(path==='/api/tracks'&&req.method==='GET')return send(store.list(owner,'track').map(t=>enrich(owner,t)));
+        if(path==='/api/tracks'&&req.method==='GET'){
+          const records=store.list(owner,'track');
+          if(u.searchParams.get('summary')==='signup')return send(records.map(({id,title,url,milestones})=>({id,title,url,milestones:milestones.map(({id,label,date,time,zone})=>({id,label,date,time,zone}))})));
+          return send(enrichList(owner,records));
+        }
         if(path==='/api/tracks'&&req.method==='POST'){
           const b=await body(req),url=safeUrl(b.url).href;
           if(!b.milestones?.length||b.milestones.length>15)throw fail('Select between 1 and 15 milestones.');
@@ -337,8 +375,9 @@ export function createApp(options={}) {
           if(action==='monitor'&&req.method==='POST'){
             const b=await body(req);if(!b.approved)throw fail('Approve enabling automatic source monitoring.');
             const lock=owner+':'+id;if(engine.locks.has(lock))throw fail('A source check is already in progress.');engine.locks.add(lock);
+            const observations=[];
             try{
-              const observations=[];for(const source of t.sources)observations.push(await readPage(source));
+              for(const source of t.sources)observations.push({...await readPage(source),requestedUrl:source});
               let enabled=0;
               for(const m of t.milestones.filter(m=>m.manual)){
                 const candidates=observations.flatMap(o=>o.milestones).filter(c=>c.kind===m.kind);
@@ -349,7 +388,7 @@ export function createApp(options={}) {
               if(!enabled)throw fail('No unambiguous matching milestone could be read from the source. Keep the reminder manual or inspect the page again.');
               store.put(owner,'track',id,t);
             }finally{engine.locks.delete(lock);}
-            return send(enrich(owner,await engine.check(owner,id)));
+            return send(enrich(owner,await engine.check(owner,id,{verifiedObservations:observations})));
           }
           if(!action&&req.method==='DELETE'){
             if(engine.delivering.has(owner)||(engine.locks.has(owner+':'+id)&&!engine.reading.has(owner+':'+id)))throw fail('A Google update or email delivery is already in progress. Retry removal when it finishes.',409);
@@ -418,10 +457,34 @@ export function createApp(options={}) {
             try{return send(await google.perform(owner,t,m,b.channel,minutes));}finally{engine.locks.delete(lock);}
           }
         }
-        if(path==='/api/changes'&&req.method==='GET')return send(changesFor(owner));
-        if(path==='/api/deliveries'&&req.method==='GET')return send(store.list(owner,'delivery'));
+        if(['/api/changes','/api/deliveries'].includes(path)&&req.method==='GET'){
+          const emailActivity=path==='/api/deliveries';
+          if(!u.searchParams.has('limit')){
+            if(!emailActivity)return send(changesFor(owner));
+            await store.load?.(owner,'delivery');
+            return send(store.list(owner,'delivery'));
+          }
+          const limit=Number(u.searchParams.get('limit'));
+          if(!Number.isInteger(limit)||limit<1||limit>50)throw fail('Choose a page size from 1 to 50.');
+          let after=null;
+          if(u.searchParams.has('after')){
+            try{after=JSON.parse(Buffer.from(u.searchParams.get('after'),'base64url').toString());}catch{throw fail('Invalid activity cursor.');}
+            if(typeof after?.at!=='string'||after.at.length>64||typeof after.id!=='string'||after.id.length>200)throw fail('Invalid activity cursor.');
+          }
+          const compare=(a,b)=>a===b?0:a>b?-1:1;
+          const order=(a,b)=>compare(a.at||'',b.at||'')||compare(a.id,b.id);
+          const fromDatabase=emailActivity?store.emailPage:store.changePage;
+          const rows=fromDatabase?await fromDatabase.call(store,owner,after,limit):
+            (emailActivity?store.list(owner,'delivery').filter(item=>item.channel!=='browser'):changesFor(owner))
+              .filter(item=>!after||order(item,after)>0).sort(order).slice(0,limit+1);
+          let entries=rows.slice(0,limit);
+          if(emailActivity)entries=entries.map(({id,subject,to,status,label,error,at,text})=>({id,subject,to,status,label,error,at,...(status==='demo'?{text}:{})}));
+          const last=entries.at(-1);
+          const next=rows.length>limit?Buffer.from(JSON.stringify({id:last.id,at:last.at||''})).toString('base64url'):null;
+          return send({entries,next});
+        }
         if(path==='/api/alerts'&&req.method==='GET'){const active=new Map(changesFor(owner).map(c=>[c.id,c]));return send(store.list(owner,'delivery').filter(d=>d.channel==='browser'&&d.status==='queued'&&(active.has(d.changeId)||d.signupId&&store.get(owner,'track',d.trackId)&&store.get(owner,'signup',d.signupId)?.status!=='Cancelled')).map(d=>({...d,change:active.get(d.changeId)})));}
-        if(path==='/api/alerts/ack'&&req.method==='POST'){const b=await body(req),d=store.get(owner,'delivery',b.id);if(d?.channel==='browser'){d.status='shown';store.put(owner,'delivery',d.id,d);}return send({ok:true});}
+        if(path==='/api/alerts/ack'&&req.method==='POST'){const b=await body(req);if(typeof b.id==='string')await store.load?.(owner,{kind:'delivery',id:b.id});const d=store.get(owner,'delivery',b.id);if(d?.channel==='browser'){d.status='shown';store.put(owner,'delivery',d.id,d);}return send({ok:true});}
         if(path==='/api/demo'&&req.method==='POST'){
           if(!loopback||env.ENABLE_DEMO==='false')throw fail('Demo fixtures are disabled.',403);const b=await body(req);if(!['original','changed','conflict','failed','reworded'].includes(b.mode))throw fail('Invalid demo state.');store.put('_system','demo','state',{mode:b.mode});return send({ok:true});
         }
@@ -429,6 +492,7 @@ export function createApp(options={}) {
       }
       if(/^\/demo\/(registration|faq)$/.test(path)){
         if(!loopback||env.ENABLE_DEMO==='false')throw fail('Demo disabled.',404);
+        await store.load?.('_system',{kind:'demo',id:'state'});
         res.removeHeader('Content-Security-Policy');res.setHeader('Content-Type','text/html; charset=utf-8');return res.end(demoHtml(path,store.get('_system','demo','state')||{mode:'original'}));
       }
       const relative=publicAsset(path);
