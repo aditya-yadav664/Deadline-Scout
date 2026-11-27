@@ -213,3 +213,42 @@ body:has(#draft-dialog[open]){overflow:hidden}
 @media (max-width: 650px) {
   #profile-popover { top: 72px; right: 12px; max-height: calc(100dvh - 84px); padding: 12px; }
 }
+
+/* Workspace navigation wraps the existing tracking and account controls. */
+.workspace-layout{display:grid;grid-template-columns:170px minmax(0,1fr);gap:24px}
+.workspace-content{min-width:0}
+.header .profile-trigger{margin-left:auto}
+.workspace-navigation{padding:24px 0}
+.workspace-navigation details{position:sticky;top:18px}
+.workspace-navigation summary{cursor:pointer;color:var(--muted);padding:8px;font-size:13px}
+.workspace-navigation nav{display:grid;gap:4px;padding:6px 0}
+.workspace-navigation .tab{display:flex;align-items:center;justify-content:space-between;text-align:left;text-decoration:none;width:100%;padding:10px 9px;font-size:13px;border-radius:9px}
+.workspace-navigation .tab[href]{color:#ffabb4}
+.workspace-layout .workspace-hero{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.workspace-layout .track-overview{grid-template-columns:auto minmax(0,1fr) minmax(0,1fr)}
+.workspace-layout .row-actions{grid-column:1/-1}
+.overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.workspace-card{min-width:0}
+.workspace-card h3{margin:0 0 12px}
+.workspace-list{padding:0;list-style:none;margin:0}
+.workspace-list li{border-top:1px solid var(--line);padding:11px 0;display:flex;justify-content:space-between;gap:12px;overflow-wrap:anywhere}
+.workspace-list li:last-child{padding-bottom:0}
+.workspace-list small{display:block;color:var(--muted);margin:4px 0}
+.workspace-list a,.opportunity-actions>a:first-child,.opportunity-title-link{color:inherit;text-underline-offset:.25em}
+.workspace-list details{padding:6px 0}
+.workspace-list summary{cursor:pointer;color:var(--green)}
+.source-observation{padding:8px 0;border-top:1px solid var(--line)}
+.opportunity-actions{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;overflow-wrap:anywhere}
+.opportunity-actions .button{text-decoration:none}
+.workspace-navigation :focus-visible,.workspace-list :focus-visible,.opportunity-actions :focus-visible{outline:2px solid var(--green);outline-offset:2px}
+@media(max-width:1000px){
+  .workspace-layout{grid-template-columns:minmax(0,1fr);gap:0}
+  .workspace-navigation{padding:8px 0}
+  .workspace-navigation details{position:static}
+  .workspace-navigation nav{display:flex;flex-wrap:wrap}
+  .workspace-navigation .tab{width:auto;flex:none;gap:6px}
+}
+@media(max-width:700px){
+  .overview-grid,.workspace-layout .workspace-hero{grid-template-columns:minmax(0,1fr)}
+  .workspace-layout .track-overview{grid-template-columns:auto minmax(0,1fr)}
+}

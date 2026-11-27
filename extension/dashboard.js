@@ -1,3 +1,4 @@
+import {renderOverview,renderOpportunity} from './opportunities.js';
 import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
 import './shared/signup-success-notices.js';
 import {api,storage,settings,isExtension,connectGoogle} from './api.js';
@@ -18,7 +19,7 @@ function dateTile(m){const d=new Date(m.date+'T12:00:00Z');return '<time class="
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeLink=value=>{try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)?esc(u.href):'#';}catch{return '#';}};
 let dashboardPrefs={groups:[],pinnedIds:[],seenChangeIds:[]},noticesShown=new Set();
-let tracks=[],localTracks=[],changes=[],me={},config={},connected=false,draft=null,view='watchlist',toastTimer;
+let tracks=[],localTracks=[],changes=[],me={},config={},connected=false,draft=null,view='overview',toastTimer;
 function toast(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,7000);}
 function trackingStatus(message,signIn=false){$('#scan-feedback').hidden=!/reading|scanning/i.test(message||'');$('#tracking-status').hidden=!message;$('#tracking-status-text').textContent=message;$('#tracking-signin').hidden=!signIn;}
 async function run(button,fn){if(button?.disabled)return;try{if(button)button.disabled=true;await fn();}catch(e){toast(e.message);}finally{if(button)button.disabled=false;}}
@@ -26,7 +27,49 @@ function formatDate(date){if(!date)return 'No date';try{return new Intl.DateTime
 function compactDate(date){return new Intl.DateTimeFormat('en',{day:'numeric',month:'short',timeZone:'UTC'}).format(new Date(date+'T12:00:00Z'));}
 function displayZone(zone){return ['Asia/Kolkata','Asia/Calcutta'].includes(zone)?'IST':zone;}
 function relative(value){if(!value)return 'Not checked yet';const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(value))/60000));return minutes===0?'Just now':minutes<60?`${minutes} min ago`:minutes<1440?`${Math.floor(minutes/60)} hr ago`:new Date(value).toLocaleDateString();}
-function showView(name){if(name==='settings'){openProfileSettings();return;}view=name;for(const v of ['watchlist','timeline'])$('#'+v+'-view').hidden=v!==name;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.view===name));}
+const viewNames=['overview','watchlist','timeline','opportunity'];
+let detailRequest=0;
+function showView(name){
+  if(name==='settings'){openProfileSettings();return;}
+  if(!viewNames.includes(name))return;
+  view=name;
+  for(const page of viewNames)$('#'+page+'-view').hidden=page!==name;
+  document.querySelectorAll('.workspace-navigation [data-view]').forEach(button=>{
+    const active=button.dataset.view===name;
+    button.classList.toggle('active',active);
+    if(active)button.setAttribute('aria-current','page');
+    else button.removeAttribute('aria-current');
+  });
+  if(name!=='opportunity'){
+    detailRequest++;
+    if(location.hash.startsWith('#opportunity='))history.replaceState(null,'',location.pathname+location.search);
+  }
+}
+async function openOpportunity(id,{focus=true}={}){
+  const request=++detailRequest;
+  const epoch=workspaceEpoch;
+  const local=[...localTracks,...tracks.filter(track=>track.cached)].find(track=>track.id===id);
+  showView('opportunity');
+  history.replaceState(null,'','#opportunity='+encodeURIComponent(id));
+  const title=$('#opportunity-title'),target=$('#opportunity-detail');
+  title.textContent='Opportunity details';
+  target.textContent='Loading opportunity…';
+  if(focus)title.focus();
+  try{
+    const detail=local?{
+      ...local,
+      sources:(local.sources||[local.url]).map(url=>({url,history:[]})),
+      changes:changes.filter(change=>change.trackId===id).map(change=>({
+        ...change,detectedAt:change.at,sourceUrl:change.after.sourceUrl
+      }))
+    }:await api('/api/opportunities/'+encodeURIComponent(id));
+    if(request!==detailRequest||epoch!==workspaceEpoch)return;
+    title.textContent=detail.title;
+    renderOpportunity(target,detail,{esc,safeLink,formatDate});
+  }catch(error){
+    if(request===detailRequest&&epoch===workspaceEpoch)target.textContent=error.message;
+  }
+}
 async function refresh(){
   const epoch=workspaceEpoch;
   localTracks=await storage.get('localTracks')||[];
@@ -47,6 +90,7 @@ const statusLabels={watching:['Watching',''],changed:['Date updated','warn'],con
 function render(){
   $('#tracks').setAttribute('aria-busy','false');
   const all=[...tracks,...localTracks.map(t=>({...t,local:true}))];
+  renderOverview($('#opportunity-overview'),all,changes,today,{esc,formatDate});
   $('#profile-email').textContent=me.email||'Not signed in';$('#profile-status').textContent=me.email?(me.googleConnected?'Google Calendar & Tasks connected':'Google account signed in'):'Sign in to connect your Google account.';$('#profile-avatar').innerHTML=me.email?esc((me.displayName||me.email)[0].toUpperCase()):icon('user');$('#profile-signin').hidden=!!me.email;$('#profile-switch').hidden=!me.email;$('#sign-out').hidden=!me.email;
   if(!me.email){profileNameDirty=false;profileNameEditing=false;}
   $('#profile-identity').hidden=!me.email;$('#profile-display-name').textContent=me.displayName||'Your profile';$('#edit-profile-name').hidden=profileNameEditing;$('#profile-name-form').hidden=!me.email||!profileNameEditing;if(!profileNameEditing&&!profileNameDirty)$('#profile-name').value=me.displayName||'';
@@ -78,7 +122,7 @@ function renderTrack(t,featured=false){
  const [status,tone]=statusLabels[t.status]||['Watching',''];let domain='Registration';try{domain=new URL(t.url).hostname;}catch{}
  const conflicts=[...(t.conflicts||[]),...(t.uncertain||[])];const next=nextMilestone(t),expanded=openTracks.has(t.id),recent=changes.find(c=>c.trackId===t.id);
  const summary=t.milestones.slice(0,2).map(m=>`<div><span>${icon(m.kind==='event'?'arrow-right':'calendar')}${esc(m.label)}</span><time datetime="${esc(m.date)}">${esc(compactDate(m.date))}${m.time?' · '+esc(m.time)+' '+esc(displayZone(m.zone)):''}</time></div>`).join('');
- return `<article class="card track-row ${featured?'featured-track':''} ${expanded?'is-open':''}" data-track="${esc(t.id)}"><div class="track-overview">${dateTile(next)}<div class="track-identity"><h3 class="card-title">${esc(t.title)}</h3><a class="domain" href="${safeLink(t.url)}" target="_blank" rel="noreferrer">${icon('external-link')}${esc(domain)}</a><span class="badge ${tone}">${esc(status)}</span>${recent?`<div class="change-chip">${icon('refresh')}${esc(compactDate(recent.before.date))} <span>→</span> ${esc(compactDate(recent.after.date))}</div>`:''}</div><div class="schedule-preview">${summary}</div><div class="row-actions"><button class="button secondary pin-action" data-action="pin" aria-pressed="${(dashboardPrefs.pinnedIds||[]).includes(t.id)}" title="${(dashboardPrefs.pinnedIds||[]).includes(t.id)?'Unpin':'Pin'}">${(dashboardPrefs.pinnedIds||[]).includes(t.id)?'Unpin':'Pin'}</button><button class="button secondary" data-action="prepare-signup">Prepare a Signup</button><button class="button secondary check-action" data-action="check">${icon('refresh')}<span>Check now</span></button><button class="button secondary icon-action" data-action="calendar" aria-label="${needsUpdate(t,'calendar')?'Update Calendar event':'Add to Calendar'}" title="${needsUpdate(t,'calendar')?'Update Calendar event':'Add to Calendar'}">${icon('calendar')}</button><button class="button secondary icon-action" data-action="task" aria-label="${needsUpdate(t,'task')?'Update Google Task':'Create Google Task'}" title="${needsUpdate(t,'task')?'Update Google Task':'Create Google Task'}">${icon('check')}</button><button class="expand-action" data-action="expand" aria-label="${expanded?'Collapse':'Expand'} milestones for ${esc(t.title)}" aria-expanded="${expanded}" aria-controls="milestones-${esc(t.id)}">${icon('chevron-down')}</button></div></div><div class="track-details" id="milestones-${esc(t.id)}" ${expanded?'':'hidden'}>${t.signupDrafts?.length?`<div class="signup-card-links"><h4>Signup drafts</h4>${t.signupDrafts.map(d=>`<p><a href="/backup.html#draft=${esc(d.id)}">${esc(d.title)}</a> · ${esc(d.status)}<br><a href="${safeLink(d.formUrl)}" target="_blank" rel="noreferrer">Registration page ↗</a></p>`).join('')}</div>`:''}<h4>Milestones</h4>${t.milestones.map(m=>`<div class="milestone"><div><span class="milestone-label">${esc(m.label)}</span>${m.manual?'<span class="date-meta">Manual reminder · not monitored</span>':''}</div><div class="milestone-date">${esc(formatDate(m.date))}<span class="date-meta">${esc(m.time?m.time+' '+displayZone(m.zone):'Date only')}</span></div></div>`).join('')}${t.local&&connected?'<button class="text-button" data-action="sync">Sync to backend</button>':''}</div><div class="track-notices">${t.plan?`<div class="plan">Your plan: act on <strong>${esc(formatDate(t.plan))}</strong></div>`:''}${(t.errors||[]).map(e=>`<p class="error-list">${esc(e.message)}<br>Last confirmed dates kept.</p>`).join('')}${t.missing?.length?'<p class="error-list">A tracked date is missing from the sources. Last confirmed date kept.</p>':''}${conflicts.map(c=>`<div class="review"><h4>${esc(c.label||labels[c.kind])}: review the sources</h4>${c.candidates.map((m,i)=>`<p><strong>${esc(pretty(m))}</strong></p><blockquote class="evidence">${esc(m.quote)}</blockquote><a class="muted" href="${safeLink(m.sourceUrl)}" target="_blank" rel="noreferrer">View source</a><br><button class="text-button" data-action="resolve" data-kind="${esc(c.kind)}" data-milestone="${esc(c.milestoneId||'')}" data-index="${i}">Review this interpretation</button>`).join('')}</div>`).join('')}${t.googleError?`<p class="error-list">${esc(t.googleError)}</p>`:''}</div><div class="card-foot"><span>${t.lastSuccessfulCheck?'Checked '+esc(relative(t.lastSuccessfulCheck)):'Not checked yet'}${t.local?' · saved locally':' · every '+t.intervalMinutes+' min'}</span><button class="text-button" data-action="manage">Manage</button></div></article>`;
+ return `<article class="card track-row ${featured?'featured-track':''} ${expanded?'is-open':''}" data-track="${esc(t.id)}"><div class="track-overview">${dateTile(next)}<div class="track-identity"><h3 class="card-title"><a class="opportunity-title-link" href="#opportunity=${encodeURIComponent(t.id)}" data-opportunity="${esc(t.id)}">${esc(t.title)}</a></h3><a class="domain" href="${safeLink(t.url)}" target="_blank" rel="noreferrer">${icon('external-link')}${esc(domain)}</a><span class="badge ${tone}">${esc(status)}</span>${recent?`<div class="change-chip">${icon('refresh')}${esc(compactDate(recent.before.date))} <span>→</span> ${esc(compactDate(recent.after.date))}</div>`:''}</div><div class="schedule-preview">${summary}</div><div class="row-actions"><button class="button secondary pin-action" data-action="pin" aria-pressed="${(dashboardPrefs.pinnedIds||[]).includes(t.id)}" title="${(dashboardPrefs.pinnedIds||[]).includes(t.id)?'Unpin':'Pin'}">${(dashboardPrefs.pinnedIds||[]).includes(t.id)?'Unpin':'Pin'}</button><button class="button secondary" data-action="prepare-signup">Prepare a Signup</button><button class="button secondary check-action" data-action="check">${icon('refresh')}<span>Check now</span></button><button class="button secondary icon-action" data-action="calendar" aria-label="${needsUpdate(t,'calendar')?'Update Calendar event':'Add to Calendar'}" title="${needsUpdate(t,'calendar')?'Update Calendar event':'Add to Calendar'}">${icon('calendar')}</button><button class="button secondary icon-action" data-action="task" aria-label="${needsUpdate(t,'task')?'Update Google Task':'Create Google Task'}" title="${needsUpdate(t,'task')?'Update Google Task':'Create Google Task'}">${icon('check')}</button><button class="expand-action" data-action="expand" aria-label="${expanded?'Collapse':'Expand'} milestones for ${esc(t.title)}" aria-expanded="${expanded}" aria-controls="milestones-${esc(t.id)}">${icon('chevron-down')}</button></div></div><div class="track-details" id="milestones-${esc(t.id)}" ${expanded?'':'hidden'}>${t.signupDrafts?.length?`<div class="signup-card-links"><h4>Signup drafts</h4>${t.signupDrafts.map(d=>`<p><a href="/backup.html#draft=${esc(d.id)}">${esc(d.title)}</a> · ${esc(d.status)}<br><a href="${safeLink(d.formUrl)}" target="_blank" rel="noreferrer">Registration page ↗</a></p>`).join('')}</div>`:''}<h4>Milestones</h4>${t.milestones.map(m=>`<div class="milestone"><div><span class="milestone-label">${esc(m.label)}</span>${m.manual?'<span class="date-meta">Manual reminder · not monitored</span>':''}</div><div class="milestone-date">${esc(formatDate(m.date))}<span class="date-meta">${esc(m.time?m.time+' '+displayZone(m.zone):'Date only')}</span></div></div>`).join('')}${t.local&&connected?'<button class="text-button" data-action="sync">Sync to backend</button>':''}</div><div class="track-notices">${t.plan?`<div class="plan">Your plan: act on <strong>${esc(formatDate(t.plan))}</strong></div>`:''}${(t.errors||[]).map(e=>`<p class="error-list">${esc(e.message)}<br>Last confirmed dates kept.</p>`).join('')}${t.missing?.length?'<p class="error-list">A tracked date is missing from the sources. Last confirmed date kept.</p>':''}${conflicts.map(c=>`<div class="review"><h4>${esc(c.label||labels[c.kind])}: review the sources</h4>${c.candidates.map((m,i)=>`<p><strong>${esc(pretty(m))}</strong></p><blockquote class="evidence">${esc(m.quote)}</blockquote><a class="muted" href="${safeLink(m.sourceUrl)}" target="_blank" rel="noreferrer">View source</a><br><button class="text-button" data-action="resolve" data-kind="${esc(c.kind)}" data-milestone="${esc(c.milestoneId||'')}" data-index="${i}">Review this interpretation</button>`).join('')}</div>`).join('')}${t.googleError?`<p class="error-list">${esc(t.googleError)}</p>`:''}</div><div class="card-foot"><span>${t.lastSuccessfulCheck?'Checked '+esc(relative(t.lastSuccessfulCheck)):'Not checked yet'}${t.local?' · saved locally':' · every '+t.intervalMinutes+' min'}</span><button class="text-button" data-action="manage">Manage</button></div></article>`;
 }
 function needsUpdate(t,channel){return t.googleLinks?.some(l=>l.channel===channel&&t.milestones.some(m=>m.id===l.milestoneId&&scheduleKey(m)!==scheduleKey(l)));}
 async function renderSettings(){
@@ -239,7 +283,7 @@ async function renderOutbox(){const epoch=workspaceEpoch,owner=me.email;if(outbo
 $('#load-more-outbox').onclick=()=>{outboxVisible+=5;paintOutbox();};
 $('#clear-account-data').onclick=e=>run(e.currentTarget,async()=>{
   if(!connected||!await storage.get('token'))throw new Error('Sign in to clear your account data.');
-  workspaceEpoch++;$('#clear-data-status').textContent='Clearing…';
+  workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#clear-data-status').textContent='Clearing…';
   try{await api('/api/account/clear-data','POST',{action:'clear-account-data'});workspaceEpoch++;for(const key of ['localTracks','localChanges','cachedTracks'])await storage.set(key,[]);await storage.set('pendingReview',null);tracks=[];localTracks=[];changes=[];openTracks.clear();outboxItems=[];outboxVisible=3;paintOutbox();if(draft)await closeDraft();await refresh();$('#clear-data-status').textContent='Account activity cleared. Your profile and Google connection are unchanged.';}catch(error){$('#clear-data-status').textContent=error.message;throw error;}
 });
 $('#watchlist-view').onclick=e=>{
@@ -258,6 +302,15 @@ $('#watchlist-view').onclick=e=>{
     }
   });
 };
+document.querySelector('main').addEventListener('click',event=>{
+  const link=event.target.closest('a[data-opportunity]');
+  if(!link||event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;
+  event.preventDefault();
+  void openOpportunity(link.dataset.opportunity);
+});
+$('#find-event').addEventListener('input',()=>{
+  if($('#find-event').value.trim()&&view!=='watchlist')showView('watchlist');
+});
 document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{showView(button.dataset.view);if(view==='settings'&&connected)renderOutbox().catch(()=>{});});
 function openProfileSettings(){const popover=$('#profile-popover');if(!popover.matches(':popover-open'))popover.showPopover();$('#settings-view').hidden=false;$('#profile-settings').setAttribute('aria-expanded','true');if(connected){renderOutbox().catch(()=>{});void backgroundAlertStatus();}}
 $('#profile-settings').onclick=()=>{const expanded=$('#settings-view').hidden;$('#settings-view').hidden=!expanded;$('#profile-settings').setAttribute('aria-expanded',String(expanded));if(expanded&&connected){renderOutbox().catch(()=>{});void backgroundAlertStatus();}};
@@ -298,7 +351,7 @@ $('#profile-name-form').onsubmit=e=>{e.preventDefault();void run($('#save-profil
   $('#profile-name-status').textContent='Saving…';try{const result=await api('/api/me','PATCH',{displayName:$('#profile-name').value});me.displayName=result.displayName;profileNameDirty=false;profileNameEditing=false;await refresh();toast('Name saved.');if($('#profile-popover').matches(':popover-open'))$('#edit-profile-name').focus();}catch(error){$('#profile-name-status').textContent=error.message;throw error;}
 });};
 $('#profile-signin').onclick=e=>run(e.currentTarget,signIn);
-async function signOut(){workspaceEpoch++;try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];me={};await storage.set('cachedTracks',[]);render();}}
+async function signOut(){workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];me={};await storage.set('cachedTracks',[]);render();}}
 $('#profile-switch').onclick=e=>run(e.currentTarget,async()=>{await signOut();await signIn();});
 async function signIn(){if(draft){readDraft();await storage.set('pendingReview',draft);}await connectGoogle();await refresh();}
 $('#tracking-signin').onclick=e=>run(e.currentTarget,signIn);
@@ -383,7 +436,7 @@ if(location.pathname!=='/auth/done'){
   if(captureReview)await captureReview;
   else if(fragment.has('alerts-setup')){const flow={extensionId:fragment.get('alerts-setup'),state:fragment.get('state'),challenge:fragment.get('challenge'),expires:Date.now()+600000};history.replaceState(null,'',location.pathname);await storage.set('pendingBackgroundSetup',flow);await finishBackgroundSetup(flow);}
   else if(fragment.has('inspect')){const url=fragment.get('inspect');history.replaceState(null,'',location.pathname);$('#source-url').value=url;await run(null,()=>inspect(url));}
-  else {const setup=await storage.get('pendingBackgroundSetup');if(setup&&setup.expires>Date.now())await finishBackgroundSetup(setup);else{const pending=await storage.get('pendingReview');if(pending){draft=pending;renderDraft();}if(['#settings','#timeline'].includes(location.hash))showView(location.hash.slice(1));}}
+  else {const setup=await storage.get('pendingBackgroundSetup');if(setup&&setup.expires>Date.now())await finishBackgroundSetup(setup);else{const pending=await storage.get('pendingReview');if(pending){draft=pending;renderDraft();}if(['#settings','#timeline','#watchlist'].includes(location.hash))showView(location.hash.slice(1));else if(fragment.has('opportunity'))await openOpportunity(fragment.get('opportunity'),{focus:false});}}
 }
 let refreshing=false;
 setInterval(async()=>{

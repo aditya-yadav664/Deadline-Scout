@@ -18,10 +18,11 @@ import { observationKey } from '../extension/shared/compare.js';
 import { modelExtract } from './model.js';
 import { readRegistrationSource } from './source-adapters.js';
 import {saveCapture,consumeCapture} from './captures.js';
+import {opportunityDetail} from './opportunities.js';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const sha256url=s=>createHash('sha256').update(s).digest('base64url');
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
-export function isPublicFilePath(path){const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);return /^(?:panel\.(?:html|css|js)|dashboard\.js|backup\.(?:html|js|css)|signup-demo\.(?:html|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts|alert-connection|signup|google-forms|signup-resume|signup-files|signup-background|signup-collection|signup-receipt|signup-success-notices)\.js)$/.test(relative);}
+export function isPublicFilePath(path){const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);return /^(?:panel\.(?:html|css|js)|dashboard\.js|opportunities\.js|backup\.(?:html|js|css)|signup-demo\.(?:html|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts|alert-connection|signup|google-forms|signup-resume|signup-files|signup-background|signup-collection|signup-receipt|signup-success-notices)\.js)$/.test(relative);}
 export function createApp(options={}) {
   const env=options.env||process.env;
   const port=Number(env.PORT||4317),host=env.HOST||'127.0.0.1';
@@ -165,7 +166,7 @@ export function createApp(options={}) {
         if(path==='/api/account/clear-data'&&req.method==='POST'){
           const b=await body(req);if(b.action!=='clear-account-data')throw fail('Choose Clear account data to continue.');
           if([...engine.locks].some(key=>key.startsWith(owner+':'))||engine.delivering.has(owner))throw fail('A check or delivery is running. Try again when it finishes.',409);
-          const deleted=store.transaction(()=>{for(const r of store.list('_system','demoSignup'))if(r.owner===owner&&r.key)store.remove('_system','demoSignup',r.key);return store.clearKinds(owner,['track','change','delivery','googleLink','signup','signupFile','signupProfile','dashboard']);});return send({ok:true,deleted});
+          const deleted=store.transaction(()=>{for(const r of store.list('_system','demoSignup'))if(r.owner===owner&&r.key)store.remove('_system','demoSignup',r.key);return store.clearKinds(owner,['track','change','delivery','googleLink','signup','signupFile','signupProfile','dashboard','sourceHistory']);});return send({ok:true,deleted});
         }
         if(path==='/api/logout'&&req.method==='POST'){store.remove('_system','session',hash(token));return send({ok:true});}
         if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {const p=profileFor(owner),me={displayName:p.displayName||p.googleName||'',email:p.email,emailVerified:p.emailVerified,emailEnabled:p.emailEnabled,googleConnected:!!p.google,googleError:p.googleError,local:!!p.local};return send(path==='/api/me'?me:{me,tracks:store.list(owner,'track').map(t=>enrich(owner,t)),changes:changesFor(owner),dashboard:store.get(owner,'dashboard','preferences')||{groups:[],pinnedIds:[],seenChangeIds:[]}});}
@@ -209,6 +210,12 @@ export function createApp(options={}) {
         if(path==='/api/inspect'&&req.method==='POST'){
           const b=await body(req);return send(await readPage(b.url));
         }
+        const opportunity=path.match(/^\/api\/opportunities\/([a-zA-Z0-9_-]{1,100})$/);
+        if(opportunity&&req.method==='GET'){
+          const detail=opportunityDetail(store,owner,opportunity[1]);
+          if(!detail)throw fail('Opportunity not found.',404);
+          return send(detail);
+        }
         if(path==='/api/tracks'&&req.method==='GET')return send(store.list(owner,'track').map(t=>enrich(owner,t)));
         if(path==='/api/tracks'&&req.method==='POST'){
           const b=await body(req),url=safeUrl(b.url).href;
@@ -249,7 +256,7 @@ export function createApp(options={}) {
             store.transaction(()=>{
               const related=store.list(owner,'change').filter(c=>c.trackId===id),changeIds=new Set(related.map(c=>c.id));
               for(const draft of signups.list(owner).filter(d=>d.trackId===id)){draft.status='Cancelled';signups.save(owner,draft);}
-              store.remove(owner,'track',id);for(const c of related)store.remove(owner,'change',c.id);
+              store.remove(owner,'track',id);store.remove(owner,'sourceHistory',id);for(const c of related)store.remove(owner,'change',c.id);
               for(const d of store.list(owner,'delivery').filter(d=>d.trackId===id||changeIds.has(d.changeId))){if(d.channel==='browser')store.remove(owner,'delivery',d.id);else if(['queued','retry','sending'].includes(d.status))store.put(owner,'delivery',d.id,{...d,status:'cancelled',error:'Registration removed; alert cancelled.'});}
               for(const link of store.list(owner,'googleLink').filter(l=>l.trackId===id))store.remove(owner,'googleLink',link.id);
             });return send({ok:true});

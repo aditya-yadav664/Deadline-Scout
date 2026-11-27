@@ -4,6 +4,7 @@ import { compare } from '../extension/shared/compare.js';
 import { scheduleKey } from '../extension/shared/dates.js';
 import { changeEmail } from './email.js';
 import { hash } from './security.js';
+import { recordSourceCheck } from './opportunities.js';
 export class Engine {
   constructor({store,readPage,email,google}){Object.assign(this,{store,readPage,email,google});this.locks=new Set();this.reading=new Set();this.delivering=new Set();}
   async check(owner,id) {
@@ -12,16 +13,21 @@ export class Engine {
       const t=this.store.get(owner,'track',id);if(!t)throw new Error('Tracking record not found.');
       if(t.milestones.every(m=>m.manual)){t.status='manual';t.lastAttempt=new Date().toISOString();this.store.put(owner,'track',id,t);return t;}
       const observations=[],errors=[];
-      for(const url of t.sources){if(!this.store.get(owner,'track',id))throw new Error('Tracked page was removed. Check cancelled.');try{this.reading.add(lock);observations.push(await this.readPage(url));}catch(e){errors.push({url,message:e.message});}finally{this.reading.delete(lock);}if(!this.store.get(owner,'track',id))throw new Error('Tracked page was removed. Check cancelled.');}
+      for(const url of t.sources){if(!this.store.get(owner,'track',id))throw new Error('Tracked page was removed. Check cancelled.');try{this.reading.add(lock);observations.push({...await this.readPage(url),requestedUrl:url});}catch(e){errors.push({url,message:e.message});}finally{this.reading.delete(lock);}if(!this.store.get(owner,'track',id))throw new Error('Tracked page was removed. Check cancelled.');}
       const now=new Date().toISOString();t.lastAttempt=now;t.nextCheck=Date.now()+t.intervalMinutes*60000;t.errors=errors;
       // Do not adopt a one-sided change if an approved source could not be read.
-      if(errors.length){if(errors.some(e=>/ENOTFOUND|EAI_AGAIN|ETIMEOUT|timed out|ECONNRESET|busy|HTTP (?:429|50[234])/i.test(e.message)))t.nextCheck=Date.now()+60000;t.status='check_failed';this.store.put(owner,'track',id,t);return t;}
+      if(errors.length){if(errors.some(e=>/ENOTFOUND|EAI_AGAIN|ETIMEOUT|timed out|ECONNRESET|busy|HTTP (?:429|50[234])/i.test(e.message)))t.nextCheck=Date.now()+60000;t.status='check_failed';
+        this.store.transaction(()=>{
+          this.store.put(owner,'track',id,t);
+          recordSourceCheck(this.store,owner,t,observations,errors,now);
+        });return t;}
       repairMixedSnapshot(t,observations);
       const result=compare(t,observations);
       Object.assign(t,result,{lastSuccessfulCheck:now,status:result.conflicts.length?'conflict':result.uncertain.length?'needs_review':result.missing.length?'date_missing':result.changes.length?'changed':t.milestones.every(m=>m.manual)?'manual':'watching'});
       const changes=result.changes.map(c=>({...c,id:randomUUID(),trackId:id,title:t.title,at:now}));delete t.changes;
       this.store.transaction(()=>{
         this.store.put(owner,'track',id,t);
+        recordSourceCheck(this.store,owner,t,observations,errors,now);
         for(const c of changes){
           this.store.put(owner,'change',c.id,c);
           this.store.put(owner,'delivery',c.id+':browser',{id:c.id+':browser',changeId:c.id,trackId:id,channel:'browser',status:'queued',at:now});
