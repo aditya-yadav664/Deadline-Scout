@@ -1,32 +1,79 @@
-export function renderOverview(target, tracks, priorities, today, { esc, formatDate, overview, timeline }) {
+import { applicationCutoff } from './readiness.js?v=1';
+
+export function renderOverview(target, tracks, priorities, today, { esc, formatDate, overview }) {
   const upcoming = tracks.flatMap(track => track.milestones
     .filter(milestone => milestone.date >= today)
     .map(milestone => ({ track, milestone })))
     .sort((a, b) => a.milestone.date.localeCompare(b.milestone.date)).slice(0, 4);
+  const applicationDates = tracks.filter(track => !track.local && !track.cached)
+    .map(track => ({ track, milestone: applicationCutoff(track.milestones, today) }))
+    .filter(item => item.milestone).sort((a, b) => a.milestone.date.localeCompare(b.milestone.date));
+  const focus = applicationDates[0];
   const details = (id, title) =>
     `<a href="#opportunity=${encodeURIComponent(id)}" data-opportunity="${esc(id)}">${esc(title)}</a>`;
-  const card = (title, items, empty) => `<article class="card workspace-card overview-card">
-    <h3>${title}</h3>${items.length ? `<ul class="workspace-list">${items.join('')}</ul>` : `<p class="muted">${empty}</p>`}
+  const jump = (view, title, attributes = '') =>
+    `<button type="button" class="text-button" data-workspace-jump="${view}" ${attributes}>${title}</button>`;
+  const icon = name => `<img src="/assets/icons/${name}.svg" alt="" width="19" height="19">`;
+  const card = (title, items, empty, action) => `<article class="card workspace-card plan-card">
+    <div class="plan-card-heading"><h3>${title}</h3>${action}</div>
+    ${items.length ? `<ul class="plan-list">${items.join('')}</ul>` : `<p class="muted">${empty}</p>`}
   </article>`;
-  const row = (name, label, value='') => `<li><div>${name}${label ? `<small>${esc(label)}</small>` : ''}</div>${value ? `<span>${esc(value)}</span>` : ''}</li>`;
-  const deadlines = upcoming.map(({ track, milestone }) => row(details(track.id,track.title),milestone.label,formatDate(milestone.date)));
-  const tracked = tracks.slice(0,4).map(track=>row(details(track.id,track.title),track.milestones.length+' milestone(s)'));
-  const tasks = (overview.pendingTasks || []).map(task=>row(details(task.trackId,task.label),task.title + (task.blocked?' · Blocked':''),task.due?formatDate(task.due):''));
-  const updates = (overview.websiteChanges || []).map(change=>row(details(change.trackId,change.title),changeLabels[change.category]||change.category,formatDate(change.at.slice(0,10))));
-  const risk = priorities.map(item=>row(details(item.id,item.title),item.next,item.level));
-  const changes = timeline.map(change=>row(details(change.trackId,change.title),change.label,formatDate(change.after.date)));
-  const progress = (overview.progress || []).map(item=>row(details(item.trackId,item.title),'Checklist and tasks',item.done+' / '+item.total));
-  target.innerHTML = `<div class="overview-row overview-row-three">
-    ${card('Upcoming deadlines',deadlines,'No upcoming dates.')}
-    ${card('Tracked opportunities',tracked,'Save an opportunity to start your watchlist.')}
-    ${card('Important pending tasks',tasks,'No open application tasks.')}
-  </div><div class="overview-row">
-    ${card('Recent website changes',updates,'No website changes detected.')}
-    ${card('Deadline risk overview',risk,'No high-risk opportunities.')}
-  </div><div class="overview-row">
-    ${card('Timeline preview',changes,'No date updates yet.')}
-    ${card('Application progress',progress,'Add tasks or requirements to see your progress.')}
-  </div>`;
+  const row = (name, description, value = '', tone = '') => `<li><div>${name}${description ? `<small>${esc(description)}</small>` : ''}</div>
+    ${value ? `<span class="plan-tag" data-tone="${tone}">${esc(value)}</span>` : ''}</li>`;
+  const deadlines = upcoming.map(({ track, milestone }) =>
+    row(details(track.id, track.title), milestone.label, formatDate(milestone.date)));
+  const tasks = (overview.pendingTasks || []).map(task =>
+    row(details(task.trackId, task.label), task.title, task.blocked ? 'Blocked' : task.due ? formatDate(task.due) : 'Open', task.blocked ? 'attention' : 'neutral'));
+  const requirements = (overview.requirements || []).map(item =>
+    row(details(item.trackId, item.label), item.title, item.done ? 'Complete' : item.required ? 'Required' : 'Optional', item.done ? 'done' : item.required ? 'attention' : 'neutral'));
+  const attention = priorities.filter(item => ['Critical', 'High'].includes(item.level)).slice(0, 2);
+  const focusProgress = focus && overview.progress?.find(item => item.trackId === focus.track.id);
+  const readinessAttributes = focus ? `data-readiness-track="${esc(focus.track.id)}"` : '';
+  const steps = [
+    ['Track', tracks.length + ' saved', 'watchlist', tracks.length ? 'done' : ''],
+    ['Prepare', focusProgress ? focusProgress.done + ' of ' + focusProgress.total + ' plan items complete' : (overview.openTaskCount || 0) + ' open tasks', 'applications', tracks.length ? 'current' : ''],
+    ['Check readiness', (overview.openRequirements || 0) + ' required items open', 'readiness', ''],
+    ['Review dates', upcoming.length ? 'Upcoming milestones' : 'No upcoming dates', 'timeline', '']
+  ];
+  const shortcuts = [
+    ['assistant', 'scan', 'Ask Scout', 'Search your saved evidence'],
+    ['applications', 'list-details', 'Applications', 'Manage tasks and requirements'],
+    ['readiness', 'check', 'Run a scenario', 'Compare a plan to a deadline'],
+    ['heatmap', 'calendar', 'Deadline Heatmap', 'See your workload by date']
+  ];
+  target.innerHTML = `<div class="scout-overview-grid"><div class="scout-overview-main">
+    <article class="card workspace-card plan-card journey-card">
+      <div class="plan-card-heading"><h3>Application plan</h3>${focus ? `<span class="plan-focus">Next to close · ${details(focus.track.id, focus.track.title)}</span>` : ''}</div>
+      <ol class="plan-journey">${steps.map(([title, detail, view, state], index) =>
+        `<li data-step-state="${state}"><button type="button" data-workspace-jump="${view}" ${view === 'readiness' ? readinessAttributes : ''}>
+          <span class="plan-step-mark" aria-hidden="true">${state === 'done' ? '✓' : index + 1}</span><span><strong>${title}</strong><small>${detail}</small></span>
+        </button></li>`).join('')}</ol>
+    </article>
+    <div class="scout-shortcuts">${shortcuts.map(([view, symbol, title, description]) =>
+      `<button type="button" class="scout-shortcut" data-workspace-jump="${view}" ${view === 'readiness' ? readinessAttributes : ''}>
+        <span class="shortcut-icon">${icon(symbol)}</span><span><strong>${title}</strong><small>${description}</small></span>
+      </button>`).join('')}</div>
+    <div class="scout-work-grid">
+      ${card('Tasks', tasks, 'No open application tasks.', jump('applications', 'Workspaces'))}
+      ${card('Document checklist', requirements, 'No checklist items saved.', jump('applications', 'Workspaces'))}
+      ${card('Upcoming deadlines', deadlines, 'No upcoming dates.', jump('timeline', 'Timeline'))}
+    </div>
+  </div>
+  <aside class="scout-overview-rail" aria-label="Scout assistant and next steps">
+    <article class="card workspace-card plan-card scout-advisor">
+      <div class="plan-card-heading"><h3>${icon('scan')} Scout assistant</h3></div>
+      <p class="muted">Ask about your saved deadlines, changed dates, or what to work on first.</p>
+      <div class="scout-questions">
+        ${jump('assistant', 'What should I do first?', 'data-question="What should I do first?"')}
+        ${jump('assistant', 'Which deadlines are coming up?', 'data-question="Which deadlines are coming up?"')}
+      </div>
+      <form data-scout-shortcut><label class="sr-only" for="scout-overview-question">Ask Scout a question</label>
+      <input id="scout-overview-question" type="text" autocomplete="off" maxlength="500" placeholder="Ask about your workspace">
+      <button type="submit" class="button secondary">Open assistant</button></form>
+    </article>
+    ${card('Needs attention', attention.map(item => row(details(item.id, item.title), item.next, item.level, 'attention')),
+    'No high or critical risks in your watchlist.', jump('risk', 'Risk overview'))}
+  </aside></div>`;
   target.setAttribute('aria-busy', 'false');
 }
 

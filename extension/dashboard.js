@@ -1,6 +1,7 @@
+import {renderReadiness} from './readiness.js?v=1';
 import {renderAnswers,renderMemory,renderHeatmap,renderProductivity} from './assistant-ui.js?v=1';
-import {renderApplication,renderPassport} from './applications.js?v=applications-1';
-import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=dashboard-2';
+import {renderApplication,renderPassport} from './applications.js?v=readiness-1';
+import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=readiness-1';
 import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
 import './shared/signup-success-notices.js';
 import {api,storage,settings,isExtension,connectGoogle} from './api.js';
@@ -46,9 +47,9 @@ document.addEventListener('keydown',event=>{
     setNavigation(false);navButton.focus();
   }
 });
-const viewNames=['overview','watchlist','timeline','opportunity','intelligence','risk','applications','passport','settings','assistant','heatmap','productivity','memory','backup'];
-let detailRequest=0,intelligenceRequest=0;
-function showView(name){
+const viewNames=['overview','watchlist','timeline','opportunity','intelligence','risk','applications','passport','settings','assistant','heatmap','productivity','memory','backup','readiness'];
+let detailRequest=0,intelligenceRequest=0,readinessRequest=0;
+function showView(name,options={}){
   if(!viewNames.includes(name))return;
   view=name;
   for(const id of ['profile-popover','notification-menu'])if($('#'+id).matches(':popover-open'))$('#'+id).hidePopover();
@@ -61,6 +62,10 @@ function showView(name){
   if(name==='passport')void loadPassport();
   if(['assistant','heatmap','productivity','memory'].includes(name))void loadPlanning(name);
   if(name==='backup')void mountBackup();
+  if(name==='readiness'){
+    if(location.hash.startsWith('#opportunity='))history.replaceState(null,'',location.pathname+location.search);
+    void openReadiness(options.readinessTrack);
+  }
 
   intelligenceRequest++;
   for(const page of viewNames)$('#'+page+'-view').hidden=page!==name;
@@ -90,6 +95,26 @@ async function loadIntelligence(name){
   }catch(error){if(request===intelligenceRequest&&epoch===workspaceEpoch)target.textContent=error.message;}
   finally{if(request===intelligenceRequest)target.setAttribute('aria-busy','false');}
 }
+async function openReadiness(preferred){
+  const request=++readinessRequest,epoch=workspaceEpoch;
+  const select=$('#readiness-opportunity'),target=$('#readiness-content');
+  const available=tracks.filter(track=>!track.cached);
+  const selected=available.find(track=>track.id===(preferred||select.value))?.id||available[0]?.id;
+  select.replaceChildren(...available.map(track=>new Option(track.title,track.id)));
+  select.disabled=!selected;
+  if(!selected){target.textContent='Save an opportunity to start planning.';return;}
+  select.value=selected;
+  target.textContent='Loading application plan…';
+  try{
+    const detail=await api('/api/opportunities/'+encodeURIComponent(selected));
+    if(view==='readiness'&&request===readinessRequest&&epoch===workspaceEpoch){
+      renderReadiness(target,detail,today,{esc,formatDate});
+    }
+  }catch(error){
+    if(view==='readiness'&&request===readinessRequest&&epoch===workspaceEpoch)target.textContent=error.message;
+  }
+}
+$('#readiness-opportunity').onchange=()=>void openReadiness();
 async function openOpportunity(id,{focus=true}={}){
   const request=++detailRequest;
   const epoch=workspaceEpoch;
@@ -142,7 +167,7 @@ const statusLabels={watching:['Watching',''],changed:['Date updated','warn'],con
 function render(){
   $('#tracks').setAttribute('aria-busy','false');
   const all=[...tracks,...localTracks.map(t=>({...t,local:true}))];
-  renderOverview($('#opportunity-overview'),all,priorities,today,{esc,formatDate,overview,timeline:changes.slice(0,3)});
+  renderOverview($('#opportunity-overview'),all,priorities,today,{esc,formatDate,overview});
   $('#application-list').innerHTML=tracks.filter(track=>!track.cached).length
     ? '<ul class="workspace-list card">'+tracks.filter(track=>!track.cached).map(track=>`<li>
       <a data-opportunity="${esc(track.id)}" href="#opportunity=${encodeURIComponent(track.id)}">${esc(track.title)}</a>
@@ -478,6 +503,13 @@ async function saveApplication(section,input){
 }
 document.querySelector('main').addEventListener('submit',event=>{
   const form=event.target;
+  if(form.matches('[data-scout-shortcut]')){
+    event.preventDefault();
+    showView('assistant');
+    $('#assistant-question').value=$('#scout-overview-question').value.trim();
+    $('#assistant-question').focus();
+    return;
+  }
   if(form.matches('[data-passport-form]')){
     event.preventDefault();
     const values=Object.fromEntries(new FormData(form));
@@ -493,6 +525,16 @@ document.querySelector('main').addEventListener('submit',event=>{
   }
 });
 document.querySelector('main').addEventListener('click',event=>{
+  const jump=event.target.closest('[data-workspace-jump]');
+  if(jump){
+    const page=jump.dataset.workspaceJump;
+    showView(page,{readinessTrack:jump.dataset.readinessTrack});
+    if(jump.dataset.question){
+      $('#assistant-question').value=jump.dataset.question;
+      $('#assistant-question').focus();
+    }else if(page==='watchlist'&&jump.hasAttribute('data-focus-scan'))$('#source-url').focus();
+    return;
+  }
   const removePassport=event.target.closest('[data-passport-remove]');
   if(removePassport){void run(removePassport,()=>savePassport({action:'remove',id:removePassport.dataset.passportRemove}));return;}
   const applicationAction=event.target.closest('[data-application-remove],[data-import-evidence]');

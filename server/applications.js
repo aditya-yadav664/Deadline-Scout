@@ -24,7 +24,7 @@ export function readApplication(store, owner, trackId) {
 }
 
 export function applicationOverview(store, owner, tracks) {
-  const pendingTasks = [], progress = [];
+  const pendingTasks = [], requirements = [], progress = [];
   for (const track of tracks) {
     const workspace = store.get(owner, 'applicationWorkspace', track.id);
     if (!workspace) continue;
@@ -35,11 +35,17 @@ export function applicationOverview(store, owner, tracks) {
         blocked: task.dependencies.some(id => !tasks.find(item => item.id === id)?.done)
       });
     }
+    for (const item of checklist) {
+      requirements.push({ trackId: track.id, title: track.title, label: item.label, required: item.required, done: item.done });
+    }
     const entries = [...tasks, ...checklist];
     if (entries.length) progress.push({ trackId: track.id, title: track.title, total: entries.length, done: entries.filter(item => item.done).length });
   }
   pendingTasks.sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999') || Number(b.blocked) - Number(a.blocked));
-  return { pendingTasks: pendingTasks.slice(0, 4), progress: progress.slice(0, 4) };
+  requirements.sort((a, b) => Number(a.done) - Number(b.done) || Number(b.required) - Number(a.required));
+  return { pendingTasks: pendingTasks.slice(0, 5), requirements: requirements.slice(0, 5),
+    progress: progress.slice(0, 4), openTaskCount: pendingTasks.length,
+    openRequirements: requirements.filter(item => item.required && !item.done).length };
 }
 
 export function updateApplication(store, owner, track, input) {

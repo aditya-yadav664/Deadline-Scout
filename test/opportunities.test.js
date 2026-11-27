@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { simulateReadiness } from '../extension/readiness.js';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -462,4 +463,62 @@ test('signed-out dashboard preserves the extension handoff across the existing G
   await page.getByRole('button',{name:'Log In',exact:true}).click();
   await page.waitForURL('**/dashboard#opportunity='+f.track.id);
   await page.getByRole('heading',{name:'Orbit Hack',exact:true}).waitFor();
+});
+
+test('readiness forecasts only saved open work and respects task prerequisites', () => {
+  const tasks = [
+    { id: 'completed', label: 'Research', done: true, dependencies: [] },
+    { id: 'draft', label: 'Draft essay', done: false, dependencies: ['completed'] },
+    { id: 'review', label: 'Review essay', done: false, dependencies: ['draft'] }
+  ];
+  const checklist = [
+    { id: 'resume', label: 'Resume', required: true, done: true },
+    { id: 'letter', label: 'Letter', required: true, done: false },
+    { id: 'optional', label: 'Portfolio', required: false, done: false }
+  ];
+  const workspace = { tasks, checklist };
+  const estimates = new Map([['task:draft', 2], ['task:review', 3], ['requirement:letter', 4]]);
+  const inputs = { today: '2026-11-27', deadline: '2026-12-04', delay: 0, estimates };
+  const before = structuredClone(workspace);
+  const result = simulateReadiness(workspace, inputs);
+  assert.equal(result.completed, 1);
+  assert.equal(result.total, 2);
+  assert.equal(result.next.id, 'draft');
+  assert.equal(result.finish, '2026-12-02');
+  assert.equal(result.slack, 2);
+  assert.equal(simulateReadiness(workspace, { ...inputs, delay: 3 }).slack, -1);
+  assert.deepEqual(workspace, before);
+});
+
+test('overview opens a readiness scenario and pre-fills the existing assistant', {skip: !executablePath}, async t => {
+  const f = await fixture(t);
+  const track = structuredClone(f.track);
+  track.milestones[0].date = '2099-06-20';
+  f.store.put('local-demo', 'track', track.id, track);
+  const apiPath = '/api/opportunities/' + track.id + '/application';
+  assert.equal((await f.request(apiPath, 'PATCH', {action:'addRequirement',label:'Recommendation',required:true}, f.token)).status, 200);
+  assert.equal((await f.request(apiPath, 'PATCH', {action:'addTask',label:'Review application',dependencies:[]}, f.token)).status, 200);
+  const browser = await chromium.launch({executablePath, headless:true});
+  t.after(() => browser.close());
+  const page = await browser.newPage({viewport:{width:1440,height:900}});
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(f.url + '/dashboard');
+  await page.locator('#opportunity-overview').getByRole('link', {name:'Recommendation'}).waitFor();
+  const main = await page.locator('.scout-overview-main').boundingBox();
+  const rail = await page.locator('.scout-overview-rail').boundingBox();
+  assert.ok(rail.x >= main.x + main.width && rail.y === main.y);
+  await page.getByRole('button', {name:'Run a scenario',exact:false}).click();
+  await page.getByRole('heading', {name:'Application readiness',exact:true}).waitFor();
+  await page.getByRole('spinbutton', {name:/Recommendation/}).fill('5');
+  await page.getByRole('button', {name:'Start in 3 days'}).click();
+  assert.match(await page.locator('[data-readiness-result]').textContent(), /Estimated finish .* days?\(s\) before/);
+  await page.setViewportSize({width:390,height:840});
+  assert.equal(await page.locator('body').evaluate(body => body.scrollWidth <= innerWidth), true);
+  await page.getByRole('button', {name:'Toggle navigation'}).click();
+  await page.getByRole('button', {name:'Overview',exact:true}).click();
+  await page.getByRole('textbox', {name:'Ask Scout a question'}).fill('What closes next week?');
+  await page.getByRole('button', {name:'Open assistant'}).click();
+  assert.equal(await page.locator('#assistant-question').inputValue(), 'What closes next week?');
+  assert.deepEqual(errors, []);
 });

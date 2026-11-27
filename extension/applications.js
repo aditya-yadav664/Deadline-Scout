@@ -58,7 +58,7 @@ export function renderApplication(target, detail, { esc, safeLink }) {
       ${detail.drafts?.length ? '<p>Review your Backup Signup plan against the new date.</p>' : ''}</div></li>`];
   }).slice(0, 5);
   target.innerHTML = `
-    <div class="section-heading"><h3>Application workspace</h3><a class="button secondary" href="${safeLink(detail.url)}" target="_blank" rel="noreferrer">Resume application</a></div>
+    <div class="section-heading"><h3>Application workspace</h3><div class="opportunity-buttons"><button class="button secondary" type="button" data-workspace-jump="readiness" data-readiness-track="${esc(detail.id)}">Simulate readiness</button><a class="button secondary" href="${safeLink(detail.url)}" target="_blank" rel="noreferrer">Resume application</a></div></div>
     <div class="overview-grid">
       <article class="card workspace-card"><h3>Notes and saved pages</h3>
         ${form('notes', `<label>Notes<textarea name="notes" maxlength="6000">${esc(workspace.notes)}</textarea></label>
