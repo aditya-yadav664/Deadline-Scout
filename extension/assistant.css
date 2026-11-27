@@ -36,3 +36,71 @@
 .assistant-history { margin-top: 20px; }
 .assistant-history summary, .assistant-answer details summary { cursor: pointer; color: #a8d7e6; }
 .assistant-answer .workspace-list li > div { width: 100%; }
+
+/* Planning pages use the same warm accents and separators as the overview. */
+:is(#assistant-view,#heatmap-view,#productivity-view,#memory-view,#applications-view,#readiness-view,#passport-view,#intelligence-view,#risk-view,#opportunity-view,#timeline-view,#settings-view) {
+  --section-accent: #ffc181;
+  --section-line: #2c3743;
+  --section-surface: #141d27;
+}
+:is(#heatmap-view,#productivity-view,#memory-view,#applications-view,#readiness-view,#passport-view,#intelligence-view,#risk-view,#opportunity-view,#timeline-view,#settings-view) h2 {
+  margin-block: 0 18px;
+  font-size: clamp(1.45rem, 3vw, 2rem);
+  letter-spacing: -.035em;
+}
+:is(#heatmap-view,#productivity-view,#memory-view,#readiness-view,#passport-view,#intelligence-view,#risk-view,#opportunity-view,#timeline-view,#settings-view) :is(.card,.event) {
+  border-color: var(--section-line);
+  background: var(--section-surface);
+  border-radius: 12px;
+  box-shadow: none;
+}
+:is(#heatmap-view,#productivity-view,#memory-view,#applications-view,#readiness-view,#passport-view,#intelligence-view,#risk-view,#opportunity-view,#timeline-view,#settings-view) .text-button { color: var(--section-accent); }
+:is(#heatmap-view,#productivity-view,#memory-view,#applications-view,#readiness-view,#passport-view,#intelligence-view,#risk-view,#opportunity-view,#timeline-view,#settings-view) :focus-visible { outline-color: var(--section-accent); }
+#applications-view .application-index { max-width: 850px; }
+#applications-view .application-index li { padding: 15px 0; border-color: var(--section-line); }
+#applications-view .application-index a { color: #ecf2f8; font-weight: 650; }
+#timeline-view .event { margin-bottom: 13px; }
+#timeline-view .event > time { color: var(--section-accent); }
+#heatmap-view .calendar-day[aria-pressed="true"] { outline-color: var(--section-accent); }
+#heatmap-view .calendar-day:hover { border-color: var(--section-accent); }
+#heatmap-view .calendar-period strong { color: var(--section-accent); }
+
+#assistant-view { max-width: 860px; }
+.scout-page-heading {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px;
+  margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--section-line);
+}
+.scout-page-heading h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); letter-spacing: -.04em; }
+.scout-page-heading p { margin-top: 4px; color: #a7b5c5; font-size: .88rem; }
+#clear-assistant, #assistant-new-topic { color: var(--section-accent); }
+#assistant-form.scout-composer {
+  gap: 8px; padding: 13px 0 0; margin: 19px 0 0; border-top: 1px solid var(--section-line);
+}
+.scout-composer-input {
+  display: flex; align-items: flex-end; gap: 8px; padding: 8px;
+  background: #101720; border: 1px solid #34434f; border-radius: 13px;
+}
+.scout-composer-input label { flex: 1; min-width: 0; }
+#assistant-form .scout-composer-input textarea {
+  display: block; min-height: 46px; margin: 0; padding: 10px; background: transparent; border: 0;
+}
+#assistant-form .scout-composer-input button[type=submit] {
+  min-width: 62px; background: #ffc181; color: #221709; border-color: #ffc181;
+}
+.scout-prompts { display: flex; flex-wrap: wrap; gap: 6px; }
+.scout-prompts button {
+  color: #d5e2ef; background: #18222e; border: 1px solid #314150;
+  border-radius: 20px; padding: 6px 10px; font: inherit; font-size: .76rem; cursor: pointer;
+}
+.scout-prompts button:hover { border-color: var(--section-accent); }
+.scout-context { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: .82rem; color: #b6c7d6; }
+.scout-context[hidden] { display: none; }
+#assistant-view .assistant-answer {
+  border: 1px solid #34434f; border-radius: 13px; background: var(--section-surface); box-shadow: none;
+}
+#assistant-view .assistant-question-label {
+  display: inline-block; padding: 5px 10px; background: #293341; color: #f1f4f8; border-radius: 7px; font-weight: 550;
+}
+#assistant-view .assistant-summary { font-size: 1rem; }
+#assistant-view :is(.assistant-history,.assistant-answer details) summary { color: var(--section-accent); }
+#assistant-view :focus-visible { outline: 2px solid var(--section-accent); outline-offset: 2px; }

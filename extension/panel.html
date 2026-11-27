@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Deadline Scout — Keep your plans ahead</title><link rel="icon" href="/icon32.png" type="image/png"><link rel="stylesheet" href="/panel.css?v=readiness-1"><link rel="stylesheet" href="/assistant.css?v=2"><link rel="stylesheet" href="/workspace-overview.css?v=4"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Deadline Scout — Keep your plans ahead</title><link rel="icon" href="/icon32.png" type="image/png"><link rel="stylesheet" href="/panel.css?v=readiness-1"><link rel="stylesheet" href="/assistant.css?v=3"><link rel="stylesheet" href="/workspace-overview.css?v=4"></head>
 <body data-workspace-view="overview">
   <section id="dashboard-gate" class="access-status" aria-live="polite"><p>Opening your workspace…</p><a href="/" hidden>Return to Deadline Scout</a></section>
   <section id="auth-return-status" class="access-status" hidden aria-live="polite"><p id="auth-return-text">Completing Google sign-in…</p><a href="/" hidden>Return to Deadline Scout</a></section>
@@ -58,21 +58,27 @@
     <main>
       <section id="backup-view" hidden><div id="backup-embedded" aria-live="polite"></div></section>
       <section id="assistant-view" hidden aria-labelledby="assistant-title">
-        <div class="section-heading"><h2 id="assistant-title">Ask Deadline Scout</h2><button id="clear-assistant" class="button secondary" type="button">Clear history</button></div>
-        <form id="assistant-form" class="card workspace-card application-form">
-          <label>Question<textarea id="assistant-question" maxlength="500" required placeholder="Which deadlines are coming up?"></textarea></label>
-          <div id="suggested-questions" class="opportunity-buttons">
-            <button type="button" class="button secondary">Which applications close this month?</button>
-            <button type="button" class="button secondary">What changed recently?</button>
-            <button type="button" class="button secondary">What should I do first?</button>
-            <button type="button" class="button secondary">Which deadlines conflict?</button>
+        <header class="scout-page-heading">
+          <div><h2 id="assistant-title">Ask Deadline Scout</h2><p>Ask about a saved opportunity, then follow up with what you need to know next.</p></div>
+          <button id="clear-assistant" class="text-button" type="button">Clear history</button>
+        </header>
+        <div id="assistant-results" aria-live="polite"></div>
+        <form id="assistant-form" class="scout-composer application-form">
+          <div id="assistant-context" class="scout-context" hidden><span></span><button class="text-button" type="button" id="assistant-new-topic">New topic</button></div>
+          <div id="suggested-questions" class="scout-prompts" aria-label="Example questions">
+            <button type="button">Which applications close this month?</button>
+            <button type="button">What changed recently?</button>
+            <button type="button">What should I do first?</button>
+            <button type="button">Which deadlines conflict?</button>
+          </div>
+          <div class="scout-composer-input">
+            <label><span class="sr-only">Question</span><textarea id="assistant-question" maxlength="500" required rows="2" placeholder="When does registration close?"></textarea></label>
+            <button class="button primary" type="submit">Ask</button>
           </div>
           <label><input id="assistant-gemini" type="checkbox" disabled> Summarize public sources with Gemini</label>
           <p class="muted assistant-availability" id="assistant-availability"></p>
-          <button class="button primary" type="submit">Ask</button>
           <p id="assistant-status" role="status"></p>
         </form>
-        <div id="assistant-results" aria-live="polite"></div>
       </section>
       <section id="heatmap-view" hidden><h2>Deadline calendar</h2><div id="heatmap-content"></div></section>
       <section id="productivity-view" hidden><h2>Activity summary</h2><div id="productivity-content"></div></section>
@@ -107,7 +113,7 @@
         <div id="opportunity-detail" aria-live="polite"></div>
       </section>
       <section id="watchlist-view" hidden><div id="featured-track" hidden></div><div class="section-heading"><div><h2>Your watchlist</h2></div><div class="watchlist-tools"><span id="review-count" class="muted"></span><label class="sr-only" for="watchlist-layout">Watchlist view</label><select id="watchlist-layout"><option value="all">All in view</option><option value="groups">Group View</option></select><button id="new-group" class="button secondary" hidden>Create group</button></div></div><div id="tracks" aria-busy="true"><div class="watchlist-loading" role="status"><span>Loading your watchlist…</span><i></i><i></i></div></div><aside class="demo-hint" hidden><span class="demo-label">TRY IT OUT</span><div><strong>A deadline you can change.</strong><p>Use Orbit Hack, our fictional hackathon, to see the full before-and-after.</p><a id="demo-link" href="/demo/registration" target="_blank" rel="noreferrer">Open demo registration</a></div></aside></section>
-      <section id="timeline-view" hidden><div class="section-heading"><div><p class="eyebrow">THE BIG PICTURE</p><h2>Your timeline</h2></div></div><div id="timeline"></div><p id="timeline-status" class="muted" role="status"></p><button type="button" class="button secondary" id="timeline-more" hidden>Load older changes</button></section>
+      <section id="timeline-view" hidden><div class="section-heading"><div><h2>Your timeline</h2></div></div><div id="timeline"></div><p id="timeline-status" class="muted" role="status"></p><button type="button" class="button secondary" id="timeline-more" hidden>Load older changes</button></section>
       <div id="profile-popover" popover="auto" aria-label="Profile and settings"><div class="profile-heading"><h2>Profile</h2><button class="icon-button" popovertarget="profile-popover" popovertargetaction="hide" aria-label="Close profile"><img class="ui-icon" src="/assets/icons/x.svg" alt=""></button></div><div class="profile-account"><span class="profile-account-icon" aria-hidden="true"><img class="ui-icon" src="/assets/icons/user.svg" alt=""></span><div class="profile-account-copy"><div id="profile-identity" class="profile-identity" hidden><strong id="profile-display-name"></strong><button id="edit-profile-name" class="text-button" aria-label="Edit name">Edit</button></div><p id="profile-email">Not signed in</p><p id="profile-status"></p></div></div><form id="profile-name-form" hidden><label for="profile-name">Your name</label><div class="form-row"><input id="profile-name" autocomplete="name" maxlength="80" placeholder="Your name"><button id="save-profile-name" class="button secondary" type="submit">Save</button><button id="cancel-profile-name" class="text-button" type="button">Cancel</button></div><p id="profile-name-status" role="status" aria-live="polite"></p></form><div class="profile-actions"><button id="profile-signin" class="button primary">Sign in with Google</button><button id="profile-switch" class="button secondary">Switch Google account</button><button id="sign-out" class="text-button">Sign out</button></div><button id="profile-settings" class="text-button">Account settings</button></div>
       <section id="settings-view" aria-labelledby="settings-heading" hidden>
         <div class="section-heading"><h2 id="settings-heading">Settings</h2></div>
@@ -126,5 +132,5 @@
   <aside id="change-messages" aria-live="polite" aria-label="Date change updates"></aside><div id="toast" role="status" aria-live="polite" hidden></div>
   <dialog id="draft-dialog" aria-labelledby="draft-review-title"><div id="draft" hidden></div></dialog>
   <dialog id="action-dialog"><div class="dialog-heading"><h2 id="dialog-title">Review action</h2><button id="close-dialog" class="icon-button" aria-label="Close dialog"><img class="ui-icon" src="/assets/icons/x.svg" alt=""></button></div><div id="dialog-body"></div></dialog>
-  <script type="module" src="/auth-done.js"></script><script type="module" src="/panel.js?v=overview-2"></script>
+  <script type="module" src="/auth-done.js"></script><script type="module" src="/panel.js?v=workspace-3"></script>
 </body></html>

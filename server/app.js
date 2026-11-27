@@ -204,7 +204,9 @@ export function createApp(options={}) {
         if(path==='/api/assistant/answer'&&req.method==='POST'){
           const input=await body(req,4000);
           const revision=historyRevision();
-          const answer=await askScout(store,owner,input?.question,input?.useGemini,env,options.assistantFetch);
+          if(typeof input?.previousId==='string')await store.load?.(owner,{kind:'assistantHistory',id:'me'});
+          const previous=typeof input?.previousId==='string'?readHistory().find(entry=>entry.id===input.previousId):undefined;
+          const answer=await askScout(store,owner,input?.question,input?.useGemini,env,options.assistantFetch,new Date(),previous);
           return send({answer,receipt:secrets.seal({owner,revision,expires:Date.now()+120000,answer})});
         }
         if(path==='/api/assistant/history'){

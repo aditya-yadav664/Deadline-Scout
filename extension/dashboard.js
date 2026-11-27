@@ -1,5 +1,5 @@
 import {renderReadiness} from './readiness.js?v=2';
-import {renderAnswers,renderMemory,renderHeatmap,renderProductivity} from './assistant-ui.js?v=2';
+import {renderAnswers,renderMemory,renderHeatmap,renderProductivity} from './assistant-ui.js?v=3';
 import {renderApplication,renderPassport} from './applications.js?v=readiness-1';
 import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=overview-2';
 import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
@@ -198,11 +198,16 @@ function render(){
   const overviewQuestion=$('#scout-overview-question')?.value;
   renderOverview($('#opportunity-overview'),all,priorities,today,{esc,formatDate,overview});
   if(overviewQuestion)$('#scout-overview-question').value=overviewQuestion;
-  $('#application-list').innerHTML=tracks.filter(track=>!track.cached).length
-    ? '<ul class="workspace-list card">'+tracks.filter(track=>!track.cached).map(track=>`<li>
-      <a data-opportunity="${esc(track.id)}" href="#opportunity=${encodeURIComponent(track.id)}">${esc(track.title)}</a>
-      <span>Open workspace</span></li>`).join('')+'</ul>'
-    : '<p class="muted">Save an opportunity to start an application workspace.</p>';
+  const applicationTracks=tracks.filter(track=>!track.cached);
+  const progressByTrack=new Map((overview.progress||[]).map(item=>[item.trackId,item]));
+  $('#application-list').innerHTML=applicationTracks.length
+    ? '<ul class="workspace-list application-index">'+applicationTracks.map(track=>{
+      const progress=progressByTrack.get(track.id);
+      return `<li><div><a data-opportunity="${esc(track.id)}" href="#opportunity=${encodeURIComponent(track.id)}">${esc(track.title)}</a>
+        <small>${progress?progress.done+' of '+progress.total+' plan items complete':'Add tasks and a checklist'}</small></div>
+        <button type="button" class="text-button" data-workspace-jump="readiness" data-readiness-track="${esc(track.id)}">Check readiness</button></li>`;
+    }).join('')+'</ul>'
+    : '<p class="muted">Track a page to start an application plan.</p><button class="button secondary" data-workspace-jump="watchlist" data-focus-scan>Track a page</button>';
   $('#profile-email').textContent=me.email||'Not signed in';$('#profile-status').textContent=me.email?(me.googleConnected?'Google Calendar & Tasks connected':'Google account signed in'):'Sign in to connect your Google account.';$('#profile-avatar').innerHTML=me.email?esc((me.displayName||me.email)[0].toUpperCase()):icon('user');$('#profile-signin').hidden=!!me.email;$('#profile-switch').hidden=!me.email;$('#sign-out').hidden=!me.email;
   if(!me.email){profileNameDirty=false;profileNameEditing=false;}
   $('#profile-identity').hidden=!me.email;$('#profile-display-name').textContent=me.displayName||'Your profile';$('#edit-profile-name').hidden=profileNameEditing;$('#profile-name-form').hidden=!me.email||!profileNameEditing;if(!profileNameEditing&&!profileNameDirty)$('#profile-name').value=me.displayName||'';
@@ -465,6 +470,18 @@ async function openBackup(target){
   const editor=await mountBackup();
   if(view==='backup')await editor?.openBackupTarget(target);
 }
+let followUp = null;
+function setFollowUp(entry){
+  const track=tracks.find(item=>item.id===entry?.trackId&&!item.cached);
+  followUp=track?entry:null;
+  const context=$('#assistant-context');
+  context.hidden=!followUp;
+  context.querySelector('span').textContent=track?'Continuing with '+track.title:'';
+}
+$('#assistant-new-topic').onclick=()=>{
+  setFollowUp(null);
+  $('#assistant-question').focus();
+};
 async function loadPlanning(name){
   const request=++planningRequest,epoch=workspaceEpoch;
   const target=$('#'+(name==='assistant'?'assistant-results':name+'-content'));
@@ -476,6 +493,7 @@ async function loadPlanning(name){
     if(name==='assistant'){
       if(!$('#clear-assistant').disabled)answerEntries=data.entries;
       renderAnswers(target,answerEntries);
+      setFollowUp(answerEntries[0]);
       $('#assistant-gemini').disabled=!data.geminiConfigured;
       $('#assistant-gemini').closest('label').hidden=!data.geminiConfigured;
       $('#assistant-availability').textContent=data.geminiConfigured
@@ -501,14 +519,18 @@ $('#assistant-form').onsubmit=event=>{
     status.textContent=$('#assistant-gemini').checked?'Checking your workspace and public sources…':'Checking your workspace…';
     try{
       const {answer,receipt}=await api('/api/assistant/answer','POST',{
-        question:$('#assistant-question').value,useGemini:!$('#assistant-gemini').disabled&&$('#assistant-gemini').checked
+        question:$('#assistant-question').value,previousId:followUp?.id,useGemini:!$('#assistant-gemini').disabled&&$('#assistant-gemini').checked
       });
       if(epoch!==workspaceEpoch)return;
       answerEntries=[answer,...answerEntries].slice(0,15);
-      if(view==='assistant')renderAnswers($('#assistant-results'),answerEntries);
+      if(view==='assistant'){
+        const results=$('#assistant-results');
+        renderAnswers(results,answerEntries);
+        results.querySelector('article')?.scrollIntoView({block:'nearest'});
+      }
       $('#assistant-question').value='';
       $('#assistant-gemini').checked=false;
-      try{const saved=await api('/api/assistant/history','PATCH',{action:'save',receipt});if(epoch===workspaceEpoch)answerEntries=saved.entries;}
+      try{const saved=await api('/api/assistant/history','PATCH',{action:'save',receipt});if(epoch===workspaceEpoch){answerEntries=saved.entries;setFollowUp(saved.entries[0]);}}
       catch{status.textContent='Answer shown. History could not be saved.';return;}
       status.textContent='';
     }catch(error){if(epoch===workspaceEpoch)status.textContent=error.message;}
@@ -517,7 +539,7 @@ $('#assistant-form').onsubmit=event=>{
 };
 $('#clear-assistant').onclick=event=>void run(event.currentTarget,async()=>{
   await api('/api/assistant/history','PATCH',{action:'clear'});
-  answerEntries=[];renderAnswers($('#assistant-results'),answerEntries);$('#assistant-status').textContent='History cleared.';
+  answerEntries=[];setFollowUp(null);renderAnswers($('#assistant-results'),answerEntries);$('#assistant-status').textContent='History cleared.';
 });
 async function saveMemory(input){
   const epoch=workspaceEpoch,{entries}=await api('/api/assistant/memory','PATCH',input);

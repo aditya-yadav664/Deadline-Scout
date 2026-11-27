@@ -255,6 +255,20 @@ test('assistant cites owner evidence, keeps private records out of Gemini, and c
   assert.match(tasks.data.answer.items[0].text,/private task/);
   assert.equal(callCount,2);
   const persisted=await request('assistant/history','PATCH',{action:'save',receipt:first.data.receipt});
+  const second={...f.track,id:'second',title:'Other Scholarship'};
+  f.store.put('local-demo','track',second.id,second);
+  await request('opportunities/'+second.id+'/application','PATCH',{action:'addRequirement',label:'Other transcript',required:true});
+  const followUp=await request('assistant/answer','POST',{question:'What documents am I missing for it?',previousId:first.data.answer.id});
+  assert.equal(followUp.data.answer.trackId,f.track.id);
+  assert.equal(followUp.data.answer.items.length,1);
+  assert.doesNotMatch(JSON.stringify(followUp.data.answer),/Other transcript/);
+  const readiness=await request('assistant/answer','POST',{question:'Am I ready to submit for Orbit Hack?'});
+  assert.match(readiness.data.answer.summary,/Start with private task/);
+  const absent=await request('assistant/answer','POST',{question:'When does "Unknown Program" close?'});
+  assert.equal(absent.data.answer.items.length,0);
+  assert.match(absent.data.answer.summary,/couldn’t find/);
+  f.store.remove('local-demo','track',second.id);
+
   assert.equal(persisted.data.entries.length,1);
   assert.ok(f.store.get('local-demo','assistantHistory','me').sealed);
   assert.equal((await request('assistant/memory','PATCH',{action:'save',label:'Preference',value:'Choose small teams'})).status,200);

@@ -16,7 +16,7 @@ export function productivity(store, owner, now = new Date()) {
   const today = dateInIndia(now);
   const tracks = store.list(owner, 'track');
   const risk = new Map(opportunityRiskList(store, owner, tracks).map(item => [item.id, item]));
-  const events = [], items = [], changes = [], documents = [], tasks = [], insights = {
+  const events = [], items = [], changes = [], documents = [], tasks = [], plans = [], insights = {
     activeOpportunities: tracks.length, upcomingDeadlines: 0, pendingTasks: 0,
     completedRequirements: 0, recentlyUpdated: 0, needsAttention: 0
   };
@@ -42,15 +42,21 @@ export function productivity(store, owner, now = new Date()) {
     dateEvents.push(...milestones);
     insights.upcomingDeadlines += milestones.filter(event => event.date >= today).length;
     const application = store.get(owner, 'applicationWorkspace', track.id);
+    const openTasks = [];
     const taskNames = new Map((application?.tasks || []).map(task=>[task.id,task]));
     for (const task of application?.tasks || []) {
       if (task.done) continue;
       insights.pendingTasks++;
       const waiting = (task.dependencies||[]).map(id=>taskNames.get(id)).filter(item=>item&&!item.done).map(item=>item.label);
-      tasks.push({...item,trackId:track.id,label:task.label,date:task.due,waiting});
+      openTasks.push({...item,trackId:track.id,label:task.label,date:task.due,waiting});
       if (task.due) events.push({type:'task',trackId:track.id,title:track.title,label:task.label,date:task.due});
     }
     const checklist = application?.checklist || [];
+    const required = checklist.filter(entry=>entry.required);
+    tasks.push(...openTasks);
+    plans.push({...item,trackId:track.id,completed:required.filter(entry=>entry.done).length,required:required.length,
+      hasPlan:!!(checklist.length||application?.tasks?.length),openTasks:openTasks.length,
+      nextTask:openTasks.filter(task=>!task.waiting.length).sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'))[0]?.label,openRequirements:required.filter(entry=>!entry.done).map(entry=>entry.label)});
     insights.completedRequirements += checklist.filter(entry => entry.done).length;
     for(const entry of checklist.filter(entry=>entry.required&&!entry.done)){
       documents.push({...item,trackId:track.id,label:entry.label,quote:entry.source?.evidence,url:entry.source?.url||track.url});
@@ -71,17 +77,26 @@ export function productivity(store, owner, now = new Date()) {
     }
   }
   changes.sort((a,b)=>b.at.localeCompare(a.at));
-  return {today,items,insights,documents,tasks,deadlines:dateEvents,changes,events:[...dateEvents,...events,...changes]};
+  return {today,items,insights,documents,tasks,plans,deadlines:dateEvents,changes,events:[...dateEvents,...events,...changes]};
 }
 
-function answerItems(data, question) {
+function answerItems(data, question, previous) {
   const query = question.toLowerCase();
   const tokens = words(question);
   const phrase = tokens.join(' ');
-  const matches = data.items.filter(item=>{
+  const phraseMatches = data.items.filter(item=>{
     const title=words(item.title).join(' ');
     return title && (' '+phrase+' ').includes(' '+title+' ');
   });
+  const quoted = [...question.matchAll(/["“]([^"”]+)["”]/g)].map(match=>match[1].toLowerCase().trim());
+  const significant = new Set(tokens.filter(token=>!['the','for','are','what','when','which','how','about','close','due','application','applications','event','events','deadline','deadlines','work','ready','requirements','tasks','blocked'].includes(token)));
+  const partial = data.items.filter(item=>{
+    const title = [...new Set(words(item.title))];
+    return title.filter(word=>significant.has(word)).length>=Math.min(2,title.length)&&title.length>0;
+  });
+  const contextual = previous?.trackId && (/\b(it|that|there|this one|what about|how about|and when|and what)\b/.test(query));
+  const matches = quoted.length ? data.items.filter(item=>quoted.includes(item.title.toLowerCase())) :
+    phraseMatches.length ? phraseMatches : partial.length===1 ? partial : contextual ? data.items.filter(item=>item.id===previous.trackId) : [];
   const selected = matches.length ? new Set(matches.map(item=>item.id)) : null;
   const allowed = list => list.filter(item=>!selected||selected.has(item.trackId||item.id));
   const citations = list => list.map(item => ({trackId:item.trackId||item.id,title:item.title,url:item.url,
@@ -89,9 +104,27 @@ function answerItems(data, question) {
     quote:item.quote||'',publicEvidence:!!item.publicEvidence,
     publicValue:item.publicEvidence===true?item.value:item.publicEvidence?
       [item.publicEvidence.date,item.publicEvidence.time,item.publicEvidence.zone].filter(Boolean).join(' '):undefined}));
-  const report = (heading, items, summary, empty) => ({heading,items,summary:items.length?summary:empty});
+  const report = (heading, items, summary, empty) => {
+    const tracks=new Set(items.map(item=>item.trackId));
+    return {heading,items,summary:items.length?summary:empty,trackId:matches.length===1?matches[0].id:tracks.size===1?[...tracks][0]:undefined};
+  };
   const focus = selected?' for the matching opportunities':'';
   const day = Date.parse(data.today+'T00:00:00Z');
+  if(quoted.length&&!matches.length)return report('Opportunity not found',[],'','I couldn’t find that saved opportunity. Check its name in your watchlist.');
+  if(contextual&&!matches.length)return report('Which opportunity?',[],'','The previously discussed opportunity is no longer in your watchlist. Ask about another one by name.');
+  if (/\b(ready|readiness|prepared|can i (?:apply|submit)|what remains|what(?:’s|'s| is) left)\b/.test(query)){
+    const plans=allowed(data.plans).filter(item=>item.hasPlan||selected);
+    const items=citations(plans.map(item=>({...item,value:item.hasPlan?
+      [item.required?item.completed+' of '+item.required+' required items complete':'No required checklist items saved',
+       item.openTasks+' open '+(item.openTasks===1?'task':'tasks'),
+       item.openRequirements.length?'Still needed: '+item.openRequirements.slice(0,3).join(', '):'',
+       item.nextTask?'Next unblocked task: '+item.nextTask:''].filter(Boolean).join(' · '):'No checklist or tasks saved.'})));
+    const plan=plans[0];
+    const summary=plans.length>1?'I found '+plans.length+' saved application plans. Name one to check its readiness.':
+      plan?.hasPlan?(plan.openTasks||plan.openRequirements.length?plan.title+' has work left. '+(plan.nextTask?'Start with '+plan.nextTask+'.':plan.openRequirements.length?'Review '+plan.openRequirements[0]+'.':'Check the task prerequisites.'):
+      'The saved plan for '+plan.title+' is complete. Review the organizer’s requirements before submitting.'):'Add a checklist or tasks to assess this application.';
+    return report('Application readiness',items,summary,'There’s no saved application plan to assess yet.');
+  }
   if (/\b(conflict|conflicting|disagree|different sources)\b/.test(query)){
     const items=citations(allowed(data.items).filter(item=>item.conflict).map(item=>({...item,value:'Sources list different dates.'})));
     return report('Conflicting dates',items,'Open Source verification to compare the competing dates.','There are no saved date conflicts'+focus+'.');
@@ -131,25 +164,30 @@ function answerItems(data, question) {
     const month=/\bnext month\b/.test(query)?new Date(Date.UTC(new Date(day).getUTCFullYear(),new Date(day).getUTCMonth()+1,1)).toISOString().slice(0,7):
       /\bthis month\b/.test(query)?data.today.slice(0,7):null;
     const closes=/\b(close[sd]?|closing)\b/.test(query);
+    const opens=/\b(open[sd]?|opening)\b/.test(query);
+    const submission=/\b(submission|submissions|submit)\b/.test(query);
+    const historic=/\b(was|were|did|previous|past)\b/.test(query);
     const upcoming = allowed(data.deadlines).filter(item=>{
       const date=Date.parse(item.date);
-      return item.date>=data.today&&(!month||item.date.startsWith(month))&&
+      return (historic?item.date<data.today:item.date>=data.today)&&(!month||item.date.startsWith(month))&&
         (week===null||date>=monday+week*7*dayMs&&date<monday+(week+1)*7*dayMs)&&
         (dayOffset===null||date===day+dayOffset*dayMs)&&(!relative||date<=day+Number(relative[1])*dayMs)&&
+        (!opens||item.kind==='registration_opens'||/\bopens?\b/i.test(item.label))&&
+        (!submission||item.kind==='submissions'||/\b(submissions?|submit)\b/i.test(item.label))&&
         (!closes||['registration_closes','submissions'].includes(item.kind)||/\b(closes?|closing|cutoff|deadline)\b/i.test(item.label));
     }).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'23:59').localeCompare(b.time||'23:59'));
-    const items=citations(upcoming);
+    const items=citations(historic?upcoming.reverse():upcoming);
     const earliest=items[0];
-    return report('Upcoming tracked dates',items,earliest?'Next up: '+earliest.title+' · '+earliest.text+'.':'','No saved dates match that time window'+focus+'.');
+    return report(historic?'Past tracked dates':'Upcoming tracked dates',items,earliest?(historic?'Last recorded: ':'Next up: ')+earliest.title+' · '+earliest.text+'.':'','No saved dates match that milestone or time window'+focus+'.');
   }
   return report('Try a workspace question',[],'','Ask about an upcoming deadline, a changed date, a required document, or a blocked task. Include an opportunity’s saved name to narrow the results.');
 }
 
-export async function askScout(store, owner, question, useGemini, env, fetcher = fetch, now = new Date()) {
+export async function askScout(store, owner, question, useGemini, env, fetcher = fetch, now = new Date(), previous) {
   if (typeof question !== 'string' || !question.trim() || question.length > 500) throw failure('Enter a question of up to 500 characters.');
-  const result = answerItems(productivity(store, owner, now), question.trim());
+  const result = answerItems(productivity(store, owner, now), question.trim(), previous);
   const items = result.items.slice(0,8);
-  const answer = { id:randomUUID(),question:question.trim(),at:now.toISOString(),heading:result.heading,summary:result.summary,items,mode:'workspace',total:result.items.length };
+  const answer = { id:randomUUID(),question:question.trim(),at:now.toISOString(),heading:result.heading,summary:result.summary,items,mode:'workspace',total:result.items.length,trackId:result.trackId };
   if (useGemini !== true) return answer;
   const options = items.flatMap((item,id)=>item.publicEvidence?[{id,excerpt:item.quote,recordedValue:item.publicValue}]:[]);
   if (!env.GEMINI_API_KEY || !options.length) return {...answer,note:env.GEMINI_API_KEY?
