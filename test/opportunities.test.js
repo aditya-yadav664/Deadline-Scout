@@ -199,7 +199,7 @@ test('dashboard shell keeps watchlist actions and opportunity links accessible o
   assert.deepEqual(errors, []);
 });
 
-test('desktop rail expands without moving content and comparison review persists', { skip: !executablePath }, async t => {
+test('desktop sidebar keeps labels visible and comparison review persists', { skip: !executablePath }, async t => {
   let fee = '₹500';
   const f = await fixture(t,{readPage:async url=>{
     const text = 'Registration deadline: 28 November 2026\n' + (url.endsWith('/faq')?'':'Application fee: '+fee);
@@ -220,9 +220,11 @@ test('desktop rail expands without moving content and comparison review persists
   const navigation=page.locator('#workspace-menu');
   const content=page.locator('.workspace-content');
   const origin=(await content.boundingBox()).x;
-  assert.ok((await navigation.boundingBox()).width<100);
-  await page.getByRole('button',{name:'Change Intelligence'}).hover();
   assert.ok((await navigation.boundingBox()).width>200);
+  const item=page.getByRole('button',{name:'Change Intelligence'});
+  const idleColor=await item.evaluate(node=>getComputedStyle(node).backgroundColor);
+  await item.hover();
+  assert.notEqual(await item.evaluate(node=>getComputedStyle(node).backgroundColor),idleColor);
   assert.equal((await content.boundingBox()).x,origin);
   await page.getByRole('button',{name:'Change Intelligence'}).click();
   await page.getByRole('heading',{name:'Fees',exact:true}).waitFor();
@@ -237,4 +239,62 @@ test('desktop rail expands without moving content and comparison review persists
   await page.getByRole('button',{name:'Risk Overview'}).click();
   await page.locator('#risk-content .risk-badge').waitFor();
   assert.deepEqual(errors,[]);
+});
+
+test('application workspace validates task dependencies and isolates passport entries', async t => {
+  const f = await fixture(t, { readPage: async url => ({
+    url, title:'Orbit Hack', text:'Required documents: Latest marksheet',
+    milestones:extract('Registration deadline: 28 November 2026',url)
+  }) });
+  const path = '/api/opportunities/' + f.track.id;
+  const patch = input => f.request(path+'/application','PATCH',input,f.token);
+  const detail = async () => (await f.request(path,'GET',undefined,f.token)).data;
+  f.store.put('_system','session',hash('other'),{owner:'other',expires:Date.now()+10000});
+  assert.equal((await f.request(path+'/application','PATCH',{ action:'notes', notes:'private',priority:'high' },'other')).status,404);
+  assert.equal((await patch({action:'addPage',url:'https://example.com/?token=private'})).status,400);
+  assert.equal((await patch({action:'addPage',url:'https://example.com/application'})).status,200);
+  await f.request('/api/tracks/'+f.track.id+'/check','POST',{},f.token);
+  await patch({action:'importRequirement',sourceUrl:f.source,evidence:'Required documents: Latest marksheet'});
+  let application = (await detail()).application;
+  assert.equal(application.checklist[0].label,'Latest marksheet');
+  assert.equal(application.checklist[0].done,false);
+  const task = (label, fields = {}) => ({ action:'addTask',label,dependencies:[],...fields });
+  const a = (await patch(task('Prepare ID'))).data.tasks[0];
+  const b = (await patch(task('Submit',{dependencies:[a.id]}))).data.tasks[1];
+  assert.equal((await patch(task('Prepare ID',{action:'updateTask',id:a.id,dependencies:[b.id]}))).status,400);
+  assert.equal((await patch(task('Submit',{action:'updateTask',id:b.id,dependencies:[a.id],done:true}))).status,400);
+  await patch(task('Prepare ID',{action:'updateTask',id:a.id,done:true}));
+  assert.equal((await patch(task('Submit',{action:'updateTask',id:b.id,dependencies:[a.id],done:true}))).status,200);
+  const passport='/api/application-passport';
+  const saved=await f.request(passport,'PATCH',{action:'save',category:'skills',label:'Tools',value:'JavaScript'},f.token);
+  assert.equal(saved.data[0].value,'JavaScript');
+  assert.deepEqual((await f.request(passport,'GET',undefined,'other')).data,[]);
+  assert.ok(f.store.get('local-demo','applicationPassport','me').sealed);
+  await f.request('/api/tracks/'+f.track.id,'DELETE',undefined,f.token);
+  assert.equal(f.store.get('local-demo','applicationWorkspace',f.track.id),null);
+});
+
+test('application notes, checklist and passport can be saved through the dashboard', {skip:!executablePath}, async t=>{
+  const f=await fixture(t);
+  const browser=await chromium.launch({executablePath,headless:true});
+  t.after(()=>browser.close());
+  const page=await browser.newPage({viewport:{width:1280,height:820}});
+  await page.goto(f.url);
+  await page.getByRole('button',{name:'Application Workspaces'}).click();
+  await page.locator('#application-list').getByRole('link',{name:'Orbit Hack'}).click();
+  await page.getByLabel('Notes',{exact:true}).fill('Check the organizer instructions.');
+  await page.getByRole('button',{name:'Save notes'}).click();
+  await page.getByText('Application workspace saved.',{exact:true}).waitFor();
+  assert.equal(f.store.get('local-demo','applicationWorkspace',f.track.id).notes,'Check the organizer instructions.');
+  await page.getByLabel('Requirement',{exact:true}).fill('ID photo');
+  await page.getByRole('button',{name:'Add requirement'}).click();
+  await page.getByText('Required · ID photo',{exact:true}).waitFor();
+  await page.reload();
+  await page.waitForFunction(()=>document.querySelector('[data-application-action=notes] textarea')?.value==='Check the organizer instructions.',null,{timeout:5000});
+  await page.getByRole('button',{name:'Application Passport'}).click();
+  const passport=page.locator('#passport-content');
+  await passport.getByLabel('Label').fill('Skill');
+  await passport.getByLabel('Value').fill('JavaScript');
+  await passport.getByRole('button',{name:'Add entry'}).click();
+  await passport.getByText('Skill',{exact:true}).waitFor();
 });

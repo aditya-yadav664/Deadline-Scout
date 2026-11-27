@@ -7,6 +7,7 @@ const $=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>
 let liveExtensionId=null;
 window.addEventListener('message',event=>{if(event.source===window&&event.origin===location.origin&&event.data?.type==='deadline-scout-extension-ready'&&/^[a-p]{32}$/.test(event.data.extensionId)){liveExtensionId=event.data.extensionId;}});
 window.postMessage({type:'deadline-scout-find-extension'},location.origin);
+let passportEntries=[];
 let me={},tracks=[],drafts=[],profile={links:[]},editing=null,captured=null,epoch=0,busy=false,stage=1,lastDeletedId=null,answersDirty=false,targetEvent=null;
 function status(message){
   const inEditor=!$('#signup-editor').hidden;
@@ -29,7 +30,7 @@ function suggestStep(step){
  }
  return draft;
 }
-async function refresh(){({me,tracks}=await api('/api/workspace'));[drafts,profile]=await Promise.all([api('/api/signups'),api('/api/signup-profile')]);$('#backup-account').textContent=me.email?'Your Google account is connected.':'';for(const k of ['name','phone','college'])$('#signup-profile').elements[k].value=profile[k]||(k==='name'?me.displayName:'');$('#saved-links').innerHTML='';profile.links.forEach(addLink);paintList();groupDraftCards();}
+async function refresh(){({me,tracks}=await api('/api/workspace'));[drafts,profile]=await Promise.all([api('/api/signups'),api('/api/signup-profile')]);passportEntries=await api('/api/application-passport').catch(()=>[]);$('#backup-account').textContent=me.email?'Your Google account is connected.':'';for(const k of ['name','phone','college'])$('#signup-profile').elements[k].value=profile[k]||(k==='name'?me.displayName:'');$('#saved-links').innerHTML='';profile.links.forEach(addLink);paintList();groupDraftCards();}
 function showStage(n){stage=n;for(let i=1;i<=3;i++){$('#stage-'+i).hidden=i!==n;const stepButton=$('#flow-'+i);stepButton.classList.toggle('current',i===n);if(i===n)stepButton.setAttribute('aria-current','step');else stepButton.removeAttribute('aria-current');}$('#signup-feedback').textContent='';if(n===3){previewTime();showPickerFiles(editing);}}
 function filterDrafts(){
   const query=$('#draft-search').value.trim().toLowerCase();
@@ -162,7 +163,24 @@ function previewTime(){$('#offset-label').hidden=$('#signup-rule').value!=='rela
 $('#signup-rule').onchange=previewTime;$('#signup-offset').oninput=previewTime;$('#signup-time').onchange=previewTime;$('#signup-milestone').onchange=previewTime;$('#signup-track').onchange=showCustomEventFields;
 function openDraft(d){editing=d;$('#signup-editor').hidden=false;$('#backup-feedback').textContent='';$('#signup-title').textContent=d.id?d.title:'Prepare your signup';$('#signup-name').value=d.title;$('#signup-track').innerHTML='<option value="">Choose an event</option>'+tracks.map(t=>'<option value="'+esc(t.id)+'">'+esc(t.title)+'</option>').join('')+'<option value="'+NEW_EVENT+'">+ Create a custom event</option>';$('#signup-track').value=d.trackId||(tracks.length===1?tracks[0].id:tracks.length?'':NEW_EVENT);$('#custom-event-name').value='';$('#custom-event-date').value='';showCustomEventFields();answersDirty=false;$('#signup-destination').textContent=d.steps.length+' captured step(s) · '+d.formUrl;
  $('#signup-steps').innerHTML=d.steps.map((step,i)=>`<fieldset data-step="${i}"><legend>Captured step ${i+1} · ${esc(step.title)}</legend><p>${esc(step.url)} · ${esc(step.capturedAt)}</p><p>Terms snapshot: ${esc(step.terms||'No terms text detected; review on the site.')}</p>${isLegacyGoogleCapture(step)?'<p class="error-list">Older Google Forms capture. If you have recaptured this page, remove this copy before saving.</p>':[...new Set(step.warnings||[])].map(w=>`<p class="error-list">${esc(w)}</p>`).join('')}${d.steps.length>1?`<button type="button" class="text-button backup-danger" data-remove-step="${i}">Remove captured page</button>`:''}${step.fields.map(f=>{const value=step.answers?.[f.key]||'';return `<div class="field-review">${(f.type==='checkbox'||f.type==='radio')&&f.options?.length?renderChoices(f,value,i):`<label>${esc(f.label)}${f.required?' *':''}${renderAnswer(f,value)}</label>`}<small>Source: ${esc(step.sources?.[f.key]||'Enter manually')}\n${esc(f.help||'')}${f.type==='file'?'\nFormats: '+(f.accept||'unknown')+' · Max size: '+(f.maxBytes?f.maxBytes+' bytes':'unknown')+' · Count: '+(f.multiple?'multiple; exact maximum unknown':'1'):''}</small>${f.type==='file'?`<div class="file-state" data-files="${esc(f.key)}">${(step.files?.[f.key]||[]).map(file=>esc(file.name)+' · '+file.size+' bytes · '+esc(file.type)+' · '+(file.id?(f.manualUpload?'Saved PDF · attaches when the form supports it':'Saved PDF · ready for autofill'):'Manual attachment pending')).join('<br>')||(f.manualUpload?'Choose a PDF to save it with this draft. Some upload controls need manual attachment.':'No file chosen. Manual attachment pending.')}</div>`:''}</div>`;}).join('')}</fieldset>`).join('');
- $('#signup-steps').querySelectorAll('[data-step]').forEach(box=>{const step=editing.steps[+box.dataset.step];for(const field of step.fields){const input=[...box.querySelectorAll('[data-key]')].find(n=>n.dataset.key===field.key);if(!input)continue;const suggestion=suggestField(field,{...profile,email:me.email},profile.links);if(suggestion.choices?.length){const choose=document.createElement('select');choose.setAttribute('aria-label','Saved link for '+field.label);choose.innerHTML='<option value="">Choose a saved link</option>'+suggestion.choices.map(l=>'<option value="'+esc(l.url)+'">'+esc(l.name||l.kind)+' · '+esc(l.url)+'</option>').join('');choose.onchange=()=>{input.value=choose.value;delete input.dataset.edited;step.sources[field.key]='Saved link';answersDirty=true;editing.reviewedAll=false;};input.after(choose);}if(/anyone with (?:the )?link|publicly (?:viewable|accessible)/i.test(field.help||'')){const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.checked=!!step.sharing?.[field.key];check.onchange=()=>{step.sharing||={};step.sharing[field.key]=check.checked;answersDirty=true;editing.reviewedAll=false;};label.append(check,document.createTextNode('I confirmed the required sharing access for this link.'));input.after(label);}}});
+ $('#signup-steps').querySelectorAll('[data-step]').forEach(box=>{const step=editing.steps[+box.dataset.step];for(const field of step.fields){const input=[...box.querySelectorAll('[data-key]')].find(n=>n.dataset.key===field.key);if(!input)continue;
+  if(passportEntries.length&&['text','textarea','url','email','tel'].includes(field.type)){
+    const passport=document.createElement('select');
+    passport.setAttribute('aria-label','Passport entry for '+field.label);
+    passport.innerHTML='<option value="">Choose a passport entry</option>'+passportEntries.map(entry=>'<option value="'+esc(entry.id)+'">'+esc(entry.label)+'</option>').join('');
+    passport.onchange=()=>{
+      const entry=passportEntries.find(item=>item.id===passport.value);
+      if(entry){
+        input.value=entry.value;
+        step.sources[field.key]='Application Passport';
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+        delete input.dataset.edited;
+      }
+      passport.value='';
+    };
+    input.after(passport);
+  }
+  const suggestion=suggestField(field,{...profile,email:me.email},profile.links);if(suggestion.choices?.length){const choose=document.createElement('select');choose.setAttribute('aria-label','Saved link for '+field.label);choose.innerHTML='<option value="">Choose a saved link</option>'+suggestion.choices.map(l=>'<option value="'+esc(l.url)+'">'+esc(l.name||l.kind)+' · '+esc(l.url)+'</option>').join('');choose.onchange=()=>{input.value=choose.value;delete input.dataset.edited;step.sources[field.key]='Saved link';answersDirty=true;editing.reviewedAll=false;};input.after(choose);}if(/anyone with (?:the )?link|publicly (?:viewable|accessible)/i.test(field.help||'')){const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.checked=!!step.sharing?.[field.key];check.onchange=()=>{step.sharing||={};step.sharing[field.key]=check.checked;answersDirty=true;editing.reviewedAll=false;};label.append(check,document.createTextNode('I confirmed the required sharing access for this link.'));input.after(label);}}});
  $('#signup-steps').querySelectorAll('[data-remove-step]').forEach(button=>button.onclick=()=>{
   readEditor();
   editing.steps.splice(Number(button.dataset.removeStep),1);

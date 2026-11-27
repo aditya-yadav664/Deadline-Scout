@@ -10,6 +10,7 @@ import {collectSignupPage} from '../extension/shared/signup-collection.js';
 import {Store} from '../server/store.js';
 import {createApp} from '../server/app.js';
 import {hash,vault} from '../server/security.js';
+import {updatePassport} from '../server/applications.js';
 const executablePath=[process.env.BROWSER_EXECUTABLE,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','/usr/bin/chromium'].find(p=>p&&existsSync(p));
 test('Backup Signup can save, retry a denied backup, and fill with a reviewed PDF', {skip:!executablePath},async t=>{
  const store=new Store(':memory:');
@@ -18,7 +19,8 @@ test('Backup Signup can save, retry a denied backup, and fill with a reviewed PD
  const port=reservation.address().port;
  await new Promise(resolve=>reservation.close(resolve));
  const host='http://127.0.0.1:'+port;
- const app=createApp({env:{HOST:'127.0.0.1',APP_URL:host},store,vault:vault('.',Buffer.alloc(32,7).toString('base64'))});
+ const encryption=vault('.',Buffer.alloc(32,7).toString('base64'));
+ const app=createApp({env:{HOST:'127.0.0.1',APP_URL:host},store,vault:encryption});
  await new Promise((resolve,reject)=>app.server.once('error',reject).listen(port,'127.0.0.1',resolve));
  t.after(()=>app.close());
  const token='fixture-browser-token';
@@ -27,9 +29,10 @@ test('Backup Signup can save, retry a denied backup, and fill with a reviewed PD
  store.put('alice','track','track',{id:'track',title:'Controlled event',url:host,milestones:[{id:'deadline',date:'2099-09-12'}]});
  const file=app.signups.file('alice',{name:'fixture.pdf',data:Buffer.from('%PDF-1.4\nFictional PDF').toString('base64')});
  const extensionId='a'.repeat(32);
+ const [passport]=updatePassport(store,encryption,'alice',{action:'save',category:'skills',label:'Primary skill',value:'JavaScript'});
  const draft=await app.signups.route('alice','/api/signups','POST',{
   trackId:'track',title:'Fixture',extensionId,reviewedAll:false,steps:[{
-   url:'https://docs.google.com/forms/d/e/fixture/viewform',fields:[{key:'pdf',type:'file',label:'Resume',required:true,accept:'.pdf',manualUpload:true}],
+   url:'https://docs.google.com/forms/d/e/fixture/viewform',fields:[{key:'pdf',type:'file',label:'Resume',required:true,accept:'.pdf',manualUpload:true},{key:'skills',type:'text',label:'Skills'}],
    files:{pdf:[file]},
   }],
  });
@@ -49,9 +52,12 @@ test('Backup Signup can save, retry a denied backup, and fill with a reviewed PD
  await page.locator('#signup-editor:visible, #backup-feedback:not(:empty)').first().waitFor();
  assert.equal(await page.locator('#backup-feedback').textContent(),'');
  await page.locator('#flow-2').click();
+ await page.getByLabel('Passport entry for Skills',{exact:true}).selectOption(passport.id);
  await page.getByRole('button',{name:'Save & continue'}).click();
  await page.locator('#stage-3').waitFor();
  const reviewed=app.signups.read('alice',draft.id);
+ assert.equal(reviewed.steps[0].answers.skills,'JavaScript');
+ assert.equal(reviewed.steps[0].sources.skills,'Application Passport');
  await page.locator('#signup-mode').selectOption('browser-auto');
  await page.locator('#arm-signup').click();
  await page.getByText('Grant site access first.',{exact:true}).waitFor();

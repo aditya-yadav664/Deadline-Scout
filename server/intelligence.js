@@ -112,7 +112,7 @@ export function verificationFor(track, sources) {
   });
 }
 
-export function riskFor(track, verification, content, { now = Date.now(), signups = [] } = {}) {
+export function riskFor(track, verification, content, { now = Date.now(), signups = [], workspace } = {}) {
   const days = 86400000;
   const confirmed = track.milestones.flatMap(milestone => {
     try {
@@ -126,15 +126,21 @@ export function riskFor(track, verification, content, { now = Date.now(), signup
   const recent = content?.changes?.some(change => !change.reviewedAt && Date.parse(change.at) > now - 7 * days);
   const pendingSignup = signups.some(item => ['Draft','Waiting for browser','Needs review','Submission requested'].includes(item.status)) &&
     !signups.some(item => ['Confirmed','Already registered'].includes(item.status));
+  const documents = workspace?.checklist.filter(item => item.required && !item.done).length || 0;
+  const tasks = workspace?.tasks.filter(task => !task.done).length || 0;
+  const highPriority = workspace?.priority === 'high';
   const level = remainingHours !== null && remainingHours <= 24 ? 'Critical'
-    : blocked || remainingHours !== null && remainingHours <= 72 ? 'High'
-    : recent || pendingSignup || remainingHours !== null && remainingHours <= 168 ? 'Moderate' : confirmed ? 'Low' : 'Unknown';
+    : blocked || remainingHours !== null && (remainingHours <= 72 || remainingHours <= 168 && (documents || tasks)) ? 'High'
+    : recent || pendingSignup || documents || tasks || highPriority || remainingHours !== null && remainingHours <= 168 ? 'Moderate' : confirmed ? 'Low' : 'Unknown';
   const reasons = [
     confirmed ? confirmed.milestone.label + ' is due in ' + remainingHours + ' hours.' : 'No upcoming confirmed milestone.',
     ...(blocked ? ['Check the latest source evidence before acting.'] : []),
     ...(recent ? ['A recent source change is waiting for review.'] : []),
     ...(pendingSignup ? ['A saved signup still needs completion or organizer confirmation.'] : []),
+    ...(documents ? [documents + ' required checklist item(s) still open.'] : []),
+    ...(tasks ? [tasks + ' application task(s) still open.'] : []),
+    ...(highPriority ? ['Marked high priority in your workspace.'] : []),
     ...(verification.length && verification.every(item => item.status === 'unverified') ? ['Dates have no cross-domain corroboration.'] : [])
   ];
-  return { level, remainingHours, reasons, next: blocked ? 'Review the source evidence' : pendingSignup ? 'Open Backup Signup and review the draft' : recent ? 'Review the source change' : 'Review your next deadline' };
+  return { level, remainingHours, reasons, next: blocked ? 'Review the source evidence' : documents ? 'Review the document checklist' : tasks ? 'Open the dependency planner' : pendingSignup ? 'Open Backup Signup and review the draft' : recent ? 'Review the source change' : 'Review your next deadline' };
 }

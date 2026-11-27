@@ -1,3 +1,4 @@
+import {renderApplication,renderPassport} from './applications.js?v=applications-1';
 import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=intelligence-1';
 import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
 import './shared/signup-success-notices.js';
@@ -27,12 +28,16 @@ function formatDate(date){if(!date)return 'No date';try{return new Intl.DateTime
 function compactDate(date){return new Intl.DateTimeFormat('en',{day:'numeric',month:'short',timeZone:'UTC'}).format(new Date(date+'T12:00:00Z'));}
 function displayZone(zone){return ['Asia/Kolkata','Asia/Calcutta'].includes(zone)?'IST':zone;}
 function relative(value){if(!value)return 'Not checked yet';const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(value))/60000));return minutes===0?'Just now':minutes<60?`${minutes} min ago`:minutes<1440?`${Math.floor(minutes/60)} hr ago`:new Date(value).toLocaleDateString();}
-const viewNames=['overview','watchlist','timeline','opportunity','intelligence','risk'];
+const viewNames=['overview','watchlist','timeline','opportunity','intelligence','risk','applications','passport'];
 let detailRequest=0,intelligenceRequest=0;
 function showView(name){
   if(name==='settings'){openProfileSettings();return;}
   if(!viewNames.includes(name))return;
   view=name;
+  const navigation=document.querySelector('.workspace-navigation [data-view="'+name+'"]');
+  $('#current-view-name').textContent=navigation?.querySelector('.rail-label')?.textContent||navigation?.textContent.trim()||'Opportunity details';
+  $('.workspace-hero').hidden=!['overview','watchlist'].includes(name);
+  if(name==='passport')void loadPassport();
   intelligenceRequest++;
   for(const page of viewNames)$('#'+page+'-view').hidden=page!==name;
   document.querySelectorAll('.workspace-navigation [data-view]').forEach(button=>{
@@ -81,6 +86,12 @@ async function openOpportunity(id,{focus=true}={}){
     if(request!==detailRequest||epoch!==workspaceEpoch)return;
     title.textContent=detail.title;
     renderOpportunity(target,detail,{esc,safeLink,formatDate});
+    if(detail.application){
+      const workspace=document.createElement('section');
+      workspace.dataset.workspaceId=detail.id;
+      renderApplication(workspace,detail,{esc,safeLink});
+      target.append(workspace);
+    }
   }catch(error){
     if(request===detailRequest&&epoch===workspaceEpoch)target.textContent=error.message;
   }
@@ -106,6 +117,11 @@ function render(){
   $('#tracks').setAttribute('aria-busy','false');
   const all=[...tracks,...localTracks.map(t=>({...t,local:true}))];
   renderOverview($('#opportunity-overview'),all,priorities,today,{esc,formatDate});
+  $('#application-list').innerHTML=tracks.filter(track=>!track.cached).length
+    ? '<ul class="workspace-list card">'+tracks.filter(track=>!track.cached).map(track=>`<li>
+      <a data-opportunity="${esc(track.id)}" href="#opportunity=${encodeURIComponent(track.id)}">${esc(track.title)}</a>
+      <span>Open workspace</span></li>`).join('')+'</ul>'
+    : '<p class="muted">Save an opportunity to start an application workspace.</p>';
   $('#profile-email').textContent=me.email||'Not signed in';$('#profile-status').textContent=me.email?(me.googleConnected?'Google Calendar & Tasks connected':'Google account signed in'):'Sign in to connect your Google account.';$('#profile-avatar').innerHTML=me.email?esc((me.displayName||me.email)[0].toUpperCase()):icon('user');$('#profile-signin').hidden=!!me.email;$('#profile-switch').hidden=!me.email;$('#sign-out').hidden=!me.email;
   if(!me.email){profileNameDirty=false;profileNameEditing=false;}
   $('#profile-identity').hidden=!me.email;$('#profile-display-name').textContent=me.displayName||'Your profile';$('#edit-profile-name').hidden=profileNameEditing;$('#profile-name-form').hidden=!me.email||!profileNameEditing;if(!profileNameEditing&&!profileNameDirty)$('#profile-name').value=me.displayName||'';
@@ -298,7 +314,7 @@ async function renderOutbox(){const epoch=workspaceEpoch,owner=me.email;if(outbo
 $('#load-more-outbox').onclick=()=>{outboxVisible+=5;paintOutbox();};
 $('#clear-account-data').onclick=e=>run(e.currentTarget,async()=>{
   if(!connected||!await storage.get('token'))throw new Error('Sign in to clear your account data.');
-  workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();$('#clear-data-status').textContent='Clearing…';
+  workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#passport-content').replaceChildren();$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();$('#clear-data-status').textContent='Clearing…';
   try{await api('/api/account/clear-data','POST',{action:'clear-account-data'});workspaceEpoch++;for(const key of ['localTracks','localChanges','cachedTracks'])await storage.set(key,[]);await storage.set('pendingReview',null);tracks=[];localTracks=[];changes=[];priorities=[];openTracks.clear();outboxItems=[];outboxVisible=3;paintOutbox();if(draft)await closeDraft();await refresh();$('#clear-data-status').textContent='Account activity cleared. Your profile and Google connection are unchanged.';}catch(error){$('#clear-data-status').textContent=error.message;throw error;}
 });
 $('#watchlist-view').onclick=e=>{
@@ -317,7 +333,53 @@ $('#watchlist-view').onclick=e=>{
     }
   });
 };
+let passportRequest=0;
+async function loadPassport(){
+  const request=++passportRequest,epoch=workspaceEpoch,target=$('#passport-content');
+  target.textContent='Loading passport…';
+  try{
+    const entries=await api('/api/application-passport');
+    if(request===passportRequest&&epoch===workspaceEpoch)renderPassport(target,entries,esc);
+  }catch(error){if(request===passportRequest&&epoch===workspaceEpoch)target.textContent=error.message;}
+}
+async function savePassport(input){
+  const epoch=workspaceEpoch,entries=await api('/api/application-passport','PATCH',input);
+  if(epoch===workspaceEpoch&&view==='passport'){passportRequest++;renderPassport($('#passport-content'),entries,esc);}
+}
+async function saveApplication(section,input){
+  const id=section.dataset.workspaceId;
+  await api('/api/opportunities/'+encodeURIComponent(id)+'/application','PATCH',input);
+  if(view==='opportunity'&&section.isConnected)await openOpportunity(id,{focus:false});
+  toast('Application workspace saved.');
+}
+document.querySelector('main').addEventListener('submit',event=>{
+  const form=event.target;
+  if(form.matches('[data-passport-form]')){
+    event.preventDefault();
+    const values=Object.fromEntries(new FormData(form));
+    void run(form.querySelector('[type=submit]'),()=>savePassport({action:'save',id:form.dataset.id,...values}));
+  }
+  if(form.matches('[data-application-action]')){
+    event.preventDefault();
+    const fields=new FormData(form),values=Object.fromEntries(fields);
+    void run(form.querySelector('[type=submit]'),()=>saveApplication(form.closest('[data-workspace-id]'),{
+      ...values,action:form.dataset.applicationAction,id:form.dataset.itemId,dependencies:fields.getAll('dependencies'),
+      done:fields.has('done'),required:fields.has('required')
+    }));
+  }
+});
 document.querySelector('main').addEventListener('click',event=>{
+  const removePassport=event.target.closest('[data-passport-remove]');
+  if(removePassport){void run(removePassport,()=>savePassport({action:'remove',id:removePassport.dataset.passportRemove}));return;}
+  const applicationAction=event.target.closest('[data-application-remove],[data-import-evidence]');
+  if(applicationAction){
+    const data=applicationAction.dataset;
+    void run(applicationAction,()=>saveApplication(applicationAction.closest('[data-workspace-id]'),{
+      action:data.applicationRemove||'importRequirement',id:data.itemId,evidence:data.importEvidence,sourceUrl:data.importUrl
+    }));
+    return;
+  }
+
   const review=event.target.closest('[data-review-change]');
   if(review){
     void run(review,async()=>{
@@ -367,6 +429,10 @@ $('#find-event').addEventListener('input',()=>{
   if($('#find-event').value.trim()&&view!=='watchlist')showView('watchlist');
 });
 document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{showView(button.dataset.view);if(view==='settings'&&connected)renderOutbox().catch(()=>{});});
+document.querySelector('.workspace-navigation>.brand').onclick=event=>{
+  event.preventDefault();
+  showView('overview');
+};
 function openProfileSettings(){const popover=$('#profile-popover');if(!popover.matches(':popover-open'))popover.showPopover();$('#settings-view').hidden=false;$('#profile-settings').setAttribute('aria-expanded','true');if(connected){renderOutbox().catch(()=>{});void backgroundAlertStatus();}}
 $('#profile-settings').onclick=()=>{const expanded=$('#settings-view').hidden;$('#settings-view').hidden=!expanded;$('#profile-settings').setAttribute('aria-expanded',String(expanded));if(expanded&&connected){renderOutbox().catch(()=>{});void backgroundAlertStatus();}};
 function cancelProfileName(){profileNameEditing=false;profileNameDirty=false;$('#profile-name-status').textContent='';render();$('#edit-profile-name').focus();}
@@ -406,7 +472,7 @@ $('#profile-name-form').onsubmit=e=>{e.preventDefault();void run($('#save-profil
   $('#profile-name-status').textContent='Saving…';try{const result=await api('/api/me','PATCH',{displayName:$('#profile-name').value});me.displayName=result.displayName;profileNameDirty=false;profileNameEditing=false;await refresh();toast('Name saved.');if($('#profile-popover').matches(':popover-open'))$('#edit-profile-name').focus();}catch(error){$('#profile-name-status').textContent=error.message;throw error;}
 });};
 $('#profile-signin').onclick=e=>run(e.currentTarget,signIn);
-async function signOut(){workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];priorities=[];me={};await storage.set('cachedTracks',[]);render();}}
+async function signOut(){workspaceEpoch++;showView('overview');$('#opportunity-detail').replaceChildren();$('#passport-content').replaceChildren();$('#intelligence-content').replaceChildren();$('#risk-content').replaceChildren();try{await api('/api/logout','POST',{});}finally{await storage.set('token',null);tracks=[];changes=[];priorities=[];me={};await storage.set('cachedTracks',[]);render();}}
 $('#profile-switch').onclick=e=>run(e.currentTarget,async()=>{await signOut();await signIn();});
 async function signIn(){if(draft){readDraft();await storage.set('pendingReview',draft);}await connectGoogle();await refresh();}
 $('#tracking-signin').onclick=e=>run(e.currentTarget,signIn);

@@ -18,11 +18,12 @@ import { observationKey } from '../extension/shared/compare.js';
 import { modelExtract } from './model.js';
 import { readRegistrationSource } from './source-adapters.js';
 import {saveCapture,consumeCapture} from './captures.js';
+import {readApplication,updateApplication,readPassport,updatePassport} from './applications.js';
 import {opportunityDetail, opportunityRiskList} from './opportunities.js';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const sha256url=s=>createHash('sha256').update(s).digest('base64url');
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
-export function isPublicFilePath(path){const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);return /^(?:panel\.(?:html|css|js)|dashboard\.js|opportunities\.js|backup\.(?:html|js|css)|signup-demo\.(?:html|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts|alert-connection|signup|google-forms|signup-resume|signup-files|signup-background|signup-collection|signup-receipt|signup-success-notices)\.js)$/.test(relative);}
+export function isPublicFilePath(path){const relative=path==='/'||path==='/auth/done'?'panel.html':path.slice(1);return /^(?:panel\.(?:html|css|js)|dashboard\.js|opportunities\.js|applications\.js|backup\.(?:html|js|css)|signup-demo\.(?:html|js)|popup\.(?:html|css|js)|auth-done\.js|worker\.js|api\.js|icon\.svg|icon(?:16|32|48|128)\.png|assets\/(?:logo-(?:symbol|wordmark)\.png|scout-symbol\.svg|orbit-glow\.png|inter\.woff2|icons\/(?:calendar|refresh|external-link|check|chevron-down|arrow-right|link|scan|clock|user|x|list-details)\.svg)|shared\/(?:dates|extract|compare|milestone-selection|page-scanner|backend-url|copied-link|browser-alerts|alert-connection|signup|google-forms|signup-resume|signup-files|signup-background|signup-collection|signup-receipt|signup-success-notices)\.js)$/.test(relative);}
 export function createApp(options={}) {
   const env=options.env||process.env;
   const port=Number(env.PORT||4317),host=env.HOST||'127.0.0.1';
@@ -166,7 +167,7 @@ export function createApp(options={}) {
         if(path==='/api/account/clear-data'&&req.method==='POST'){
           const b=await body(req);if(b.action!=='clear-account-data')throw fail('Choose Clear account data to continue.');
           if([...engine.locks].some(key=>key.startsWith(owner+':'))||engine.delivering.has(owner))throw fail('A check or delivery is running. Try again when it finishes.',409);
-          const deleted=store.transaction(()=>{for(const r of store.list('_system','demoSignup'))if(r.owner===owner&&r.key)store.remove('_system','demoSignup',r.key);return store.clearKinds(owner,['track','change','delivery','googleLink','signup','signupFile','signupProfile','dashboard','sourceHistory','intelligence']);});return send({ok:true,deleted});
+          const deleted=store.transaction(()=>{for(const r of store.list('_system','demoSignup'))if(r.owner===owner&&r.key)store.remove('_system','demoSignup',r.key);return store.clearKinds(owner,['track','change','delivery','googleLink','signup','signupFile','signupProfile','dashboard','sourceHistory','intelligence','applicationWorkspace','applicationPassport']);});return send({ok:true,deleted});
         }
         if(path==='/api/logout'&&req.method==='POST'){store.remove('_system','session',hash(token));return send({ok:true});}
         if(['/api/me','/api/workspace'].includes(path)&&req.method==='GET') {
@@ -217,11 +218,26 @@ export function createApp(options={}) {
         if(path==='/api/inspect'&&req.method==='POST'){
           const b=await body(req);return send(await readPage(b.url));
         }
+        if(path==='/api/application-passport'){
+          if(req.method==='GET')return send(readPassport(store,secrets,owner));
+          if(req.method==='PATCH')return send(updatePassport(store,secrets,owner,await body(req,16000)));
+        }
+        const application=path.match(/^\/api\/opportunities\/([\w-]{1,100})\/application$/);
+        if(application&&req.method==='PATCH'){
+          const input=await body(req,16000);
+          const track=store.get(owner,'track',application[1]);
+          if(!track)throw fail('Opportunity not found.',404);
+          return send(updateApplication(store,owner,track,input));
+        }
         const opportunity=path.match(/^\/api\/opportunities\/([a-zA-Z0-9_-]{1,100})$/);
         if(opportunity&&req.method==='GET'){
           const detail=opportunityDetail(store,owner,opportunity[1]);
           if(!detail)throw fail('Opportunity not found.',404);
-          return send(detail);
+          return send({...detail, application:readApplication(store,owner,detail.id),
+            drafts:store.list(owner,'signup').filter(draft=>draft.trackId===detail.id&&draft.status!=='Deleted')
+              .map(({id,status})=>({id,status})),
+            linkedRecords:store.list(owner,'googleLink').filter(link=>link.trackId===detail.id&&link.state==='linked')
+              .map(({milestoneId,channel})=>({milestoneId,channel}))});
         }
         if(path==='/api/intelligence'&&req.method==='GET'){
           const tracks=store.list(owner,'track');
@@ -284,7 +300,7 @@ export function createApp(options={}) {
             store.transaction(()=>{
               const related=store.list(owner,'change').filter(c=>c.trackId===id),changeIds=new Set(related.map(c=>c.id));
               for(const draft of signups.list(owner).filter(d=>d.trackId===id)){draft.status='Cancelled';signups.save(owner,draft);}
-              store.remove(owner,'track',id);store.remove(owner,'sourceHistory',id);store.remove(owner,'intelligence',id);for(const c of related)store.remove(owner,'change',c.id);
+              store.remove(owner,'track',id);store.remove(owner,'sourceHistory',id);store.remove(owner,'intelligence',id);store.remove(owner,'applicationWorkspace',id);for(const c of related)store.remove(owner,'change',c.id);
               for(const d of store.list(owner,'delivery').filter(d=>d.trackId===id||changeIds.has(d.changeId))){if(d.channel==='browser')store.remove(owner,'delivery',d.id);else if(['queued','retry','sending'].includes(d.status))store.put(owner,'delivery',d.id,{...d,status:'cancelled',error:'Registration removed; alert cancelled.'});}
               for(const link of store.list(owner,'googleLink').filter(l=>l.trackId===id))store.remove(owner,'googleLink',link.id);
             });return send({ok:true});

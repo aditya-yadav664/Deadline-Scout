@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { riskFor, verificationFor } from './intelligence.js';
+import { readApplication } from './applications.js';
 
 const sourceLimit = 5;
 const evidencePerSource = 12;
@@ -12,7 +13,7 @@ export function opportunityRiskList(store, owner, tracks) {
     return {
       id: track.id,
       title: track.title,
-      ...riskFor(track, verificationFor(track, sources), content, { signups: signups.get(track.id) })
+      ...riskFor(track, verificationFor(track, sources), content, { signups: signups.get(track.id), workspace:readApplication(store,owner,track.id) })
     };
   });
 }
@@ -59,7 +60,7 @@ export function opportunityDetail(store, owner, id) {
     verificationSources: track.verificationSources || [],
     manualOnly: track.milestones.every(milestone => milestone.manual),
     verification,
-    risk: riskFor(track, verification, content, {signups:store.list(owner,'signup').filter(item=>item.trackId===id)}),
+    risk: riskFor(track, verification, content, {signups:store.list(owner,'signup').filter(item=>item.trackId===id), workspace:readApplication(store,owner,id)}),
     summaries: Object.values(content?.sources || {}).map(({ sourceUrl, at, facts }) => ({ sourceUrl, at, facts })),
     changes: store.list(owner, 'change').filter(change => change.trackId === id)
       .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 50).map(change => ({
