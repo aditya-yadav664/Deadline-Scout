@@ -76,8 +76,16 @@ export function formScanNavigation({url,formIndex=0,googleForms=false,advance=fa
     .sort((a,b)=>a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1);
   const activeTab=tabs.find(tab=>tab.getAttribute('aria-selected')==='true');
   const nextTab=activeTab&&tabs[tabs.indexOf(activeTab)+1];
-  const adjacentTab=nextTab&&activeTab.closest('[role=tablist]')===nextTab.closest('[role=tablist]')&&
-    activeTab.closest('[role=tablist]')&&document.getElementById(nextTab.getAttribute('aria-controls'));
+  const panelFor=tab=>{
+    const linked=document.getElementById(tab.getAttribute('aria-controls'));
+    if(linked&&scope.contains(linked))return linked;
+    const target=tab.getAttribute('data-step-target');
+    if(target)return [...scope.querySelectorAll('[data-step]')].find(panel=>panel.getAttribute('data-step')===target);
+  };
+  const adjacentTab=nextTab&&activeTab.closest('[role=tablist]')&&
+    activeTab.closest('[role=tablist]')===nextTab.closest('[role=tablist]')&&
+    nextTab.matches('button[type=button]')&&visible(panelFor(activeTab)||activeTab)&&
+    panelFor(nextTab)&&!visible(panelFor(nextTab));
   function score(el,scoped){
     const roleButton=(root||el.closest('[role=form],[data-wizard],[data-multistep-form]'))&&
       el.matches('[role=button]:not(button):not(input):not(a)');
@@ -87,8 +95,10 @@ export function formScanNavigation({url,formIndex=0,googleForms=false,advance=fa
       !/%|\b(?:pay|checkout|submit|confirm|complete|delete|cancel|logout)\b/i.test(link.pathname+link.search);
     const intermediate=el.matches('button[type=button],input[type=button]')||roleButton||sameSiteLink;
     const caption=label(el);
+    if(!onlyKnown&&adjacentTab&&el===nextTab&&
+      (!/\b(?:submit|confirm)\b/i.test(caption)||/\breview\b/i.test(caption))&&
+      !/\b(?:pay|payment|checkout|purchase|delete|accept|agree|send|place order)\b/i.test(caption))return 6;
     if(/\b(?:pay|payment|checkout|purchase|submit|confirm|cancel|finish|register|delete|accept|agree|send|place order|back|previous)\b/i.test(caption))return 0;
-    if(!onlyKnown&&adjacentTab&&el===nextTab&&el.type!=='submit'&&(!el.matches('a[href]')||sameSiteLink))return 6;
     if(!intermediate)return 0;
     if((caption||el.id)&&controlKey(el)===knownControl&&(onlyKnown||!final))return 7;
     if(onlyKnown)return 0;
@@ -113,6 +123,11 @@ export function formScanNavigation({url,formIndex=0,googleForms=false,advance=fa
     ).slice(0,12).map(el=>({key:controlKey(el),label:label(el)||el.id}))};
   }
   if(!ranked.length||ranked[0].rank===ranked[1]?.rank)return !ranked.length&&final?'review':'manual';
+  // An enabled tab with its own section exposes questions independently of the form's Continue action.
+  if(adjacentTab&&ranked[0].el===nextTab&&!onlyKnown){
+    if(advance)nextTab.click();
+    return 'next';
+  }
   if(inputs.some(el=>el.type==='checkbox'&&/\b(?:consent|waiver|agree|terms)\b/i.test([...el.labels||[]].map(text).join(' '))))return 'manual';
   if(inputs.some(el=>el.willValidate&&!el.validity.valid)||
     [...scope.querySelectorAll('[aria-invalid="true"]')].some(visible))return 'blocked';

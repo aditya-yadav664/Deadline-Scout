@@ -54,12 +54,22 @@ test('the installed extension finds registration from an event page and scans wi
   }
   if(url.pathname==='/apply-tabs'){
    response.setHeader('Content-Type','text/html; charset=utf-8');
-   return response.end(`<!doctype html><title>Tabbed application</title><form>
-    <div role="tablist"><button type="button" role="tab" aria-selected="true" aria-controls="about">About you</button>
-     <button type="button" role="tab" aria-selected="false" aria-controls="project" onclick="this.setAttribute('aria-selected','true');this.previousElementSibling.setAttribute('aria-selected','false');document.querySelector('#about').hidden=true;document.querySelector('#project').hidden=false;">Your proposal</button></div>
-    <section id="about" role="tabpanel"><label>Applicant name<input name="name" value="Test applicant"></label></section>
-    <section id="project" role="tabpanel" hidden><label>Project title<input name="title" value="Test project"></label><button type="submit">Submit application</button></section>
-   </form>`);
+   return response.end(`<!doctype html><title>Tabbed application</title><main>
+    <div role="tablist"><button type="button" role="tab" data-step-target="1" aria-selected="true" onclick="showStep(this)">Participant Details</button>
+     <button type="button" role="tab" data-step-target="2" aria-selected="false" onclick="showStep(this)">Project Details</button>
+     <button type="button" role="tab" data-step-target="3" aria-selected="false" onclick="showStep(this)">Review &amp; Submit</button></div>
+    <form method="post">
+     <fieldset data-step="1"><legend>About you</legend><label>Applicant name<input name="name" value="Test applicant"></label>
+      <label>Institution<input name="institution" required></label><button type="button">Continue to project details</button></fieldset>
+     <fieldset data-step="2" hidden><legend>Project</legend><label>Project title<input name="title" value="Test project"></label>
+      <label>Proposal PDF<input name="proposal" type="file" accept=".pdf" required></label><button type="button">Review Submission</button></fieldset>
+     <fieldset data-step="3" hidden><legend>Review</legend><button type="submit">Submit application</button></fieldset>
+    </form></main><script>
+     function showStep(tab){
+      for(const button of document.querySelectorAll('[role=tab]'))button.setAttribute('aria-selected',String(button===tab));
+      for(const panel of document.querySelectorAll('[data-step]'))panel.hidden=panel.dataset.step!==tab.dataset.stepTarget;
+     }
+    </script>`);
   }
   if(url.pathname==='/apply-custom'){
    response.setHeader('Content-Type','text/html; charset=utf-8');
@@ -139,6 +149,10 @@ test('the installed extension finds registration from an event page and scans wi
   await scanner.getByRole('button',{name:'Review answers'}).click();
   assert.equal(await scanner.getByLabel(/Applicant name/).inputValue(),'Test applicant');
   if(multiple)assert.equal(await scanner.getByLabel(/Project title/).inputValue(),'Test project');
+  if(variant==='tabs'){
+   assert.equal(await scanner.getByLabel(/Institution/).inputValue(),'');
+   assert.equal(await scanner.getByLabel(/Proposal PDF/).getAttribute('type'),'file');
+  }
   if(variant==='custom'){
    assert.equal(await scanner.getByLabel(/Preferred time/).inputValue(),'Afternoon');
    assert.equal(await scanner.getByLabel(/Portfolio URL/).inputValue(),'https://example.org/portfolio');
