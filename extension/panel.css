@@ -234,3 +234,142 @@ body:has(.workspace-layout){background:#090a0c;padding:0;color-scheme:dark}
 .dependency-flow p{margin:6px 0}
 .dependency-flow span{color:var(--ink)}
 .workspace-layout .workspace-hero[hidden]{display:none}
+
+/* The startup character is drawn with CSS so it appears with the page shell. */
+.access-status:not([hidden]):has(.scout-loading:not([hidden])) {
+  display: grid;
+  place-items: center;
+  min-height: 72svh;
+  max-width: none;
+  margin: 0;
+}
+.scout-loading-scene {
+  position: relative;
+  width: 11rem;
+  height: 9rem;
+  isolation: isolate;
+}
+.scout-orbit {
+  position: absolute;
+  inset: 3.1rem .65rem 2.4rem;
+  border: 1px solid #345062;
+  border-radius: 50%;
+  transform: rotate(-19deg);
+}
+.scout-orbit::before {
+  content: "";
+  position: absolute;
+  top: .12rem;
+  left: 1.3rem;
+  width: .4rem;
+  height: .4rem;
+  border-radius: 50%;
+  background: #80eee7;
+  box-shadow: 0 0 .55rem #80eee77a;
+}
+.scout-loading-shadow {
+  position: absolute;
+  inset: auto 3.15rem 1.15rem;
+  height: .6rem;
+  border-radius: 50%;
+  background: #22313f;
+  animation: scout-shadow 1.8s ease-in-out infinite;
+}
+.scout-loading-robot {
+  position: absolute;
+  top: 2.3rem;
+  left: 50%;
+  width: 5.45rem;
+  height: 3.8rem;
+  border: 2px solid #ffd3a6;
+  border-radius: 1.22rem;
+  background: linear-gradient(150deg, #ffe0ba, #f6a459);
+  box-shadow: inset 0 -.28rem #613c5933;
+  transform: translateX(-50%);
+  animation: scout-hover 1.8s ease-in-out infinite;
+}
+.scout-loading-antenna {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  width: .18rem;
+  height: .74rem;
+  border-radius: .3rem;
+  background: #ffd3a6;
+}
+.scout-loading-antenna::before {
+  content: "";
+  position: absolute;
+  top: -.2rem;
+  left: -.17rem;
+  width: .52rem;
+  height: .52rem;
+  border-radius: 50%;
+  background: #81ede5;
+}
+.scout-loading-face {
+  position: absolute;
+  inset: .48rem .4rem .56rem;
+  border: 2px solid #303c56;
+  border-radius: .82rem;
+  background: #111b28;
+}
+.scout-loading-face::before {
+  content: "";
+  position: absolute;
+  top: .58rem;
+  left: .81rem;
+  width: .32rem;
+  height: .48rem;
+  border-radius: 50%;
+  background: #90fbec;
+  box-shadow: 1.49rem 0 #90fbec;
+  animation: scout-blink 3.8s ease-in-out infinite;
+}
+.scout-loading-face::after {
+  content: "";
+  position: absolute;
+  left: calc(50% - .25rem);
+  top: 1.15rem;
+  width: .5rem;
+  height: .28rem;
+  border: solid #90fbec;
+  border-width: 0 2px 2px;
+  border-radius: 0 0 .4rem .4rem;
+}
+.scout-loading-foot {
+  position: absolute;
+  top: 100%;
+  left: .92rem;
+  width: .62rem;
+  height: .3rem;
+  border-radius: 0 0 .25rem .25rem;
+  background: #ffc181;
+  box-shadow: 2.72rem 0 #ffc181;
+}
+.scout-loading-spark {
+  position: absolute;
+  top: 1.35rem;
+  right: 1.2rem;
+  width: .85rem;
+  height: .85rem;
+  background: #81ede5;
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+  animation: scout-spark 1.8s ease-in-out infinite;
+}
+@keyframes scout-hover {
+  50% { transform: translate(-50%, -.55rem) rotate(-5deg); }
+}
+@keyframes scout-shadow {
+  50% { transform: scaleX(.76); opacity: .62; }
+}
+@keyframes scout-blink {
+  94% { transform: scaleY(1); }
+  97% { transform: scaleY(.14); }
+}
+@keyframes scout-spark {
+  50% { transform: scale(.65) rotate(18deg); opacity: .65; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scout-loading-scene * { animation: none !important; }
+}

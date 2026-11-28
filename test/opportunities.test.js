@@ -618,3 +618,27 @@ test('extension date review uses one workspace read and displays the capture dur
   allowVerification();
   await review.getByRole('button',{name:'Save tracked page'}).waitFor();
 });
+
+test('startup shows the Scout animation and preserves a readable sign-in error',{skip:!executablePath},async t=>{
+  const f=await fixture(t);
+  const browser=await chromium.launch({executablePath,headless:true});
+  t.after(()=>browser.close());
+  const page=await browser.newPage({viewport:{width:390,height:780}});
+  let release;
+  const ready=new Promise(resolve=>{release=resolve;});
+  t.after(release);
+  await page.route('**/api/config',async route=>{await ready;await route.continue();});
+  await page.goto(f.url+'/dashboard',{waitUntil:'commit'});
+  const character=page.locator('.scout-loading-robot');
+  await character.waitFor();
+  assert.equal(await character.evaluate(node=>getComputedStyle(node).animationName),'scout-hover');
+  assert.equal(await page.getByText('Loading Deadline Scout',{exact:true}).evaluate(node=>node.offsetWidth),1);
+  await page.emulateMedia({reducedMotion:'reduce'});
+  assert.equal(await character.evaluate(node=>getComputedStyle(node).animationName),'none');
+  release();
+  await page.getByRole('heading',{name:'Upcoming deadlines'}).waitFor();
+  assert.equal(await character.isVisible(),false);
+  await page.goto(f.url+'/auth/done');
+  await page.getByText('This sign-in link has expired. Return to the app and sign in again.').waitFor();
+  assert.equal(await character.isVisible(),false);
+});

@@ -16,9 +16,9 @@ if(isExtension){
       if(result.error&&(config.auth!=='local'||result.error.status!==401))throw result.error;
       workspace=result.workspace;
     }else if(config.auth!=='local')throw Object.assign(new Error('Sign in to continue.'),{status:401});
+    const {startDashboard}=await import('./dashboard.js?v=handoff-1');
     gate.hidden=true;
     shell.hidden=false;
-    const {startDashboard}=await import('./dashboard.js?v=handoff-1');
     await startDashboard({config,workspace});
   }catch(error){
     if(error.status===401){
@@ -28,7 +28,10 @@ if(isExtension){
     }else{
       shell.hidden=true;
       gate.hidden=false;
-      gate.querySelector('p').textContent=error.message;
+      gate.querySelector('.scout-loading').hidden=true;
+      const message=gate.querySelector('.access-error');
+      message.textContent=error.message;
+      message.hidden=false;
       gate.querySelector('a').hidden=false;
     }
   }

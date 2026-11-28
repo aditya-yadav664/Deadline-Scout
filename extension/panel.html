@@ -1,9 +1,24 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Deadline Scout — Keep your plans ahead</title><link rel="icon" href="/icon32.png" type="image/png"><link rel="stylesheet" href="/panel.css?v=readiness-1"><link rel="stylesheet" href="/assistant.css?v=3"><link rel="stylesheet" href="/workspace-overview.css?v=4"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Deadline Scout — Keep your plans ahead</title><link rel="icon" href="/icon32.png" type="image/png"><link rel="stylesheet" href="/panel.css?v=scout-loader-1"><link rel="stylesheet" href="/assistant.css?v=3"><link rel="stylesheet" href="/workspace-overview.css?v=4"></head>
 <body data-workspace-view="overview">
-  <section id="dashboard-gate" class="access-status" aria-live="polite"><p>Opening your workspace…</p><a href="/" hidden>Return to Deadline Scout</a></section>
-  <section id="auth-return-status" class="access-status" hidden aria-live="polite"><p id="auth-return-text">Completing Google sign-in…</p><a href="/" hidden>Return to Deadline Scout</a></section>
+  <section id="dashboard-gate" class="access-status" aria-live="polite">
+    <div class="scout-loading" role="status">
+      <span class="sr-only">Loading Deadline Scout</span>
+      <div class="scout-loading-scene" aria-hidden="true">
+        <span class="scout-orbit"></span>
+        <span class="scout-loading-shadow"></span>
+        <span class="scout-loading-robot">
+          <i class="scout-loading-antenna"></i>
+          <i class="scout-loading-face"></i>
+          <i class="scout-loading-foot"></i>
+        </span>
+        <span class="scout-loading-spark"></span>
+      </div>
+    </div>
+    <p class="access-error" hidden></p>
+    <a href="/" hidden>Return to Deadline Scout</a>
+  </section>
   <div class="shell" hidden>
     <div class="workspace-layout">
       <aside id="workspace-sidebar" class="workspace-navigation" aria-label="Workspace navigation">
@@ -95,7 +110,7 @@
       <section id="passport-view" hidden><h2>Reusable answers</h2><div id="passport-content" aria-live="polite"></div></section>
       <section id="overview-view" aria-labelledby="overview-title">
         <h2 id="overview-title" class="sr-only">Overview</h2>
-        <div id="opportunity-overview" aria-busy="true"><p role="status">Loading your opportunities…</p></div>
+        <div id="opportunity-overview" aria-busy="true"><div class="watchlist-loading" role="status"><span class="sr-only">Loading your opportunities</span><i></i></div></div>
       </section>
       <section id="intelligence-view" hidden aria-labelledby="intelligence-title">
         <div class="section-heading"><h2 id="intelligence-title">Source changes</h2><button type="button" class="button secondary" data-reload-intelligence>Refresh</button></div>
@@ -112,7 +127,7 @@
         </div>
         <div id="opportunity-detail" aria-live="polite"></div>
       </section>
-      <section id="watchlist-view" hidden><div id="featured-track" hidden></div><div class="section-heading"><div><h2>Your watchlist</h2></div><div class="watchlist-tools"><span id="review-count" class="muted"></span><label class="sr-only" for="watchlist-layout">Watchlist view</label><select id="watchlist-layout"><option value="all">All in view</option><option value="groups">Group View</option></select><button id="new-group" class="button secondary" hidden>Create group</button></div></div><div id="tracks" aria-busy="true"><div class="watchlist-loading" role="status"><span>Loading your watchlist…</span><i></i><i></i></div></div><aside class="demo-hint" hidden><span class="demo-label">TRY IT OUT</span><div><strong>A deadline you can change.</strong><p>Use Orbit Hack, our fictional hackathon, to see the full before-and-after.</p><a id="demo-link" href="/demo/registration" target="_blank" rel="noreferrer">Open demo registration</a></div></aside></section>
+      <section id="watchlist-view" hidden><div id="featured-track" hidden></div><div class="section-heading"><div><h2>Your watchlist</h2></div><div class="watchlist-tools"><span id="review-count" class="muted"></span><label class="sr-only" for="watchlist-layout">Watchlist view</label><select id="watchlist-layout"><option value="all">All in view</option><option value="groups">Group View</option></select><button id="new-group" class="button secondary" hidden>Create group</button></div></div><div id="tracks" aria-busy="true"><div class="watchlist-loading" role="status"><span class="sr-only">Loading your watchlist</span><i></i><i></i></div></div><aside class="demo-hint" hidden><span class="demo-label">TRY IT OUT</span><div><strong>A deadline you can change.</strong><p>Use Orbit Hack, our fictional hackathon, to see the full before-and-after.</p><a id="demo-link" href="/demo/registration" target="_blank" rel="noreferrer">Open demo registration</a></div></aside></section>
       <section id="timeline-view" hidden><div class="section-heading"><div><h2>Your timeline</h2></div></div><div id="timeline"></div><p id="timeline-status" class="muted" role="status"></p><button type="button" class="button secondary" id="timeline-more" hidden>Load older changes</button></section>
       <div id="profile-popover" popover="auto" aria-label="Profile and settings"><div class="profile-heading"><h2>Profile</h2><button class="icon-button" popovertarget="profile-popover" popovertargetaction="hide" aria-label="Close profile"><img class="ui-icon" src="/assets/icons/x.svg" alt=""></button></div><div class="profile-account"><span class="profile-account-icon" aria-hidden="true"><img class="ui-icon" src="/assets/icons/user.svg" alt=""></span><div class="profile-account-copy"><div id="profile-identity" class="profile-identity" hidden><strong id="profile-display-name"></strong><button id="edit-profile-name" class="text-button" aria-label="Edit name">Edit</button></div><p id="profile-email">Not signed in</p><p id="profile-status"></p></div></div><form id="profile-name-form" hidden><label for="profile-name">Your name</label><div class="form-row"><input id="profile-name" autocomplete="name" maxlength="80" placeholder="Your name"><button id="save-profile-name" class="button secondary" type="submit">Save</button><button id="cancel-profile-name" class="text-button" type="button">Cancel</button></div><p id="profile-name-status" role="status" aria-live="polite"></p></form><div class="profile-actions"><button id="profile-signin" class="button primary">Sign in with Google</button><button id="profile-switch" class="button secondary">Switch Google account</button><button id="sign-out" class="text-button">Sign out</button></div><button id="profile-settings" class="text-button">Account settings</button></div>
       <section id="settings-view" aria-labelledby="settings-heading" hidden>
@@ -132,5 +147,5 @@
   <aside id="change-messages" aria-live="polite" aria-label="Date change updates"></aside><div id="toast" role="status" aria-live="polite" hidden></div>
   <dialog id="draft-dialog" aria-labelledby="draft-review-title"><div id="draft" hidden></div></dialog>
   <dialog id="action-dialog"><div class="dialog-heading"><h2 id="dialog-title">Review action</h2><button id="close-dialog" class="icon-button" aria-label="Close dialog"><img class="ui-icon" src="/assets/icons/x.svg" alt=""></button></div><div id="dialog-body"></div></dialog>
-  <script type="module" src="/auth-done.js"></script><script type="module" src="/panel.js?v=handoff-1"></script>
+  <script type="module" src="/auth-done.js?v=scout-loader-1"></script><script type="module" src="/panel.js?v=scout-loader-1"></script>
 </body></html>
