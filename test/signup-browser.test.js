@@ -37,6 +37,7 @@ test('the installed extension finds registration from an event page and scans wi
   if(url.pathname.startsWith('/event-')){
    const destinations={
     '/event-multi':'<a href="/apply-multi">Start registration</a>',
+    '/event-custom':'<a href="/apply-custom">Apply now</a>',
     '/event-external':'<a href="http://localhost:'+port+'/apply-single">Start registration</a>',
     '/event-choice':'<a href="/apply-single">Register now</a><a href="/apply-multi">Apply for the workshop</a>',
     '/event-button':'<button type="button" onclick="document.querySelector(\'form\').hidden=false">Start registration</button>'+
@@ -45,10 +46,19 @@ test('the installed extension finds registration from an event page and scans wi
    response.setHeader('Content-Type','text/html');
    return response.end('<!doctype html>'+destinations[url.pathname]+'<a href="/newsletter">Subscribe to our newsletter</a>');
   }
-  if(!['/apply-single','/apply-multi'].includes(url.pathname))return appHandler(request,response);
+  if(!['/apply-single','/apply-multi','/apply-custom'].includes(url.pathname))return appHandler(request,response);
   if(request.method!=='GET'){
    submissions++;
    return response.end('Submitted');
+  }
+  if(url.pathname==='/apply-custom'){
+   response.setHeader('Content-Type','text/html; charset=utf-8');
+   return response.end(`<!doctype html><title>Custom application</title><form id="application" method="post">
+    <h2>About you</h2><label><span>Applicant name</span><input name="answer" value="Test applicant"></label>
+   </form><footer>
+    <button type="button" aria-controls="application" onclick="document.querySelector('h2').textContent='About your project';document.querySelector('label span').textContent='Project title';document.querySelector('input').value='Test project';this.hidden=true;document.querySelector('#final').hidden=false;">Proceed to project information</button>
+    <button id="final" type="submit" form="application" hidden>Submit application</button>
+   </footer>`);
   }
   const step=url.searchParams.get('page');
   const multi=url.pathname==='/apply-multi';
@@ -65,7 +75,7 @@ test('the installed extension finds registration from an event page and scans wi
   response.end('<!doctype html><title>Test application</title><form method="post">'+contents+navigation+'</form>');
  });
  const site=context.pages()[0];
- for(const variant of ['single','multi','choice','button','external']){
+ for(const variant of ['single','multi','custom','choice','button','external']){
   await site.goto(host+'/backup.html');
   await site.getByText('Your Google account is connected.').waitFor();
   await site.getByLabel('Event page or application URL').fill(host+(variant==='single'?'/apply-single':'/event-'+variant));
@@ -79,6 +89,7 @@ test('the installed extension finds registration from an event page and scans wi
    await scanner.getByRole('button',{name:'Open registration'}).click();
   }
   if(['button','external'].includes(variant))await scanner.getByRole('button',{name:'Open registration'}).click();
+  const multiple=['multi','custom'].includes(variant);
   if(variant==='multi'){
    await scanner.getByText(/1 page captured\. The form needs answers/).waitFor().catch(async error=>{
     throw Error(await scanner.locator('#scan-status').textContent(),{cause:error});
@@ -86,18 +97,17 @@ test('the installed extension finds registration from an event page and scans wi
    const form=context.pages().find(page=>page.url()===host+'/apply-multi');
    await form.getByLabel('Institution').fill('Example school');
    await form.getByRole('link',{name:/Continue to the next section/}).click();
-   await scanner.getByText('2 pages captured. Ready to review your draft.').waitFor();
-   await scanner.getByRole('list',{name:'Captured form sections'}).getByText('Project title').waitFor();
-  }else{
-   await scanner.getByText('1 page captured. Ready to review your draft.').waitFor().catch(async error=>{
+  }
+  await scanner.getByText(multiple?'2 pages captured. Ready to review your draft.':'1 page captured. Ready to review your draft.')
+   .waitFor().catch(async error=>{
     throw Error(await scanner.locator('#scan-status').textContent(),{cause:error});
    });
-  }
+  if(multiple)await scanner.getByRole('list',{name:'Captured form sections'}).getByText('Project title').waitFor();
   await scanner.getByRole('button',{name:'Review captured pages'}).click();
-  await scanner.getByText(variant==='multi'?/^2 captured step\(s\)/:/^1 captured step\(s\)/).waitFor();
+  await scanner.getByText(multiple?/^2 captured step\(s\)/:/^1 captured step\(s\)/).waitFor();
   await scanner.getByRole('button',{name:'Review answers'}).click();
   assert.equal(await scanner.getByLabel(/Applicant name/).inputValue(),'Test applicant');
-  if(variant==='multi')assert.equal(await scanner.getByLabel(/Project title/).inputValue(),'Test project');
+  if(multiple)assert.equal(await scanner.getByLabel(/Project title/).inputValue(),'Test project');
  }
  assert.equal(submissions,0);
 });

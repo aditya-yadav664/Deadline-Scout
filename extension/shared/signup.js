@@ -95,9 +95,12 @@ export function captureSignupForm(formIndex=0,includeInactive=false,captureAnswe
  }
  for(const frame of document.querySelectorAll('iframe'))if(visible(frame))warnings.push('Embedded form: open it directly and capture it separately if you have access.');
  const terms=[...root.querySelectorAll('label,a')].filter(visible).filter(n=>/terms|consent|privacy|agree/i.test(n.innerText)).map(n=>(n.innerText+' '+(n.href||'')).trim()).join('\n').slice(0,8000);
- const active=[...root.querySelectorAll('[role=tabpanel], [aria-labelledby], [id]')].filter(visible).find(el=>el.getAttribute('role')==='tabpanel'||/step.*panel|panel.*step/i.test(el.id));
+ const active=[...root.querySelectorAll('[role=tabpanel],[data-step],[data-section],[id]')].filter(visible).find(el=>
+  el.matches('[role=tabpanel],[data-step],[data-section]')||/step.*panel|panel.*step/i.test(el.id));
  const selected=[...document.querySelectorAll('[role=tab][aria-selected=true], [aria-current=step]')].find(visible);
- const stepToken=active?.id||selected?.id||selected?.textContent?.trim()||'';
+ const heading=[...root.querySelectorAll('legend,h2,h3,[role=heading]')].find(visible);
+ const stepToken=active?.id||active?.getAttribute('data-step')||active?.getAttribute('data-section')||
+  selected?.id||selected?.textContent?.trim()||heading?.textContent?.trim().slice(0,200)||'';
  return {formIndex,stepToken,formChoices:forms.map((f,i)=>({index:i,label:(f.getAttribute('aria-label')||f.id||'Form '+(i+1))+' · '+f.querySelectorAll('input,textarea,select').length+' controls'})),url:location.href,title:document.title,fields:fields.slice(0,100),terms,warnings,capturedAt:new Date().toISOString(),...(captureAnswers?{capturedAnswers}: {})};
 }
 export function restoreSignupAnswers({step,answers}){

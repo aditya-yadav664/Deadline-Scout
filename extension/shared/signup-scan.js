@@ -51,22 +51,34 @@ export function formScanNavigation({url,formIndex=0,googleForms=false,advance=fa
       (visibleForms.length===1?visibleForms[0]:null);
   const text=el=>(el.innerText||el.value||el.getAttribute('aria-label')||'').trim().replace(/\s+/g,' ');
   const scope=root||document;
+  const wizard=root?.closest('[data-wizard],[data-multistep-form],[role=dialog],[role=form]');
   const inputs=[...scope.querySelectorAll('input,textarea,select')].filter(visible);
   if(inputs.some(el=>el.type==='password'||el.autocomplete==='one-time-code'))return 'sign-in';
   if([...document.querySelectorAll('iframe[src*="captcha"],[data-sitekey]')].some(visible))return 'captcha';
   const selector='button,input[type=submit],input[type=button],[role=button],a[href]';
-  const controls=[...new Set([...scope.querySelectorAll(selector),...Array.from(root?.elements||[]).filter(el=>el.matches(selector))])].filter(el=>visible(el)&&!el.closest('[aria-disabled="true"],:disabled'));
+  const linkedControls=root?[...document.querySelectorAll('[aria-controls]')].filter(el=>el.matches(selector)&&
+    el.getAttribute('aria-controls').split(/\s+/).some(id=>{
+      const panel=document.getElementById(id);
+      return panel&&(root.contains(panel)||panel.contains(root));
+    })):[];
+  const controls=[...new Set([
+    ...scope.querySelectorAll(selector),...Array.from(root?.elements||[]).filter(el=>el.matches(selector)),
+    ...(wizard?.querySelectorAll(selector)||[]),...linkedControls
+  ])].filter(el=>visible(el)&&!el.closest('[aria-disabled="true"],:disabled'));
   const label=el=>text(el).replace(/\s*[→›»]\s*$/,'');
   const final=controls.some(el=>/^(?:submit(?:\s.*)?|register(?: now)?|sign up|send application|finish registration)$/i.test(label(el)));
   const next=controls.filter(el=>{
-    const roleButton=root&&el.matches('[role=button]:not(button):not(input):not(a)');
+    const roleButton=(root||el.closest('[role=form],[data-wizard],[data-multistep-form]'))&&
+      el.matches('[role=button]:not(button):not(input):not(a)');
     const link=el.matches('a[href]')?new URL(el.href):null;
     const sameSiteLink=link&&link.origin===location.origin&&!link.username&&!link.password&&
       !el.hasAttribute('download')&&(!el.target||el.target==='_self')&&
       !/%|\b(?:pay|checkout|submit|confirm|complete|delete|cancel|logout)\b/i.test(link.pathname+link.search);
     const intermediate=el.matches('button[type=button],input[type=button]')||roleButton||sameSiteLink;
-    return intermediate&&(/^(?:next|continue)(?: (?:to )?(?:(?:the )?(?:next )?(?:page|step|section)|(?:step|page|section) \d+|(?:personal|participant|project|contact|team|event) details))?$/i.test(label(el))||
-      /^review (?:answers|details|application|registration)$/i.test(label(el)));
+    const caption=label(el);
+    const forward=/^(?:next|continue|proceed)(?: (?:to )?(?:(?:the )?(?:next )?(?:page|step|section)|(?:step|page|section) \d+|(?:[\w-]+ ){0,4}(?:details|information|questions)))?$/i.test(caption)||
+      /^review (?:my |your )?(?:answers|details|application|registration)$/i.test(caption);
+    return intermediate&&forward&&!/\b(?:pay|payment|checkout|purchase|submit|confirm)\b/i.test(caption);
   });
   if(next.length!==1)return next.length===0&&final?'review':'manual';
   if(inputs.some(el=>el.type==='checkbox'&&/\b(?:consent|waiver|agree|terms)\b/i.test([...el.labels||[]].map(text).join(' '))))return 'manual';
