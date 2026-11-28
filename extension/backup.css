@@ -14,6 +14,12 @@
 }
 .backup-shell h2, .backup-shell h3 { margin: 0; line-height: 1.25; }
 .backup-shell p { color: var(--backup-subtle); line-height: 1.55; }
+#scan-signup-link { display: grid; gap: 9px; margin-block: 14px 12px; }
+#scan-signup-link button { justify-self: start; }
+#signup-scan-feedback:empty { display: none; }
+.signup-scanner-shell { max-width: 720px; padding-top: 36px; }
+.signup-scanner-shell .backup-editor { margin-top: 20px; }
+.signup-scanner-destination { overflow-wrap: anywhere; }
 .backup-shell a { color: #a8e4ed; }
 .backup-shell :focus-visible { outline: 2px solid var(--backup-red-bright); outline-offset: 3px; }
 .backup-header { justify-content: space-between; }

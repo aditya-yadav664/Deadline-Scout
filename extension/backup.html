@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Backup Signup · Deadline Scout</title>
   <link rel="stylesheet" href="panel.css">
-  <link rel="stylesheet" href="backup.css?v=4">
+  <link rel="stylesheet" href="backup.css?v=link-scan-1">
 </head>
 <body>
   <main class="shell backup-shell">
@@ -24,12 +24,17 @@
         <a class="button backup-primary" href="#drafts-heading">Go to your drafts <span aria-hidden="true">↓</span></a>
       </div>
       <div class="backup-hero-guide">
-        <h2>Start a signup</h2>
-        <ol>
-          <li>Track the event on your dashboard or create it when you save the draft.</li>
-          <li>Open the signup form and click <strong>Prepare signup</strong> in the extension.</li>
-          <li>Capture each section with questions, then choose <strong>Submit as draft</strong> in the extension.</li>
-        </ol>
+        <h2>Start from a form link</h2>
+        <form id="scan-signup-link">
+          <label for="signup-scan-url">Application form URL</label>
+          <input id="signup-scan-url" name="url" type="url" placeholder="https://…" required maxlength="4096">
+          <button class="button backup-primary" type="submit">Scan form from link</button>
+        </form>
+        <p id="signup-scan-feedback" role="status"></p>
+        <details>
+          <summary>Capture pages manually</summary>
+          <p>Open the form and choose <strong>Prepare signup</strong> in the extension. Capture each page with questions, then choose <strong>Submit as draft</strong>.</p>
+        </details>
       </div>
     </section>
 
@@ -168,6 +173,6 @@
       </aside>
     </div>
   </main>
-  <script type="module" src="backup.js?v=handoff-1"></script>
+  <script type="module" src="backup.js?v=link-scan-1"></script>
 </body>
 </html>

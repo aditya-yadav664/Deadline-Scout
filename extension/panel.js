@@ -16,7 +16,7 @@ if(isExtension){
       if(result.error&&(config.auth!=='local'||result.error.status!==401))throw result.error;
       workspace=result.workspace;
     }else if(config.auth!=='local')throw Object.assign(new Error('Sign in to continue.'),{status:401});
-    const {startDashboard}=await import('./dashboard.js?v=tools-1');
+    const {startDashboard}=await import('./dashboard.js?v=link-scan-1');
     gate.hidden=true;
     shell.hidden=false;
     await startDashboard({config,workspace});

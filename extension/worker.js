@@ -4,6 +4,7 @@ import {fillPendingSignup} from './shared/signup-resume.js';
 import {handleAlertConnection} from './shared/alert-connection.js';
 import {deliverBrowserAlerts} from './shared/browser-alerts.js';
 import {api,storage,settings,connectGoogle} from './api.js';
+import {signupScanUrl} from './shared/signup-scan.js';
 chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'}).catch(console.error);
 chrome.runtime.onInstalled.addListener(()=>{chrome.alarms.create('surface-alerts',{periodInMinutes:1});chrome.alarms.create('signup-jobs',{periodInMinutes:1});});
 chrome.runtime.onStartup.addListener(()=>{chrome.alarms.create('surface-alerts',{periodInMinutes:1});surfaceAlerts();chrome.alarms.create('signup-jobs',{periodInMinutes:1});backgroundSignups();});
@@ -29,6 +30,18 @@ function registerNotificationClick(){if(notificationClickRegistered||!chrome.not
 registerNotificationClick();chrome.permissions.onAdded.addListener(permissions=>{if(permissions.permissions?.includes('notifications'))registerNotificationClick();});
 
 chrome.runtime.onMessageExternal.addListener((message,sender,respond)=>{
+  if(message?.type==='scout-signup-scan'){
+    (async()=>{
+      const backend=new URL((await settings()).backendUrl);
+      if(new URL(sender.url).origin!==backend.origin)throw Error('Open the scanner from Deadline Scout.');
+      const url=signupScanUrl(message.url);
+      const scanner=new URL(chrome.runtime.getURL('signup-scanner.html'));
+      scanner.hash=new URLSearchParams({url:url.href}).toString();
+      await chrome.tabs.create({url:scanner.href});
+      return {ok:true};
+    })().then(respond,error=>respond({ok:false,error:error.message}));
+    return true;
+  }
   if(message?.type==='scout-signup-resume'){
     (async()=>{const backend=(await settings()).backendUrl;if(new URL(sender.url||sender.tab?.url).origin!==new URL(backend).origin)throw Error('Untrusted resume page.');const result=await startSignupSession({browser:chrome,storage,draft:message.draft,filePayload:message.filePayload,autoSubmit:message.autoSubmit===true});if(!result.needsPermission)void runSignupFill(result.tabId).catch(()=>{});return result;})().then(respond).catch(e=>respond({ok:false,error:e.message}));return true;
   }

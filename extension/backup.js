@@ -9,6 +9,26 @@ window.addEventListener('message',event=>{if(event.source===window&&event.origin
 window.postMessage({type:'deadline-scout-find-extension'},location.origin);
 let passportEntries=[];
 let me={},tracks=[],drafts=[],profile={links:[]},editing=null,captured=null,epoch=0,busy=false,stage=1,lastDeletedId=null,answersDirty=false,targetEvent=null;
+$('#scan-signup-link').onsubmit=async event=>{
+  event.preventDefault();
+  const form=event.currentTarget, button=form.querySelector('button'), feedback=$('#signup-scan-feedback');
+  const url=new FormData(form).get('url');
+  button.disabled=true;
+  try{
+    const extensionId=liveExtensionId||await storage.get('backgroundExtensionId');
+    if(!extensionId||!globalThis.chrome?.runtime?.sendMessage)throw Error('Open Backup Signup in the browser where Deadline Scout is installed.');
+    await new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>reject(Error('The extension did not respond. Reload Deadline Scout and try again.')),10000);
+      chrome.runtime.sendMessage(extensionId,{type:'scout-signup-scan',url},reply=>{
+        clearTimeout(timer);
+        if(chrome.runtime.lastError||!reply?.ok)reject(Error(reply?.error||'Update the Deadline Scout extension and reload this page.'));
+        else resolve();
+      });
+    });
+    feedback.textContent='Continue in the Deadline Scout scanner tab.';
+  }catch(error){feedback.textContent=error.message;}
+  finally{button.disabled=false;}
+};
 function status(message){
   const inEditor=!$('#signup-editor').hidden;
   $('#backup-feedback').textContent=inEditor?'':message;

@@ -462,10 +462,10 @@ function mountBackup(){
       section.className='backup-shell embedded-backup';
       section.append(...editor.childNodes);
       const stylesheet=document.createElement('link');
-      stylesheet.rel='stylesheet';stylesheet.href='/backup.css?v=4';
+      stylesheet.rel='stylesheet';stylesheet.href='/backup.css?v=link-scan-1';
       document.head.append(stylesheet);
       target.replaceChildren(section);
-      return await import('./backup.js?v=handoff-1');
+      return await import('./backup.js?v=link-scan-1');
     })().catch(error=>{target.textContent=error.message;backupMount=null;});
   }
   return backupMount;

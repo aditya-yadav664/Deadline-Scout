@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scan application form · Deadline Scout</title>
+  <link rel="stylesheet" href="panel.css">
+  <link rel="stylesheet" href="backup.css">
+</head>
+<body>
+  <main class="shell backup-shell signup-scanner-shell">
+    <div class="scout-brand">
+      <img class="scout-emblem" src="assets/scout-symbol.svg" alt="">
+      <span class="brand-lettering">DEADLINE <span class="brand-scout">SCOUT</span></span>
+    </div>
+    <section class="card backup-editor">
+      <h1>Scan application form</h1>
+      <p class="signup-scanner-destination" id="destination"></p>
+      <p>Deadline Scout reads questions and existing answers in the form tab. If a page needs your input, complete it on the form, then return here to continue.</p>
+      <p id="scan-status" role="status"></p>
+      <label id="scan-choice" hidden>Form to capture<select id="scan-form"></select></label>
+      <div class="backup-actions">
+        <button class="button backup-primary" id="scan-start">Allow access and scan</button>
+        <button class="button secondary" id="scan-open" hidden>Open form tab</button>
+        <button class="button secondary" id="scan-review" hidden>Review captured pages</button>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="signup-scanner.js"></script>
+</body>
+</html>

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {existsSync} from 'node:fs';
 import {createServer} from 'node:net';
+import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright-core';
 import {captureSignupForm,restoreSignupAnswers} from '../extension/shared/signup.js';
 import {advanceSignup,resumePlan} from '../extension/shared/signup-resume.js';
@@ -12,6 +13,73 @@ import {createApp} from '../server/app.js';
 import {hash,vault} from '../server/security.js';
 import {updatePassport} from '../server/applications.js';
 const executablePath=[process.env.BROWSER_EXECUTABLE,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','/usr/bin/chromium'].find(p=>p&&existsSync(p));
+
+test('the installed extension opens a link, resumes a paused scan, and hands off without submitting', {skip:!executablePath},async t=>{
+ const reservation=createServer();
+ await new Promise(resolve=>reservation.listen(0,'127.0.0.1',resolve));
+ const port=reservation.address().port, host='http://127.0.0.1:'+port;
+ await new Promise(resolve=>reservation.close(resolve));
+ const app=createApp({env:{HOST:'127.0.0.1',APP_URL:host},store:new Store(':memory:'),vault:{seal:JSON.stringify,open:JSON.parse}});
+ await new Promise((resolve,reject)=>app.server.once('error',reject).listen(port,'127.0.0.1',resolve));
+ t.after(()=>app.close());
+ const extension=fileURLToPath(new URL('../extension',import.meta.url));
+ const context=await chromium.launchPersistentContext('',{executablePath,headless:true,
+  args:['--disable-extensions-except='+extension,'--load-extension='+extension]});
+ t.after(()=>context.close());
+ context.setDefaultTimeout(15000);
+ const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
+ await worker.evaluate(backendUrl=>chrome.storage.local.set({settings:{backendUrl},hostedBackendMigrationV1:true}),host);
+ let submissions=0;
+ const [appHandler]=app.server.listeners('request');
+ app.server.removeListener('request',appHandler);
+ app.server.on('request',(request,response)=>{
+  const url=new URL(request.url,host);
+  if(!['/apply-single','/apply-multi'].includes(url.pathname))return appHandler(request,response);
+  if(request.method!=='GET'){
+   submissions++;
+   return response.end('Submitted');
+  }
+  const step=url.searchParams.get('page');
+  const multi=url.pathname==='/apply-multi';
+  const contents=step==='review'?'<p>Review your application</p>':
+   step==='2'?'<label>Project title<input name="project" value="Test project" required></label>':
+   '<label>Applicant name<input name="name" '+(multi?'':'value="Test applicant"')+' required></label>';
+  const next=multi&&step!=='review';
+  const navigation=next?'<button type="button" onclick="location.search=\'page='+(step==='2'?'review':'2')+'\'">Next</button>':
+   '<button type="submit">Submit application</button>';
+  response.setHeader('Content-Type','text/html');
+  response.end('<!doctype html><title>Test application</title><form method="post">'+contents+navigation+'</form>');
+ });
+ const site=context.pages()[0];
+ for(const variant of ['single','multi']){
+  await site.goto(host+'/backup.html');
+  await site.getByText('Your Google account is connected.').waitFor();
+  await site.getByLabel('Application form URL').fill(host+'/apply-'+variant);
+  const [scanner]=await Promise.all([
+   context.waitForEvent('page'),
+   site.getByRole('button',{name:'Scan form from link'}).click(),
+  ]);
+  await scanner.getByRole('button',{name:'Allow access and scan'}).click();
+  if(variant==='multi'){
+   await scanner.getByText(/1 page captured\. The form needs answers/).waitFor();
+   const form=context.pages().find(page=>page.url()===host+'/apply-multi');
+   await form.getByLabel('Applicant name').fill('Test applicant');
+   await scanner.getByRole('button',{name:'Continue scan'}).click();
+   await scanner.getByText('2 pages captured. Ready to review your draft.').waitFor();
+  }else{
+   await scanner.getByText('1 page captured. Ready to review your draft.').waitFor().catch(async error=>{
+    throw Error(await scanner.locator('#scan-status').textContent(),{cause:error});
+   });
+  }
+  await scanner.getByRole('button',{name:'Review captured pages'}).click();
+  await scanner.getByText(variant==='multi'?/^2 captured step\(s\)/:/^1 captured step\(s\)/).waitFor();
+  await scanner.getByRole('button',{name:'Review answers'}).click();
+  assert.equal(await scanner.getByLabel(/Applicant name/).inputValue(),'Test applicant');
+  if(variant==='multi')assert.equal(await scanner.getByLabel(/Project title/).inputValue(),'Test project');
+ }
+ assert.equal(submissions,0);
+});
+
 test('Backup Signup can save, retry a denied backup, and fill with a reviewed PDF', {skip:!executablePath},async t=>{
  const store=new Store(':memory:');
  const reservation=createServer();
