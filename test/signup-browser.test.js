@@ -38,6 +38,7 @@ test('the installed extension finds registration from an event page and scans wi
    const destinations={
     '/event-multi':'<a href="/apply-multi">Start registration</a>',
     '/event-custom':'<a href="/apply-custom">Apply now</a>',
+    '/event-tabs':'<a href="/apply-tabs">Apply now</a>',
     '/event-external':'<a href="http://localhost:'+port+'/apply-single">Start registration</a>',
     '/event-choice':'<a href="/apply-single">Register now</a><a href="/apply-multi">Apply for the workshop</a>',
     '/event-button':'<button type="button" onclick="document.querySelector(\'form\').hidden=false">Start registration</button>'+
@@ -46,21 +47,35 @@ test('the installed extension finds registration from an event page and scans wi
    response.setHeader('Content-Type','text/html');
    return response.end('<!doctype html>'+destinations[url.pathname]+'<a href="/newsletter">Subscribe to our newsletter</a>');
   }
-  if(!['/apply-single','/apply-multi','/apply-custom'].includes(url.pathname))return appHandler(request,response);
+  if(!['/apply-single','/apply-multi','/apply-custom','/apply-tabs'].includes(url.pathname))return appHandler(request,response);
   if(request.method!=='GET'){
    submissions++;
    return response.end('Submitted');
+  }
+  if(url.pathname==='/apply-tabs'){
+   response.setHeader('Content-Type','text/html; charset=utf-8');
+   return response.end(`<!doctype html><title>Tabbed application</title><form>
+    <div role="tablist"><button type="button" role="tab" aria-selected="true" aria-controls="about">About you</button>
+     <button type="button" role="tab" aria-selected="false" aria-controls="project" onclick="this.setAttribute('aria-selected','true');this.previousElementSibling.setAttribute('aria-selected','false');document.querySelector('#about').hidden=true;document.querySelector('#project').hidden=false;">Your proposal</button></div>
+    <section id="about" role="tabpanel"><label>Applicant name<input name="name" value="Test applicant"></label></section>
+    <section id="project" role="tabpanel" hidden><label>Project title<input name="title" value="Test project"></label><button type="submit">Submit application</button></section>
+   </form>`);
   }
   if(url.pathname==='/apply-custom'){
    response.setHeader('Content-Type','text/html; charset=utf-8');
    return response.end(`<!doctype html><title>Custom application</title><form id="application" method="post">
     <h2>About you</h2><label><span>Applicant name</span><input name="answer" value="Test applicant"></label>
    </form><footer>
-    <button type="button" onclick="move('About your project','Project title','Test project',this,'forward')">Continue Project Setup</button>
-    <button id="forward" type="button" data-action="next-step" hidden onclick="move('Availability','Preferred time','Afternoon',this,'final')">→</button>
+    <button id="forward" type="button" onclick="advance(this)">Application workspace</button>
     <button id="final" type="submit" form="application" hidden>Submit application</button>
     <div id="extra" hidden><span id="portfolio-label">Portfolio URL</span><input type="url" form="application" aria-labelledby="portfolio-label" value="https://example.org/portfolio"></div>
    </footer><script>
+    let section=0;
+    function advance(button){
+      section++;
+      if(section===1)move('About your project','Project title','Test project',button,'forward');
+      if(section===2)move('Availability','Preferred time','Afternoon',button,'final');
+    }
     function move(heading,label,value,button,next){
       document.querySelector('h2').textContent=heading;
       document.querySelector('label span').textContent=label;
@@ -86,7 +101,7 @@ test('the installed extension finds registration from an event page and scans wi
   response.end('<!doctype html><title>Test application</title><form method="post">'+contents+navigation+'</form>');
  });
  const site=context.pages()[0];
- for(const variant of ['single','multi','custom','choice','button','external']){
+ for(const variant of ['single','multi','custom','tabs','choice','button','external']){
   await site.goto(host+'/backup.html');
   await site.getByText('Your Google account is connected.').waitFor();
   await site.getByLabel('Event page or application URL').fill(host+(variant==='single'?'/apply-single':'/event-'+variant));
@@ -100,7 +115,11 @@ test('the installed extension finds registration from an event page and scans wi
    await scanner.getByRole('button',{name:'Open registration'}).click();
   }
   if(['button','external'].includes(variant))await scanner.getByRole('button',{name:'Open registration'}).click();
-  const multiple=['multi','custom'].includes(variant);
+  if(variant==='custom'){
+   await scanner.getByLabel('Which control opens the next section?').selectOption({label:'Application workspace'});
+   await scanner.getByRole('button',{name:'Use selected control'}).click();
+  }
+  const multiple=['multi','custom','tabs'].includes(variant);
   if(variant==='multi'){
    await scanner.getByText(/1 page captured\. The form needs answers/).waitFor().catch(async error=>{
     throw Error(await scanner.locator('#scan-status').textContent(),{cause:error});

@@ -8,8 +8,10 @@ const $=id=>document.getElementById(id);
 const start=$('scan-start'), open=$('scan-open'), review=$('scan-review');
 const choice=$('scan-choice'), select=$('scan-form'), status=$('scan-status');
 const registrationChoice=$('scan-registration-choice'), registration=$('scan-registration');
+const navigationChoice=$('scan-navigation-choice'), navigationSelect=$('scan-navigation'), useNavigation=$('scan-use-navigation');
 let entry, tabId, collection, pendingEntry, busy=false, finished=false, discovering=true;
 let pausedStep, watchTimer;
+let learnedControl, pendingNavigation;
 const followedEntries=new Set();
 
 try{
@@ -105,7 +107,7 @@ async function readStep(previousKey,attempts=16){
     if(scanStepKey(step)!==previousKey){
       const liveUrl=tab.url;
       if(step.fields.length)return {step,googleForms,liveUrl};
-      const nav=await inForm(formScanNavigation,[{url:liveUrl,formIndex:step.formIndex,googleForms}]);
+      const nav=await inForm(formScanNavigation,[{url:liveUrl,formIndex:step.formIndex,googleForms,knownControl:learnedControl}]);
       if(['review','sign-in','captcha'].includes(nav)||collection&&nav==='next')return {step,googleForms,liveUrl,action:nav};
       if(discovering&&!googleForms&&(await inForm(findSignupEntry,[{url:liveUrl}])).some(candidate=>!followedEntries.has(liveUrl+'\n'+candidate.key)))return {step,googleForms,liveUrl};
       if(attempt===attempts-1&&!previousKey)return {step,googleForms,liveUrl};
@@ -120,7 +122,9 @@ async function scan(previousKey){
     if(!result)return show('The form stayed on this page. Check it for required answers, uploads, or validation messages, then continue the scan.');
     const {step,googleForms,liveUrl}=result;
     pausedStep=scanStepKey(step);
-    const navigation={url:liveUrl,formIndex:step.formIndex,googleForms};
+    pendingNavigation=null;
+    navigationChoice.hidden=useNavigation.hidden=true;
+    const navigation={url:liveUrl,formIndex:step.formIndex,googleForms,knownControl:learnedControl};
     const action=await inForm(formScanNavigation,[navigation]);
     if(action==='changed')return show('The page changed while scanning. Check the form tab and continue.');
     if(action==='sign-in')return show('Sign in on the form tab, then return here to continue scanning.');
@@ -151,8 +155,14 @@ async function scan(previousKey){
       return show('The form needs answers or an attachment. Complete the required fields, then click Continue scan here. The scanner will try the next step from the same tab.');
     }
     if(action!=='next'){
-      const labels=await inForm(formScanNavigation,[{...navigation,describe:true}]);
-      const details=Array.isArray(labels)&&labels.length?' Controls found: '+labels.join(' · ')+'.':'';
+      const description=await inForm(formScanNavigation,[{...navigation,describe:true}]);
+      const details=description?.labels?.length?' Controls found: '+description.labels.join(' · ')+'.':'';
+      if(description?.choices?.length){
+        pendingNavigation=navigation;
+        navigationSelect.replaceChildren(new Option('Choose a control',''),...description.choices.map(option=>new Option(option.label,option.key)));
+        navigationChoice.hidden=useNavigation.hidden=false;
+        return show('Choose the control that opens the next section. The scanner can reuse it if the form repeats it.');
+      }
       return show('The scanner couldn’t identify a clear next step. Use the form’s navigation in the same tab to continue capturing.'+details);
     }
     previousKey=scanStepKey(step);
@@ -162,6 +172,27 @@ async function scan(previousKey){
     }
   }
 }
+
+useNavigation.addEventListener('click',async()=>{
+  const key=navigationSelect.value;
+  if(busy||!pendingNavigation||!key)return;
+  const previous=pausedStep;
+  busy=true;
+  clearTimeout(watchTimer);
+  start.disabled=review.disabled=useNavigation.disabled=true;
+  try{
+    const current=await readStep(null,1);
+    if(!current||scanStepKey(current.step)!==previous)throw Error('The form has changed. Choose Continue scan to read the current section.');
+    const action=await inForm(formScanNavigation,[{...pendingNavigation,knownControl:key,advance:true,onlyKnown:true}]);
+    if(action!=='next')return show(action==='blocked'?'Complete the required fields before using this control.':'Use this control directly in the form tab.');
+    navigationChoice.hidden=useNavigation.hidden=true;
+    const next=await readStep(previous);
+    if(!next)return show('This control did not reveal another section. Check the form tab and continue the scan.');
+    if(next.step.fields.length)learnedControl=key;
+    await scan(previous);
+  }catch(error){show(error.message);}
+  finally{useNavigation.disabled=false;unlock();}
+});
 
 function unlock(){
   busy=false;
