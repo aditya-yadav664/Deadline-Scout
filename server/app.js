@@ -253,6 +253,11 @@ export function createApp(options={}) {
           if(req.method==='GET')return send({entries:read()});
           if(req.method==='PATCH'){
             const input=await body(req,3000);
+            if(input?.action==='save'&&input.trackId){
+              if(typeof input.trackId!=='string'||input.trackId.length>100)throw fail('Invalid opportunity.');
+              await store.load?.(owner,{kind:'track',id:input.trackId,projection:'idOnly'});
+              if(!store.get(owner,'track',input.trackId))throw fail('Opportunity not found.',404);
+            }
             const entries=updateMemory(read(),input);
             saveScoutData(store,secrets,owner,'scoutMemory',entries);
             return send({entries});
@@ -371,11 +376,24 @@ export function createApp(options={}) {
         if(reviewChange&&req.method==='PATCH'){
           const [,id,changeId]=reviewChange;
           const input=await body(req,1000);
-          if(input?.reviewed!==true)throw fail('Confirm the change was reviewed.');
-          if(!store.get(owner,'track',id))throw fail('Opportunity not found.',404);
+          const track=store.get(owner,'track',id);
+          if(!track)throw fail('Opportunity not found.',404);
           const entry=store.get(owner,'intelligence',id);
           const change=entry?.changes.find(item=>item.id===changeId);
           if(!change)throw fail('Change not found.',404);
+          if(input?.action==='createTask'){
+            if(change.reviewTaskId&&readApplication(store,owner,id).tasks.some(task=>task.id===change.reviewTaskId)){
+              return send({taskId:change.reviewTaskId});
+            }
+            const taskId=store.transaction(()=>{
+              const workspace=updateApplication(store,owner,track,{action:'addTask',label:input.label,due:input.due,dependencies:[]});
+              change.reviewTaskId=workspace.tasks.at(-1).id;
+              store.put(owner,'intelligence',id,entry);
+              return change.reviewTaskId;
+            });
+            return send({taskId},201);
+          }
+          if(input?.reviewed!==true)throw fail('Confirm the change was reviewed.');
           change.reviewedAt ||= new Date().toISOString();
           store.put(owner,'intelligence',id,entry);
           return send({reviewedAt:change.reviewedAt});

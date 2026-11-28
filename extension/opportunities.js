@@ -180,12 +180,29 @@ function riskDetails(risk, esc) {
 
 export function renderRisk(target, items, { esc }) {
   const ranking = { Critical: 0, High: 1, Moderate: 2, Low: 3, Unknown: 4 };
-  target.innerHTML = items.length ? `<div class="overview-grid">${[...items]
-    .sort((a, b) => ranking[a.level] - ranking[b.level] || (a.remainingHours ?? Infinity) - (b.remainingHours ?? Infinity))
-    .map(item => `<article class="card workspace-card">
-      <h3><a class="opportunity-title-link" href="#opportunity=${encodeURIComponent(item.id)}" data-opportunity="${esc(item.id)}">${esc(item.title)}</a></h3>
-      ${riskDetails(item, esc)}
-    </article>`).join('')}</div>` : '<p class="muted">Save a tracked opportunity to see its risk assessment.</p>';
+  const ordered=[...items].sort((a,b)=>ranking[a.level]-ranking[b.level]||
+    (a.remainingHours??Infinity)-(b.remainingHours??Infinity));
+  if(!ordered.length){target.innerHTML='<p class="tools-empty">Track an opportunity to see what needs attention.</p>';return;}
+  const urgent=ordered.filter(item=>ranking[item.level]<2);
+  const important=ordered.filter(item=>ranking[item.level]<3);
+  const options=[['all','All opportunities',ordered],['urgent','Urgent',urgent],['plan','Needs a next step',important]];
+  target.innerHTML=`<div class="tools-bar"><label>Priority <select data-risk-filter>${options.map(([key,label,rows])=>
+    `<option value="${key}" ${key==='plan'&&important.length?'selected':''}>${label} (${rows.length})</option>`).join('')}</select></label></div>
+    <div data-risk-items class="tools-stack"></div>`;
+  const filter=target.querySelector('[data-risk-filter]');
+  const list=target.querySelector('[data-risk-items]');
+  function draw(){
+    const rows=options.find(([key])=>key===filter.value)[2];
+    list.innerHTML=rows.length?rows.map(item=>`<article class="tools-row">
+      <div><span class="risk-badge" data-level="${esc(item.level)}">${esc(item.level)}</span>
+      <h3>${esc(item.title)}</h3><p>${esc(item.next)}</p>
+      <details><summary>Why this is flagged</summary><ul>${item.reasons.map(reason=>`<li>${esc(reason)}</li>`).join('')}</ul></details></div>
+      <div class="tools-actions"><a class="button secondary" data-opportunity="${esc(item.id)}" href="#opportunity=${encodeURIComponent(item.id)}">Open opportunity</a>
+      <button class="text-button" type="button" data-workspace-jump="readiness" data-readiness-track="${esc(item.id)}">Check readiness</button></div>
+    </article>`).join(''):'<p class="tools-empty">Nothing matches this priority filter.</p>';
+  }
+  filter.onchange=draw;
+  draw();
 }
 
 export function renderIntelligence(target, items, { esc, safeLink }) {
@@ -197,16 +214,17 @@ export function renderIntelligence(target, items, { esc, safeLink }) {
   const side = (fact, fallback) => fact
     ? `<p>${esc(fact.value)}</p><blockquote class="evidence">${esc(fact.evidence)}</blockquote>`
     : `<p class="muted">${fallback}</p>`;
-  target.innerHTML = `<div class="intelligence-filter">
+  target.innerHTML = `<div class="intelligence-filter tools-bar">
     <label>Category <select data-change-filter><option value="">All changes</option>
       ${categories.map(category => `<option value="${esc(category)}">${esc(changeLabels[category] || category)}</option>`).join('')}
     </select></label>
+    <label>Review status <select data-change-status aria-label="Review status"><option value="">All statuses</option><option value="open">Needs review</option><option value="reviewed">Reviewed</option></select></label>
     <label>Detected since <input type="date" data-change-since></label>
     <label>Jump to change <select data-change-jump><option value="">Choose a change</option>
       ${items.map(change => `<option value="${esc(change.id)}">${esc(change.title)} · ${esc(changeLabels[change.category] || change.category)}</option>`).join('')}
     </select></label>
   </div><p data-change-empty class="muted" hidden>No changes match these filters.</p>
-  ${items.map(change => `<article class="card workspace-card content-change" id="change-${esc(change.id)}" data-category="${esc(change.category)}" data-detected="${esc(change.at.slice(0, 10))}" tabindex="-1">
+  ${items.map(change => `<article class="card workspace-card content-change" id="change-${esc(change.id)}" data-category="${esc(change.category)}" data-reviewed="${Boolean(change.reviewedAt)}" data-detected="${esc(change.at.slice(0, 10))}" tabindex="-1">
     <div class="content-change-heading"><div><h3>${esc(changeLabels[change.category] || change.category)}</h3>
       <a data-opportunity="${esc(change.trackId)}" href="#opportunity=${encodeURIComponent(change.trackId)}">${esc(change.title)}</a>
     </div><time datetime="${esc(change.at)}">${esc(new Date(change.at).toLocaleString())}</time></div>
@@ -219,21 +237,30 @@ export function renderIntelligence(target, items, { esc, safeLink }) {
       <a href="${safeLink(change.sourceUrl)}" target="_blank" rel="noopener noreferrer">Open original page</a>
       ${change.reviewedAt ? '<span class="badge">Reviewed</span>' : `<button type="button" class="button secondary" data-review-change="${esc(change.id)}" data-track-id="${esc(change.trackId)}">Mark as reviewed</button>`}
     </div>
+    <details class="change-followup"><summary>Create a follow-up task</summary>
+      <form data-change-task="${esc(change.id)}" data-track-id="${esc(change.trackId)}" class="application-form">
+        <label>Task name<input name="label" required maxlength="200" value="${esc('Review '+(changeLabels[change.category]||change.category).toLowerCase())}"></label>
+        <label>Due date (optional)<input name="due" type="date"></label>
+        <button type="submit" class="button secondary">Add to application plan</button>
+        <p role="status" class="muted">${change.reviewTaskId?'A follow-up task was created for this change.':''}</p>
+      </form>
+    </details>
   </article>`).join('')}`;
   const filter = target.querySelector('[data-change-filter]');
+  const status = target.querySelector('[data-change-status]');
   const since = target.querySelector('[data-change-since]');
   const jump = target.querySelector('[data-change-jump]');
   function applyFilters() {
     let visible = 0;
     for (const card of target.querySelectorAll('[data-category]')) {
-      card.hidden = !!(filter.value && filter.value !== card.dataset.category || since.value && since.value > card.dataset.detected);
+      card.hidden = !!(filter.value && filter.value !== card.dataset.category || since.value && since.value > card.dataset.detected || status.value && (status.value==='reviewed') !== (card.dataset.reviewed==='true'));
       jump.querySelector(`option[value="${CSS.escape(card.id.slice(7))}"]`).hidden = card.hidden;
       if (!card.hidden) visible++;
     }
     target.querySelector('[data-change-empty]').hidden = visible > 0;
     jump.value = '';
   }
-  filter.onchange = since.onchange = applyFilters;
+  filter.onchange = since.onchange = status.onchange = applyFilters;
   jump.onchange = () => {
     if (!jump.value) return;
     const card = document.getElementById('change-' + jump.value);

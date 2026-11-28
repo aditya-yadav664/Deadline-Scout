@@ -242,6 +242,6 @@ export function updateMemory(items, input) {
   const current=items.find(item=>item.id===input.id);
   if(input.id&&!current)throw failure('Memory not found.',404);
   if(!current&&items.length>=30)throw failure('Maximum 30 memory entries.');
-  const item={id:current?.id||randomUUID(),label:input.label.trim(),value:input.value.trim(),source:'Added by you',updatedAt:new Date().toISOString()};
+  const item={id:current?.id||randomUUID(),label:input.label.trim(),value:input.value.trim(),trackId:input.trackId||null,pinned:input.pinned===true,source:'Added by you',updatedAt:new Date().toISOString()};
   return current?items.map(entry=>entry.id===item.id?item:entry):[...items,item];
 }

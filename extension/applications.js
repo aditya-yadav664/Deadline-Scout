@@ -1,18 +1,29 @@
+import {filterLibrary} from './assistant-ui.js?v=tools-1';
+const categoryNames={education:'Education',skills:'Skills',achievement:'Achievements',answer:'Form answers',document:'Document references'};
 const passportCategories = ['education', 'skills', 'achievement', 'answer', 'document'];
 
 export function renderPassport(target, entries, esc) {
   const form = (entry = {}) => `<form data-passport-form data-id="${esc(entry.id || '')}" class="application-form">
     <label>Category<select name="category">${passportCategories.map(category =>
-      `<option value="${category}" ${entry.category === category ? 'selected' : ''}>${category}</option>`).join('')}</select></label>
+      `<option value="${category}" ${entry.category === category ? 'selected' : ''}>${categoryNames[category]}</option>`).join('')}</select></label>
     <label>Label<input name="label" maxlength="100" required value="${esc(entry.label)}"></label>
     <label>Value<textarea name="value" maxlength="3000" required>${esc(entry.value)}</textarea></label>
     <button class="button secondary" type="submit">${entry.id ? 'Save entry' : 'Add entry'}</button>
     ${entry.id ? `<button class="text-button" type="button" data-passport-remove="${esc(entry.id)}">Delete entry</button>` : ''}
   </form>`;
-  target.innerHTML = `<p class="muted">Save reusable information here. In Backup Signup, choose a passport entry for an individual field and review it before saving the draft. Document entries are references.</p>
-    <div class="overview-grid"><article class="card workspace-card"><h3>New entry</h3>${form()}</article>
-    <article class="card workspace-card"><h3>Saved entries</h3>${entries.length ? entries.map(entry =>
-      `<details><summary>${esc(entry.label)}</summary>${form(entry)}</details>`).join('') : '<p class="muted">No entries saved.</p>'}</article></div>`;
+  target.innerHTML = `<div class="tools-library"><section>
+    <div class="tools-bar"><label>Search answers<input type="search" data-library-search placeholder="Find an answer or document reference"></label>
+      <label>Category<select data-library-filter aria-label="Category"><option value="">All categories</option>${passportCategories.map(category=>
+        `<option value="${category}">${categoryNames[category]}</option>`).join('')}</select></label></div>
+    <p data-library-empty class="tools-empty">${entries.length?'No entries match these filters.':'No reusable answers yet.'}</p>
+    <div class="tools-stack">${entries.map(entry=>`<details class="tools-library-entry" data-category="${esc(entry.category)}"
+      data-library-entry="${esc((entry.label+' '+entry.value).toLowerCase())}">
+      <summary><strong>${esc(entry.label)}</strong><small>${esc(categoryNames[entry.category]||entry.category)}</small></summary>
+      <p class="library-preview">${esc(entry.value)}</p>
+      <button class="button secondary" type="button" data-copy-answer>Copy answer</button>
+      ${form(entry)}</details>`).join('')}</div>
+    </section><section class="tools-editor"><h3>New reusable answer</h3><p>Use saved answers in Backup Signup or copy them into a form.</p>${form()}</section></div>`;
+  filterLibrary(target);
 }
 
 export function renderApplication(target, detail, { esc, safeLink }) {

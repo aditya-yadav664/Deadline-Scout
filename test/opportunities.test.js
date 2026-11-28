@@ -190,7 +190,10 @@ test('dashboard shell keeps watchlist actions and opportunity links accessible o
   await page.getByRole('button', { name: /^My Watchlist/ }).click();
   await page.locator('#tracks').getByRole('button', { name: 'Check now' }).click();
   const eventTitle=page.locator('#tracks').getByRole('link', { name: 'Orbit Hack' });
-  assert.equal(await eventTitle.evaluate(link=>getComputedStyle(link).textDecorationLine),'none');
+  await page.waitForFunction(()=>{
+    const link=document.querySelector('#tracks .opportunity-title-link');
+    return link&&getComputedStyle(link).textDecorationLine==='none';
+  });
   await eventTitle.click();
   await page.getByRole('heading', { name: 'Orbit Hack' }).waitFor();
   await page.getByText('Source check history', { exact: true }).click();
@@ -284,6 +287,12 @@ test('assistant cites owner evidence, keeps private records out of Gemini, and c
 
 test('planning UI answers a question, saves a memory note and renders the heatmap', {skip:!executablePath}, async t=>{
   const f=await fixture(t);
+  const tomorrow=new Date(Date.now()+86400000).toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'});
+  const track=f.store.get('local-demo','track',f.track.id);
+  track.milestones[0].date=tomorrow;
+  f.store.put('local-demo','track',track.id,track);
+  await f.request('/api/opportunities/'+track.id+'/application','PATCH',
+    {action:'addTask',label:'Prepare application',due:tomorrow,dependencies:[]},f.token);
   const browser=await chromium.launch({executablePath,headless:true});
   t.after(()=>browser.close());
   const page=await browser.newPage({viewport:{width:1280,height:800}});
@@ -299,15 +308,25 @@ test('planning UI answers a question, saves a memory note and renders the heatma
   await page.getByRole('button',{name:'Saved notes'}).click();
   await page.getByLabel('Label',{exact:true}).fill('Preference');
   await page.getByLabel('Note',{exact:true}).fill('Local memory');
+  await page.locator('#memory-content').getByLabel('Opportunity',{exact:true}).selectOption(f.track.id);
+  await page.getByLabel('Pin to the top').check();
   await page.getByRole('button',{name:'Add note'}).click();
+  await page.getByText('Pinned · Orbit Hack',{exact:true}).waitFor();
+  await page.getByLabel('Search notes').fill('unrelated words');
+  await page.getByText('No notes match this search.',{exact:true}).waitFor();
+  await page.getByLabel('Search notes').fill('Orbit Hack');
   await page.getByText('Preference',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Deadline calendar'}).click();
   await page.locator('[data-cal-day]').first().waitFor();
   assert.equal(await page.locator('[data-cal-day]').count(),42);
   await page.getByLabel('Period',{exact:true}).selectOption('week');
   assert.equal(await page.locator('[data-cal-day]').count(),7);
-  await page.getByRole('button',{name:'Activity summary'}).click();
-  await page.locator('#productivity-content').getByText('Tracked opportunities',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Workload planner'}).click();
+  const planner=page.locator('#productivity-content');
+  await planner.getByText('day with overlapping work',{exact:false}).waitFor();
+  await planner.getByRole('link',{name:'Prepare application'}).waitFor();
+  await planner.locator('[data-workload-range]').selectOption('late');
+  await planner.getByText('You have no overdue tasks.').waitFor();
   assert.deepEqual(errors,[]);
 });
 
@@ -345,10 +364,19 @@ test('desktop sidebar keeps labels visible and comparison review persists', { sk
   await page.getByText('₹500',{exact:true}).waitFor();
   await page.getByText('₹700',{exact:true}).waitFor();
   await page.getByLabel('Jump to change').selectOption({label:'Orbit Hack · Fees'});
+  await page.getByText('Create a follow-up task',{exact:true}).click();
+  await page.getByRole('button',{name:'Add to application plan'}).click();
+  await page.getByText('Follow-up task saved in the application plan.',{exact:true}).waitFor();
+  const [duplicateResponse]=await Promise.all([
+    page.waitForResponse(response=>response.request().method()==='PATCH'&&response.url().includes('/changes/')),
+    page.getByRole('button',{name:'Add to application plan'}).click()
+  ]);
+  assert.equal(duplicateResponse.status(),200);
+  assert.equal(f.store.get('local-demo','applicationWorkspace',f.track.id).tasks.length,1);
   await page.getByRole('button',{name:'Mark as reviewed'}).click();
-  await page.getByText('Reviewed',{exact:true}).waitFor();
+  await page.locator('#intelligence-content article').getByText('Reviewed',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Refresh',exact:true}).click();
-  await page.getByText('Reviewed',{exact:true}).waitFor();
+  await page.locator('#intelligence-content article').getByText('Reviewed',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Needs attention'}).click();
   await page.locator('#risk-content .risk-badge').waitFor();
   assert.deepEqual(errors,[]);
@@ -410,6 +438,10 @@ test('application notes, checklist and passport can be saved through the dashboa
   await passport.getByLabel('Label').fill('Skill');
   await passport.getByLabel('Value').fill('JavaScript');
   await passport.getByRole('button',{name:'Add entry'}).click();
+  await passport.getByText('Skill',{exact:true}).waitFor();
+  await passport.getByRole('combobox',{name:'Category',exact:true}).first().selectOption('answer');
+  await passport.getByText('No entries match these filters.',{exact:true}).waitFor();
+  await passport.getByRole('combobox',{name:'Category',exact:true}).first().selectOption('education');
   await passport.getByText('Skill',{exact:true}).waitFor();
 });
 

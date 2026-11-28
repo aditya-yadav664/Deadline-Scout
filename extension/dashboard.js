@@ -1,7 +1,7 @@
 import {renderReadiness} from './readiness.js?v=2';
-import {renderAnswers,renderMemory,renderHeatmap,renderProductivity} from './assistant-ui.js?v=3';
-import {renderApplication,renderPassport} from './applications.js?v=readiness-1';
-import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=overview-2';
+import {renderAnswers,renderMemory,renderHeatmap,renderProductivity} from './assistant-ui.js?v=tools-1';
+import {renderApplication,renderPassport} from './applications.js?v=tools-1';
+import {renderOverview,renderOpportunity,renderRisk,renderIntelligence} from './opportunities.js?v=tools-1';
 import {deliverBrowserAlerts,enableExtensionAlerts} from './shared/browser-alerts.js';
 import './shared/signup-success-notices.js?v=egress-1';
 import {api,storage,settings,isExtension,connectGoogle} from './api.js';
@@ -121,7 +121,7 @@ async function openReadiness(preferred){
   }
 }
 $('#readiness-opportunity').onchange=()=>void openReadiness();
-async function openOpportunity(id,{focus=true}={}){
+async function openOpportunity(id,{focus=true,plan=false}={}){
   const request=++detailRequest;
   const epoch=workspaceEpoch;
   const local=[...localTracks,...tracks.filter(track=>track.cached)].find(track=>track.id===id);
@@ -147,6 +147,12 @@ async function openOpportunity(id,{focus=true}={}){
       workspace.dataset.workspaceId=detail.id;
       renderApplication(workspace,detail,{esc,safeLink});
       target.append(workspace);
+      if(plan){
+        const heading=workspace.querySelector('h3');
+        heading.tabIndex=-1;
+        heading.focus({preventScroll:true});
+        heading.scrollIntoView({block:'start'});
+      }
     }
   }catch(error){
     if(request===detailRequest&&epoch===workspaceEpoch)target.textContent=error.message;
@@ -499,7 +505,7 @@ async function loadPlanning(name){
       $('#assistant-availability').textContent=data.geminiConfigured
         ? 'When enabled, your question and verified public excerpts are sent to Gemini.'
         : 'Answers use your saved dates, changes, and application plans.';
-    }else if(name==='memory')renderMemory(target,data.entries,esc);
+    }else if(name==='memory')renderMemory(target,data.entries,esc,tracks.filter(track=>!track.cached));
     else if(name==='heatmap')renderHeatmap(target,data,esc);
     else renderProductivity(target,data,esc);
   }catch(error){if(request===planningRequest&&epoch===workspaceEpoch&&view===name)target.textContent=error.message;}
@@ -543,13 +549,13 @@ $('#clear-assistant').onclick=event=>void run(event.currentTarget,async()=>{
 });
 async function saveMemory(input){
   const epoch=workspaceEpoch,{entries}=await api('/api/assistant/memory','PATCH',input);
-  if(epoch===workspaceEpoch&&view==='memory'){planningRequest++;renderMemory($('#memory-content'),entries,esc);}
+  if(epoch===workspaceEpoch&&view==='memory'){planningRequest++;renderMemory($('#memory-content'),entries,esc,tracks.filter(track=>!track.cached));}
 }
 $('#memory-content').addEventListener('submit',event=>{
   const form=event.target.closest('[data-scout-memory]');
   if(!form)return;
   event.preventDefault();
-  void run(form.querySelector('[type=submit]'),()=>saveMemory({action:'save',id:form.dataset.id,...Object.fromEntries(new FormData(form))}));
+  void run(form.querySelector('[type=submit]'),()=>saveMemory({action:'save',id:form.dataset.id,...Object.fromEntries(new FormData(form)),pinned:form.elements.pinned.checked}));
 });
 $('#memory-content').addEventListener('click',event=>{
   const button=event.target.closest('[data-delete-memory]');
@@ -585,6 +591,16 @@ document.querySelector('main').addEventListener('submit',event=>{
     $('#assistant-question').focus();
     return;
   }
+  if(form.matches('[data-change-task]')){
+    event.preventDefault();
+    void run(form.querySelector('button[type=submit]'),async()=>{
+      const {trackId,changeTask}=form.dataset;
+      await api('/api/opportunities/'+encodeURIComponent(trackId)+'/changes/'+encodeURIComponent(changeTask),'PATCH',
+        {action:'createTask',...Object.fromEntries(new FormData(form))});
+      form.querySelector('[role=status]').textContent='Follow-up task saved in the application plan.';
+      await refresh();
+    });
+  }
   if(form.matches('[data-passport-form]')){
     event.preventDefault();
     const values=Object.fromEntries(new FormData(form));
@@ -610,6 +626,14 @@ document.querySelector('main').addEventListener('click',event=>{
     }else if(page==='watchlist'&&jump.hasAttribute('data-focus-scan'))$('#source-url').focus();
     return;
   }
+  const copy=event.target.closest('[data-copy-answer]');
+  if(copy){
+    void run(copy,async()=>{
+      await navigator.clipboard.writeText(copy.closest('details').querySelector('.library-preview').textContent);
+      toast('Answer copied.');
+    });
+    return;
+  }
   const removePassport=event.target.closest('[data-passport-remove]');
   if(removePassport){void run(removePassport,()=>savePassport({action:'remove',id:removePassport.dataset.passportRemove}));return;}
   const applicationAction=event.target.closest('[data-application-remove],[data-import-evidence]');
@@ -631,7 +655,11 @@ document.querySelector('main').addEventListener('click',event=>{
   if(review){
     void run(review,async()=>{
       await api('/api/opportunities/'+encodeURIComponent(review.dataset.trackId)+'/changes/'+encodeURIComponent(review.dataset.reviewChange),'PATCH',{reviewed:true});
+      const card=review.closest('[data-reviewed]');
+      card.dataset.reviewed='true';
       const badge=document.createElement('span');badge.className='badge';badge.textContent='Reviewed';review.replaceWith(badge);
+      const filter=$('#intelligence-content [data-change-status]');
+      if(filter.value==='open')filter.dispatchEvent(new Event('change'));
     });
     return;
   }
@@ -655,7 +683,7 @@ document.querySelector('main').addEventListener('click',event=>{
   const link=event.target.closest('a[data-opportunity]');
   if(!link||event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;
   event.preventDefault();
-  void openOpportunity(link.dataset.opportunity);
+  void openOpportunity(link.dataset.opportunity,{plan:link.hasAttribute('data-open-plan')});
 });
 async function checkOpportunitySources(id){
   toast('Checking the available evidence…');

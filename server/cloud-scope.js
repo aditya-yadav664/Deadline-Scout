@@ -76,7 +76,7 @@ export async function loadAccountRoute(store,owner,path,method,auth,params) {
     const scopes=[byId('track',id),byId('intelligence',id)];
     if(method==='GET')scopes.push(byId('sourceHistory',id),byId('applicationWorkspace',id),byTrack('change',id),
       {...byTrack('signup',id),projection:'metadata'},byTrack('googleLink',id));
-    if(path.endsWith('/application'))scopes.push(byId('applicationWorkspace',id));
+    if(path.endsWith('/application')||path.includes('/changes/'))scopes.push(byId('applicationWorkspace',id));
     return load(...scopes);
   }
 }

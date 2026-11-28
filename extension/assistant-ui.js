@@ -68,28 +68,77 @@ export function renderAnswers(target,entries){
   if(entries.length>1)target.append(history);
 }
 
-export function renderMemory(target,entries,esc){
+export function filterLibrary(target){
+  const search=target.querySelector('[data-library-search]');
+  if(!search)return;
+  const filter=target.querySelector('[data-library-filter]');
+  function apply(){
+    const terms=search.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const rows=[...target.querySelectorAll('[data-library-entry]')];
+    for(const row of rows)row.hidden=!!(filter?.value&&row.dataset.category!==filter.value)||
+      !terms.every(term=>row.dataset.libraryEntry.includes(term));
+    target.querySelector('[data-library-empty]').hidden=rows.some(row=>!row.hidden);
+  }
+  search.oninput=apply;
+  if(filter)filter.onchange=apply;
+  apply();
+}
+
+export function renderMemory(target,entries,esc,tracks=[]){
   const form=(item={})=>`<form data-scout-memory data-id="${esc(item.id||'')}" class="application-form">
     <label>Label<input name="label" required maxlength="100" value="${esc(item.label)}"></label>
     <label>Note<textarea name="value" required maxlength="600">${esc(item.value)}</textarea></label>
+    <label>Opportunity<select name="trackId" aria-label="Opportunity"><option value="">General note</option>${tracks.map(track=>
+       `<option value="${esc(track.id)}" ${item.trackId===track.id?'selected':''}>${esc(track.title)}</option>`).join('')}</select></label>
+    <label><input name="pinned" type="checkbox" ${item.pinned?'checked':''}> Pin to the top</label>
     <button class="button secondary" type="submit">${item.id?'Save note':'Add note'}</button>
     ${item.id?`<button class="text-button" type="button" data-delete-memory="${esc(item.id)}">Delete note</button>`:''}
   </form>`;
-  target.innerHTML=`<div class="overview-grid"><article class="card workspace-card"><h3>New note</h3>${form()}</article>
-    <article class="card workspace-card"><h3>Saved notes</h3>${entries.length?entries.map(item=>`<details>
-      <summary>${esc(item.label)}</summary><p class="muted">${esc(item.source)} · ${esc(item.updatedAt.slice(0,10))}</p>${form(item)}
-    </details>`).join(''):'<p class="muted">No notes saved.</p>'}</article></div>`;
+  const sorted=[...entries].sort((a,b)=>Number(!!b.pinned)-Number(!!a.pinned)||b.updatedAt.localeCompare(a.updatedAt));
+  target.innerHTML=`<div class="tools-library"><section>
+    <div class="tools-bar"><label>Search notes<input type="search" data-library-search placeholder="Search by title, text, or opportunity"></label></div>
+    <p class="tools-empty" data-library-empty>${entries.length?'No notes match this search.':'No saved notes yet.'}</p>
+    <div class="tools-stack">${sorted.map(item=>{
+      const track=tracks.find(entry=>entry.id===item.trackId);
+      const name=track?.title||(item.trackId?'Removed opportunity':'General note');
+      return `<details class="tools-library-entry" data-library-entry="${esc((item.label+' '+item.value+' '+name).toLowerCase())}">
+        <summary><strong>${esc(item.label)}</strong><small>${item.pinned?'Pinned · ':''}${esc(name)}</small></summary>
+        <p class="library-preview">${esc(item.value)}</p>
+        ${track?`<a data-opportunity="${esc(track.id)}" href="#opportunity=${encodeURIComponent(track.id)}">Open opportunity</a>`:''}
+        ${form(item)}</details>`;
+    }).join('')}</div></section>
+    <section class="tools-editor"><h3>New note</h3>${form()}</section></div>`;
+  filterLibrary(target);
 }
 
-const insightLabels={activeOpportunities:'Tracked opportunities',upcomingDeadlines:'Upcoming milestones',pendingTasks:'Open tasks',
-  completedRequirements:'Checklist items complete',recentlyUpdated:'Updated in the last 7 days',needsAttention:'High or critical risk'};
 export function renderProductivity(target,data,esc){
-  const links={activeOpportunities:['watchlist','Open watchlist'],upcomingDeadlines:['heatmap','Open calendar'],
-    pendingTasks:['applications','Open applications'],completedRequirements:['applications','View checklists'],
-    recentlyUpdated:['intelligence','View source changes'],needsAttention:['risk','Review priorities']};
-  target.innerHTML=`<ul class="overview-grid productivity-grid">${Object.entries(insightLabels).map(([key,label])=>
-    `<li class="card workspace-card"><strong>${esc(data.insights[key])}</strong><span>${label}</span>
-      <button type="button" class="text-button" data-workspace-jump="${links[key][0]}">${links[key][1]}</button></li>`).join('')}</ul>`;
+  const days=86400000;
+  const now=Date.parse(data.today);
+  const dateFmt=new Intl.DateTimeFormat('en-IN',{day:'numeric',month:'short',timeZone:'UTC'});
+  const events=data.events.filter(item=>item.type==='deadline'||item.type==='task');
+  target.innerHTML=`<div class="tools-bar"><label>Look ahead <select data-workload-range>
+    <option value="7">Next 7 days</option><option value="14">Next 14 days</option><option value="30">Next 30 days</option>
+    <option value="late">Overdue tasks</option></select></label>
+    <button class="text-button" type="button" data-workspace-jump="heatmap">Open calendar</button></div>
+    <div data-workload-results></div>`;
+  const range=target.querySelector('[data-workload-range]');
+  function draw(){
+    const late=range.value==='late';
+    const rows=events.filter(item=>late?item.type==='task'&&item.date<data.today:
+      item.date>=data.today&&Date.parse(item.date)<now+Number(range.value)*days).sort((a,b)=>a.date.localeCompare(b.date));
+    const grouped=Map.groupBy(rows,item=>item.date);
+    const collisions=[...grouped.values()].filter(items=>items.length>1).length;
+    target.querySelector('[data-workload-results]').innerHTML=`<p class="tools-report">
+      <strong>${rows.length}</strong> ${late?'overdue '+(rows.length===1?'task':'tasks'):(rows.length===1?'dated item':'dated items')}
+      ${!late&&collisions?` · <strong>${collisions}</strong> ${collisions===1?'day':'days'} with overlapping work`:''}</p>
+      ${rows.length?`<div class="tools-stack">${[...grouped].map(([date,items])=>`<section class="tools-day">
+      <h3><time datetime="${esc(date)}">${dateFmt.format(new Date(date))}</time>${items.length>1?' <small>'+items.length+' items</small>':''}</h3>
+      <ul class="plan-list">${items.map(item=>`<li><div><a ${item.type==='task'?'data-open-plan':''} data-opportunity="${esc(item.trackId)}" href="#opportunity=${encodeURIComponent(item.trackId)}">${esc(item.label)}</a>
+      <small>${esc(item.title)}</small></div><span>${item.type==='task'?'Task':'Milestone'}</span></li>`).join('')}</ul></section>`).join('')}</div>`
+      :`<p class="tools-empty">${late?'You have no overdue tasks.':'No deadlines or due tasks in this window.'}</p>`}`;
+  }
+  range.onchange=draw;
+  draw();
 }
 
 export function renderHeatmap(target,data,esc){
