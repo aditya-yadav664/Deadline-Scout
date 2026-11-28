@@ -14,18 +14,17 @@ import {hash,vault} from '../server/security.js';
 import {updatePassport} from '../server/applications.js';
 const executablePath=[process.env.BROWSER_EXECUTABLE,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','/usr/bin/chromium'].find(p=>p&&existsSync(p));
 
-test('the installed extension opens a link, resumes a paused scan, and hands off without submitting', {skip:!executablePath},async t=>{
+test('the installed extension finds registration from an event page and scans without submitting', {skip:!executablePath,timeout:120000},async t=>{
  const reservation=createServer();
  await new Promise(resolve=>reservation.listen(0,'127.0.0.1',resolve));
  const port=reservation.address().port, host='http://127.0.0.1:'+port;
  await new Promise(resolve=>reservation.close(resolve));
  const app=createApp({env:{HOST:'127.0.0.1',APP_URL:host},store:new Store(':memory:'),vault:{seal:JSON.stringify,open:JSON.parse}});
  await new Promise((resolve,reject)=>app.server.once('error',reject).listen(port,'127.0.0.1',resolve));
- t.after(()=>app.close());
  const extension=fileURLToPath(new URL('../extension',import.meta.url));
  const context=await chromium.launchPersistentContext('',{executablePath,headless:true,
   args:['--disable-extensions-except='+extension,'--load-extension='+extension]});
- t.after(()=>context.close());
+ t.after(async()=>{await context.close();app.close();});
  context.setDefaultTimeout(15000);
  const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
  await worker.evaluate(backendUrl=>chrome.storage.local.set({settings:{backendUrl},hostedBackendMigrationV1:true}),host);
@@ -34,6 +33,17 @@ test('the installed extension opens a link, resumes a paused scan, and hands off
  app.server.removeListener('request',appHandler);
  app.server.on('request',(request,response)=>{
   const url=new URL(request.url,host);
+  if(url.pathname.startsWith('/event-')){
+   const destinations={
+    '/event-multi':'<a href="/apply-multi">Start registration</a>',
+    '/event-external':'<a href="http://localhost:'+port+'/apply-single">Start registration</a>',
+    '/event-choice':'<a href="/apply-single">Register now</a><a href="/apply-multi">Apply for the workshop</a>',
+    '/event-button':'<button type="button" onclick="document.querySelector(\'form\').hidden=false">Start registration</button>'+
+      '<form hidden method="post" action="/apply-single"><label>Applicant name<input name="name" value="Test applicant"></label><button type="submit">Submit application</button></form>',
+   };
+   response.setHeader('Content-Type','text/html');
+   return response.end('<!doctype html>'+destinations[url.pathname]+'<a href="/newsletter">Subscribe to our newsletter</a>');
+  }
   if(!['/apply-single','/apply-multi'].includes(url.pathname))return appHandler(request,response);
   if(request.method!=='GET'){
    submissions++;
@@ -51,15 +61,20 @@ test('the installed extension opens a link, resumes a paused scan, and hands off
   response.end('<!doctype html><title>Test application</title><form method="post">'+contents+navigation+'</form>');
  });
  const site=context.pages()[0];
- for(const variant of ['single','multi']){
+ for(const variant of ['single','multi','choice','button','external']){
   await site.goto(host+'/backup.html');
   await site.getByText('Your Google account is connected.').waitFor();
-  await site.getByLabel('Application form URL').fill(host+'/apply-'+variant);
+  await site.getByLabel('Event page or application URL').fill(host+(variant==='single'?'/apply-single':'/event-'+variant));
   const [scanner]=await Promise.all([
    context.waitForEvent('page'),
-   site.getByRole('button',{name:'Scan form from link'}).click(),
+   site.getByRole('button',{name:'Find and scan registration'}).click(),
   ]);
   await scanner.getByRole('button',{name:'Allow access and scan'}).click();
+  if(variant==='choice'){
+   await scanner.getByLabel('Registration option').selectOption(host+'/apply-single');
+   await scanner.getByRole('button',{name:'Open registration'}).click();
+  }
+  if(['button','external'].includes(variant))await scanner.getByRole('button',{name:'Open registration'}).click();
   if(variant==='multi'){
    await scanner.getByText(/1 page captured\. The form needs answers/).waitFor();
    const form=context.pages().find(page=>page.url()===host+'/apply-multi');

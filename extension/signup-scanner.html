@@ -16,8 +16,9 @@
     <section class="card backup-editor">
       <h1>Scan application form</h1>
       <p class="signup-scanner-destination" id="destination"></p>
-      <p>Deadline Scout reads questions and existing answers in the form tab. If a page needs your input, complete it on the form, then return here to continue.</p>
+      <p>Deadline Scout looks for registration on the event page and reads the form questions. If a page needs your input, complete it on the form, then return here to continue.</p>
       <p id="scan-status" role="status"></p>
+      <label id="scan-registration-choice" hidden>Registration option<select id="scan-registration"></select></label>
       <label id="scan-choice" hidden>Form to capture<select id="scan-form"></select></label>
       <div class="backup-actions">
         <button class="button backup-primary" id="scan-start">Allow access and scan</button>

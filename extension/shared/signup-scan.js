@@ -5,7 +5,39 @@ export function signupScanUrl(value){
       if(['http:','https:'].includes(url.protocol)&&!url.username&&!url.password)return url;
     }catch{/* Show the same validation message for incomplete URLs. */}
   }
-  throw Error('Enter a full HTTP or HTTPS application form link.');
+  throw Error('Enter a full HTTP or HTTPS event or application link.');
+}
+
+// Runs inside the event tab. A discovery action can open a link or reveal a form.
+export function findSignupEntry({url,clickKey}){
+  if(location.href!==url)return [];
+  const visible=node=>node.getClientRects().length&&getComputedStyle(node).visibility==='visible'&&
+    !node.closest('[hidden],[inert],[aria-hidden="true"],[disabled],[aria-disabled="true"]');
+  const selectors='a[href],button[type=button],button:not([type]),input[type=button],[role=button]';
+  const options=new Map();
+  for(const [index,node] of [...document.querySelectorAll(selectors)].entries()){
+    if(!visible(node))continue;
+    const label=(node.getAttribute('aria-label')||node.innerText||node.value||node.title||'').trim()
+      .replace(/\s+/g,' ').replace(/[→›»]+$/,'').trim().slice(0,140);
+    if(!label||/\b(?:login|log in|sign in|pay|payment|checkout|donate|newsletter|subscribe|volunteer|sponsor|submit|cancel)\b/i.test(label))continue;
+    const action=/^(?:register(?:\s+(?:now|here|for .+))?|(?:start|open|begin)\s+(?:your\s+)?(?:registration|application)|apply(?:\s+(?:now|here|for .+))?|sign up(?:\s+(?:now|here|for .+))?|(?:registration|application)\s+form|(?:event|attendee|participant)\s+registration)$/i.test(label);
+    const link=node.closest('a[href]');
+    let destination;
+    if(link){
+      try{destination=new URL(link.href);}catch{continue;}
+      if(!['http:','https:'].includes(destination.protocol)||destination.username||destination.password||
+        destination.href===url||link.hasAttribute('download'))continue;
+      if(!action&&!/(?:^|\/)(?:register|registration|apply|application-form|signup|sign-up)\/?$/i.test(destination.pathname)&&
+        !/(?:^|\.)forms\.gle$/.test(destination.hostname)&&
+        !(destination.origin==='https://docs.google.com'&&destination.pathname.endsWith('/viewform')))continue;
+    }else if(!action||node.closest('form')||node.type==='submit')continue;
+    const key=destination?.href||('button:'+index+':'+label);
+    if(clickKey===key&&!destination){node.click();return [{key}];}
+    if(!options.has(key)||action)options.set(key,{
+      key,label,url:destination?.href||null,explicit:action
+    });
+  }
+  return [...options.values()].slice(0,12);
 }
 
 // Runs in the form tab. Only clear intermediate navigation controls are eligible.

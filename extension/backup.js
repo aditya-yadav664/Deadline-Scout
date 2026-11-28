@@ -19,7 +19,7 @@ $('#scan-signup-link').onsubmit=async event=>{
     if(!extensionId||!globalThis.chrome?.runtime?.sendMessage)throw Error('Open Backup Signup in the browser where Deadline Scout is installed.');
     await new Promise((resolve,reject)=>{
       const timer=setTimeout(()=>reject(Error('The extension did not respond. Reload Deadline Scout and try again.')),10000);
-      chrome.runtime.sendMessage(extensionId,{type:'scout-signup-scan',url},reply=>{
+      chrome.runtime.sendMessage(extensionId,{type:'scout-signup-discover',url},reply=>{
         clearTimeout(timer);
         if(chrome.runtime.lastError||!reply?.ok)reject(Error(reply?.error||'Update the Deadline Scout extension and reload this page.'));
         else resolve();

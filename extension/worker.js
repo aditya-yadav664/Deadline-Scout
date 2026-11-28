@@ -30,7 +30,7 @@ function registerNotificationClick(){if(notificationClickRegistered||!chrome.not
 registerNotificationClick();chrome.permissions.onAdded.addListener(permissions=>{if(permissions.permissions?.includes('notifications'))registerNotificationClick();});
 
 chrome.runtime.onMessageExternal.addListener((message,sender,respond)=>{
-  if(message?.type==='scout-signup-scan'){
+  if(message?.type==='scout-signup-discover'){
     (async()=>{
       const backend=new URL((await settings()).backendUrl);
       if(new URL(sender.url).origin!==backend.origin)throw Error('Open the scanner from Deadline Scout.');
