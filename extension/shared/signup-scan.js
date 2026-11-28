@@ -57,7 +57,7 @@ export function formScanNavigation({url,formIndex=0,googleForms=false,advance=fa
   const selector='button,input[type=submit],input[type=button],[role=button],a[href]';
   const controls=[...new Set([...scope.querySelectorAll(selector),...Array.from(root?.elements||[]).filter(el=>el.matches(selector))])].filter(visible);
   const next=controls.filter(el=>{
-    const roleButton=googleForms&&el.matches('[role=button]:not(button):not(input)');
+    const roleButton=root&&el.matches('[role=button]:not(button):not(input):not(a)');
     const link=el.matches('a[href]')?new URL(el.href):null;
     const sameSiteLink=link&&link.origin===location.origin&&!link.username&&!link.password&&
       !el.hasAttribute('download')&&(!el.target||el.target==='_self')&&

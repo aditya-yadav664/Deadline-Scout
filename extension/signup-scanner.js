@@ -23,6 +23,7 @@ function show(message){
   const count=collection?.steps.length||0;
   status.textContent=(count ? count+' '+(count===1?'page':'pages')+' captured. ' : '')+message;
   review.hidden=!count;
+  review.textContent=finished?'Review captured pages':'Review partial draft';
 }
 
 async function inForm(func,args){
@@ -95,11 +96,12 @@ async function readStep(previousKey){
     }
     if(!allowedPage(step.url))continue;
     if(scanStepKey(step)!==previousKey){
-      if(step.fields.length)return {step,googleForms};
-      const nav=await inForm(formScanNavigation,[{url:step.url,formIndex:step.formIndex,googleForms}]);
-      if(['review','sign-in','captcha'].includes(nav)||collection&&nav==='next')return {step,googleForms};
-      if(discovering&&!googleForms&&(await inForm(findSignupEntry,[{url:step.url}])).some(candidate=>!followedEntries.has(step.url+'\n'+candidate.key)))return {step,googleForms};
-      if(attempt===15)return {step,googleForms};
+      const liveUrl=tab.url;
+      if(step.fields.length)return {step,googleForms,liveUrl};
+      const nav=await inForm(formScanNavigation,[{url:liveUrl,formIndex:step.formIndex,googleForms}]);
+      if(['review','sign-in','captcha'].includes(nav)||collection&&nav==='next')return {step,googleForms,liveUrl};
+      if(discovering&&!googleForms&&(await inForm(findSignupEntry,[{url:liveUrl}])).some(candidate=>!followedEntries.has(liveUrl+'\n'+candidate.key)))return {step,googleForms,liveUrl};
+      if(attempt===15)return {step,googleForms,liveUrl};
     }
   }
   return null;
@@ -109,15 +111,15 @@ async function scan(){
   let previousKey;
   for(let page=0;page<12;page++){
     const result=await readStep(previousKey);
-    if(!result)return show('The next page hasn’t loaded. Check the form tab, then continue the scan.');
-    const {step,googleForms}=result;
-    const navigation={url:step.url,formIndex:step.formIndex,googleForms};
+    if(!result)return show('The form stayed on this page. Check it for required answers, uploads, or validation messages, then continue the scan.');
+    const {step,googleForms,liveUrl}=result;
+    const navigation={url:liveUrl,formIndex:step.formIndex,googleForms};
     const action=await inForm(formScanNavigation,[navigation]);
     if(action==='changed')return show('The page changed while scanning. Check the form tab and continue.');
     if(action==='sign-in')return show('Sign in on the form tab, then return here to continue scanning.');
     if(discovering&&!googleForms&&action!=='captcha'){
       if(followedEntries.size>=5&&!step.fields.length)return show('Open the registration form in the event tab, then continue the scan.');
-      if(followedEntries.size<5&&await inspectEntry(step.url)){
+      if(followedEntries.size<5&&await inspectEntry(liveUrl)){
         if(pendingEntry)return;
         show('Looking for the registration form…');
         continue;
@@ -137,8 +139,8 @@ async function scan(){
     }
     if(!step.fields.length&&(!collection||action!=='next'))return show(step.warnings?.[0]||'No registration form found yet. Open registration in the event tab and continue the scan.');
     if(collection?.steps.length>=12)return show('You can review up to 12 pages in one draft.');
-    if(action==='blocked'||googleForms&&step.fields.some(field=>field.required&&
-      (field.type==='file'||validateAnswer(field,step.capturedAnswers?.[field.key])))){
+    if(action==='blocked'||googleForms&&step.fields.some(field=>field.required&&field.type!=='file'&&
+      validateAnswer(field,step.capturedAnswers?.[field.key]))){
       return show('The form needs answers or an attachment. Complete the required fields, then click Continue scan here. The scanner will try the next step from the same tab.');
     }
     if(action!=='next'||step.warnings?.some(warning=>/captcha|consent|password|unfamiliar control|embedded form/i.test(warning))){

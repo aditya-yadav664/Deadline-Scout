@@ -45,7 +45,7 @@ export function validateFiles(field,files=[]){
 
 // Both functions below are serialized into an isolated active-tab world.
 export function captureSignupForm(formIndex=0,includeInactive=false,captureAnswers=false){
- const visible=el=>!!el.getClientRects().length&&getComputedStyle(el).visibility!=='hidden';
+ const visible=el=>!!el.getClientRects().length&&getComputedStyle(el).visibility!=='hidden'&&!el.closest('[hidden],[inert],[aria-hidden="true"]');
  const forms=[...document.forms].filter(f=>visible(f)&&f.querySelector('input,textarea,select'));const root=forms.sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length)[formIndex]||document;
  const controls=[...root.querySelectorAll('input,textarea,select')].filter(el=>
   includeInactive||visible(el)||el.type==='file'&&[...el.labels||[]].some(visible)

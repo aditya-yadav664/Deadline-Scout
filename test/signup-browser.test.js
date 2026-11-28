@@ -8,6 +8,7 @@ import {captureSignupForm,restoreSignupAnswers} from '../extension/shared/signup
 import {advanceSignup,resumePlan} from '../extension/shared/signup-resume.js';
 import {isGoogleForms,googleFormsSignup} from '../extension/shared/google-forms.js';
 import {collectSignupPage} from '../extension/shared/signup-collection.js';
+import {formScanNavigation} from '../extension/shared/signup-scan.js';
 import {Store} from '../server/store.js';
 import {createApp} from '../server/app.js';
 import {hash,vault} from '../server/security.js';
@@ -55,7 +56,7 @@ test('the installed extension finds registration from an event page and scans wi
    step==='2'?'<label>Project title<input name="project" value="Test project" required></label>':
    '<label>Applicant name<input name="name" '+(multi?'':'value="Test applicant"')+' required></label>';
   const next=multi&&step!=='review';
-  const navigation=next?(step==='2'?'<button type="button" onclick="location.search=\'page=review\'">Review application</button>':
+  const navigation=next?(step==='2'?'<div role="button" onclick="location.search=\'page=review\'">Review application</div>':
    step==='intro'?'<a href="?page=2">Continue to project details</a>':
    '<a href="?page=intro">Continue to the next section →</a>'):
    '<button type="submit">Submit application</button>';
@@ -200,24 +201,34 @@ test('Google Forms answers on a Submit section are capturable and fillable', {sk
  const question=(id,label,body)=>`<div role="listitem"><div data-params="%.@.[${id},0]"><div role="heading">${label}</div>${body}</div></div>`;
  const option=(role,value,attribute)=>`<div role="${role}" aria-label="${value}" ${attribute}="false" onclick="setTimeout(()=>this.setAttribute('${attribute}','true'),60)">${value}</div>`;
  await page.route(form+'**',route=>{
-  const final=route.request().url().endsWith('formResponse');
+  const url=new URL(route.request().url());
+  const final=url.searchParams.has('review');
   const content=final?question(2,'Project summary *','<textarea aria-label="Your answer"></textarea>')+
    question(3,'Format *',`<div role="radiogroup" aria-required="true">${option('radio','Remote','aria-checked')}</div>`)+
    question(4,'Topics *',option('checkbox','Design','aria-checked')+option('checkbox','Code','aria-checked'))+
    '<div role="button" onclick="window.submitCount++">Submit</div>':
-   question(1,'Participant name *','<input type="text" aria-label="Your answer">')+
-   '<div role="button" onclick="location.href=\'formResponse\'">Next</div>';
+   (url.pathname.endsWith('formResponse')?
+    question(5,'Institution *','<input type="text" value="Example school">')+
+    '<div role="button" onclick="location.href=\'formResponse?review=1\'">Next</div>':
+    question(1,'Participant name *','<input type="text" aria-label="Your answer">')+
+    '<div role="button" onclick="location.href=\'formResponse\'">Next</div>');
   return route.fulfill({contentType:'text/html',body:`<form action="formResponse">${content}</form><script>window.submitCount=0;</script>`});
  });
- await page.goto(form+'viewform');
+ await page.goto(form+'viewform?usp=sharing');
  assert.equal(isGoogleForms(page.url()),true);
  const first=await page.evaluate(googleFormsSignup);
  assert.deepEqual(first.fields.map(f=>f.label),['Participant name']);
- assert.equal((await page.evaluate(advanceSignup,{finalStep:false,googleForms:true})).advanced,true);
+ assert.equal(await page.evaluate(formScanNavigation,{url:page.url(),googleForms:true,advance:true}),'next');
  await page.waitForURL(form+'formResponse');
+ const second=await page.evaluate(googleFormsSignup);
+ assert.equal(second.url,first.url);
+ assert.equal(await page.evaluate(formScanNavigation,{url:page.url(),googleForms:true,advance:true}),'next');
+ await page.waitForURL(form+'formResponse?review=1');
  const final=await page.evaluate(googleFormsSignup);
  assert.equal(final.url,first.url);
- assert.equal(collectSignupPage(collectSignupPage(null,first),final).steps.length,2);
+ assert.equal(collectSignupPage(collectSignupPage(collectSignupPage(null,first),second),final).steps.length,3);
+ assert.equal(await page.evaluate(formScanNavigation,{url:page.url(),googleForms:true,advance:true}),'review');
+ assert.equal(await page.evaluate(()=>window.submitCount),0);
  assert.deepEqual(final.fields.map(f=>[f.label,f.type,f.required]),[
   ['Project summary','textarea',true],['Format','radio',true],['Topics','checkbox',true],
  ]);
