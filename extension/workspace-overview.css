@@ -171,7 +171,9 @@ body[data-workspace-view="overview"] .capture-input .button:hover { background: 
 .overview-lines time { color: var(--overview-accent); font-size: .76rem; font-variant-numeric: tabular-nums; }
 .overview-lines time strong { font-size: 1.08rem; }
 .overview-lines a, .scout-readiness a { color: var(--overview-ink); font-weight: 595; text-decoration: none; }
-.overview-lines a:hover, .scout-readiness a:hover { text-decoration: underline; }
+/* Saved opportunity titles stay readable as headings and rows. */
+.workspace-layout a[data-opportunity] { text-decoration: none; }
+.workspace-layout a[data-opportunity]:not(.feature-link):is(:hover, :focus-visible) { color: #ffc181; }
 .overview-lines div small { display: block; margin-top: 3px; }
 .scout-readiness p { margin: 8px 0; }
 .scout-readiness .readiness-count { color: var(--overview-soft); font-size: .81rem; }

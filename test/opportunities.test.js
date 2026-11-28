@@ -189,7 +189,9 @@ test('dashboard shell keeps watchlist actions and opportunity links accessible o
   await page.getByRole('button',{name:'Toggle navigation'}).click();
   await page.getByRole('button', { name: /^My Watchlist/ }).click();
   await page.locator('#tracks').getByRole('button', { name: 'Check now' }).click();
-  await page.locator('#tracks').getByRole('link', { name: 'Orbit Hack' }).click();
+  const eventTitle=page.locator('#tracks').getByRole('link', { name: 'Orbit Hack' });
+  assert.equal(await eventTitle.evaluate(link=>getComputedStyle(link).textDecorationLine),'none');
+  await eventTitle.click();
   await page.getByRole('heading', { name: 'Orbit Hack' }).waitFor();
   await page.getByText('Source check history', { exact: true }).click();
   await page.getByText('Source evidence', { exact: true }).first().click();
