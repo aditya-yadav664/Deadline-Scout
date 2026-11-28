@@ -151,7 +151,9 @@ async function scan(previousKey){
       return show('The form needs answers or an attachment. Complete the required fields, then click Continue scan here. The scanner will try the next step from the same tab.');
     }
     if(action!=='next'){
-      return show('The scanner couldn’t identify a safe next step. If the form has another page, open it in the same tab and click Continue scan here.');
+      const labels=await inForm(formScanNavigation,[{...navigation,describe:true}]);
+      const details=Array.isArray(labels)&&labels.length?' Controls found: '+labels.join(' · ')+'.':'';
+      return show('The scanner couldn’t identify a clear next step. Use the form’s navigation in the same tab to continue capturing.'+details);
     }
     previousKey=scanStepKey(step);
     show('Looking for the next page…');

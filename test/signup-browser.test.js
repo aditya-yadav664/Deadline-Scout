@@ -56,9 +56,18 @@ test('the installed extension finds registration from an event page and scans wi
    return response.end(`<!doctype html><title>Custom application</title><form id="application" method="post">
     <h2>About you</h2><label><span>Applicant name</span><input name="answer" value="Test applicant"></label>
    </form><footer>
-    <button type="button" aria-controls="application" onclick="document.querySelector('h2').textContent='About your project';document.querySelector('label span').textContent='Project title';document.querySelector('input').value='Test project';this.hidden=true;document.querySelector('#final').hidden=false;">Proceed to project information</button>
+    <button type="button" onclick="move('About your project','Project title','Test project',this,'forward')">Next: About your project</button>
+    <button id="forward" type="button" data-action="next-step" hidden onclick="move('Availability','Preferred time','Afternoon',this,'final')">→</button>
     <button id="final" type="submit" form="application" hidden>Submit application</button>
-   </footer>`);
+   </footer><script>
+    function move(heading,label,value,button,next){
+      document.querySelector('h2').textContent=heading;
+      document.querySelector('label span').textContent=label;
+      document.querySelector('input').value=value;
+      button.hidden=true;
+      document.getElementById(next).hidden=false;
+    }
+   </script>`);
   }
   const step=url.searchParams.get('page');
   const multi=url.pathname==='/apply-multi';
@@ -98,16 +107,18 @@ test('the installed extension finds registration from an event page and scans wi
    await form.getByLabel('Institution').fill('Example school');
    await form.getByRole('link',{name:/Continue to the next section/}).click();
   }
-  await scanner.getByText(multiple?'2 pages captured. Ready to review your draft.':'1 page captured. Ready to review your draft.')
+  const count=variant==='custom'?3:multiple?2:1;
+  await scanner.getByText(count+' '+(count===1?'page':'pages')+' captured. Ready to review your draft.')
    .waitFor().catch(async error=>{
     throw Error(await scanner.locator('#scan-status').textContent(),{cause:error});
    });
   if(multiple)await scanner.getByRole('list',{name:'Captured form sections'}).getByText('Project title').waitFor();
   await scanner.getByRole('button',{name:'Review captured pages'}).click();
-  await scanner.getByText(multiple?/^2 captured step\(s\)/:/^1 captured step\(s\)/).waitFor();
+  await scanner.getByText(new RegExp('^'+count+' captured step\\(s\\)')).waitFor();
   await scanner.getByRole('button',{name:'Review answers'}).click();
   assert.equal(await scanner.getByLabel(/Applicant name/).inputValue(),'Test applicant');
   if(multiple)assert.equal(await scanner.getByLabel(/Project title/).inputValue(),'Test project');
+  if(variant==='custom')assert.equal(await scanner.getByLabel(/Preferred time/).inputValue(),'Afternoon');
  }
  assert.equal(submissions,0);
 });

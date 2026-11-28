@@ -41,7 +41,7 @@ export function findSignupEntry({url,clickKey}){
 }
 
 // Runs in the form tab. Only clear intermediate navigation controls are eligible.
-export function formScanNavigation({url,formIndex=0,googleForms=false,advance=false}){
+export function formScanNavigation({url,formIndex=0,googleForms=false,advance=false,describe=false}){
   if(location.href!==url)return 'changed';
   const visible=el=>el.getClientRects().length>0&&getComputedStyle(el).visibility==='visible'&&!el.closest('[hidden],[inert],[aria-hidden="true"]');
   const visibleForms=[...document.forms].filter(visible);
@@ -49,7 +49,7 @@ export function formScanNavigation({url,formIndex=0,googleForms=false,advance=fa
   const root=googleForms?[...document.forms].find(form=>visible(form)&&/\/formResponse$/.test(new URL(form.action).pathname)):
     forms.sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length)[formIndex]||
       (visibleForms.length===1?visibleForms[0]:null);
-  const text=el=>(el.innerText||el.value||el.getAttribute('aria-label')||'').trim().replace(/\s+/g,' ');
+  const text=el=>(el.getAttribute('aria-label')||el.innerText||el.value||el.title||'').trim().replace(/\s+/g,' ');
   const scope=root||document;
   const wizard=root?.closest('[data-wizard],[data-multistep-form],[role=dialog],[role=form]');
   const inputs=[...scope.querySelectorAll('input,textarea,select')].filter(visible);
@@ -65,9 +65,12 @@ export function formScanNavigation({url,formIndex=0,googleForms=false,advance=fa
     ...scope.querySelectorAll(selector),...Array.from(root?.elements||[]).filter(el=>el.matches(selector)),
     ...(wizard?.querySelectorAll(selector)||[]),...linkedControls
   ])].filter(el=>visible(el)&&!el.closest('[aria-disabled="true"],:disabled'));
+  const nearby=root&&forms.length===1?[...root.parentElement.querySelectorAll(selector)].filter(el=>
+    !controls.includes(el)&&!el.closest('header,nav,form,[role=navigation]')&&visible(el)&&
+    !el.closest('[aria-disabled="true"],:disabled')):[];
   const label=el=>text(el).replace(/\s*[→›»]\s*$/,'');
   const final=controls.some(el=>/^(?:submit(?:\s.*)?|register(?: now)?|sign up|send application|finish registration)$/i.test(label(el)));
-  const next=controls.filter(el=>{
+  function score(el,scoped){
     const roleButton=(root||el.closest('[role=form],[data-wizard],[data-multistep-form]'))&&
       el.matches('[role=button]:not(button):not(input):not(a)');
     const link=el.matches('a[href]')?new URL(el.href):null;
@@ -76,14 +79,26 @@ export function formScanNavigation({url,formIndex=0,googleForms=false,advance=fa
       !/%|\b(?:pay|checkout|submit|confirm|complete|delete|cancel|logout)\b/i.test(link.pathname+link.search);
     const intermediate=el.matches('button[type=button],input[type=button]')||roleButton||sameSiteLink;
     const caption=label(el);
-    const forward=/^(?:next|continue|proceed)(?: (?:to )?(?:(?:the )?(?:next )?(?:page|step|section)|(?:step|page|section) \d+|(?:[\w-]+ ){0,4}(?:details|information|questions)))?$/i.test(caption)||
-      /^review (?:my |your )?(?:answers|details|application|registration)$/i.test(caption);
-    return intermediate&&forward&&!/\b(?:pay|payment|checkout|purchase|submit|confirm)\b/i.test(caption);
-  });
-  if(next.length!==1)return next.length===0&&final?'review':'manual';
+    if(!intermediate||/\b(?:pay|payment|checkout|purchase|submit|confirm|cancel|finish|register|delete|accept|agree|send|place order)\b/i.test(caption))return 0;
+    const semantics=['data-action','data-direction','data-navigation','data-step-action']
+      .some(name=>/^(?:next|next[-_ ](?:page|step|section)|forward)$/i.test(el.getAttribute(name)||''));
+    if(semantics||sameSiteLink&&el.relList.contains('next'))return scoped?4:2;
+    if(/^(?:(?:next|continue|proceed)(?:(?:\s+to\s+|\s*[:–—-]\s*)\S.{0,80}|\s+(?:page|step|section)(?:\s+\d+)?)?|review (?:my |your )?(?:answers|details|application|registration))$/i.test(caption))return scoped?3:1;
+    return 0;
+  }
+  const ranked=[...controls.map(el=>({el,rank:score(el,true)})),...nearby.map(el=>({el,rank:score(el,false)}))]
+    .filter(item=>item.rank).sort((a,b)=>b.rank-a.rank);
+  if(describe){
+    const descriptions=[...controls,...nearby].flatMap(el=>{
+      const caption=label(el);
+      return caption?[caption.slice(0,75)+(el.type==='submit'?' (submit control)':'')]:[];
+    });
+    return [...new Set(descriptions)].slice(0,6);
+  }
+  if(!ranked.length||ranked[0].rank===ranked[1]?.rank)return !ranked.length&&final?'review':'manual';
   if(inputs.some(el=>el.type==='checkbox'&&/\b(?:consent|waiver|agree|terms)\b/i.test([...el.labels||[]].map(text).join(' '))))return 'manual';
   if(inputs.some(el=>el.willValidate&&!el.validity.valid)||
     [...scope.querySelectorAll('[aria-invalid="true"]')].some(visible))return 'blocked';
-  if(advance)next[0].click();
+  if(advance)ranked[0].el.click();
   return 'next';
 }
