@@ -196,3 +196,11 @@ body[data-workspace-view="overview"] .capture-input .button:hover { background: 
   .overview-lines .date-line > span:not(:empty) { grid-column: 2; }
   .overview-lines .date-line > span:empty { display: none; }
 }
+
+@media(prefers-reduced-motion:no-preference){
+.workspace-navigation .tab{transition:background-color .16s,color .16s,box-shadow .16s}
+.workspace-navigation .tab.active{box-shadow:inset 2px 0 #baf578}
+dialog[open],.workspace-content section[id$="-view"]:not([hidden]),#toast:not([hidden]),#notification-menu:popover-open{animation:scout-surface-in .18s ease-out}
+.workspace-content progress{accent-color:#aade74}
+@keyframes scout-surface-in{from{opacity:.6;transform:translateY(4px)}}
+}
