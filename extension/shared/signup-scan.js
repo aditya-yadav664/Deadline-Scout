@@ -45,14 +45,15 @@ export function formScanNavigation({url,formIndex=0,googleForms=false,advance=fa
   if(location.href!==url)return 'changed';
   const visible=el=>el.getClientRects().length>0&&getComputedStyle(el).visibility==='visible'&&!el.closest('[hidden],[inert],[aria-hidden="true"]');
   const visibleForms=[...document.forms].filter(visible);
-  const forms=visibleForms.filter(form=>form.querySelector('input,textarea,select'));
+  const fields=form=>[...form.elements].filter(el=>el.matches('input,textarea,select'));
+  const forms=visibleForms.filter(form=>fields(form).length);
   const root=googleForms?[...document.forms].find(form=>visible(form)&&/\/formResponse$/.test(new URL(form.action).pathname)):
-    forms.sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length)[formIndex]||
+    forms.sort((a,b)=>fields(b).length-fields(a).length)[formIndex]||
       (visibleForms.length===1?visibleForms[0]:null);
   const text=el=>(el.getAttribute('aria-label')||el.innerText||el.value||el.title||'').trim().replace(/\s+/g,' ');
   const scope=root||document;
   const wizard=root?.closest('[data-wizard],[data-multistep-form],[role=dialog],[role=form]');
-  const inputs=[...scope.querySelectorAll('input,textarea,select')].filter(visible);
+  const inputs=(root?fields(root):[...scope.querySelectorAll('input,textarea,select')]).filter(visible);
   if(inputs.some(el=>el.type==='password'||el.autocomplete==='one-time-code'))return 'sign-in';
   if([...document.querySelectorAll('iframe[src*="captcha"],[data-sitekey]')].some(visible))return 'captcha';
   const selector='button,input[type=submit],input[type=button],[role=button],a[href]';
@@ -83,7 +84,9 @@ export function formScanNavigation({url,formIndex=0,googleForms=false,advance=fa
     const semantics=['data-action','data-direction','data-navigation','data-step-action']
       .some(name=>/^(?:next|next[-_ ](?:page|step|section)|forward)$/i.test(el.getAttribute(name)||''));
     if(semantics||sameSiteLink&&el.relList.contains('next'))return scoped?4:2;
-    if(/^(?:(?:next|continue|proceed)(?:(?:\s+to\s+|\s*[:–—-]\s*)\S.{0,80}|\s+(?:page|step|section)(?:\s+\d+)?)?|review (?:my |your )?(?:answers|details|application|registration))$/i.test(caption))return scoped?3:1;
+    const namedNext=/^(?:next|continue|proceed)(?:(?:\s+to\s+|\s*[:–—-]\s*)\S.{0,80}|\s+[\w &-]{1,60})?$/i.test(caption);
+    const namedReview=/^review(?: (?:my |your )?(?:answers|details|application|registration))?$/i.test(caption);
+    if(namedNext||namedReview)return scoped?3:1;
     return 0;
   }
   const ranked=[...controls.map(el=>({el,rank:score(el,true)})),...nearby.map(el=>({el,rank:score(el,false)}))]

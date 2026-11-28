@@ -46,10 +46,13 @@ export function validateFiles(field,files=[]){
 // Both functions below are serialized into an isolated active-tab world.
 export function captureSignupForm(formIndex=0,includeInactive=false,captureAnswers=false){
  const visible=el=>!!el.getClientRects().length&&getComputedStyle(el).visibility!=='hidden'&&!el.closest('[hidden],[inert],[aria-hidden="true"]');
- const forms=[...document.forms].filter(f=>visible(f)&&f.querySelector('input,textarea,select'));const root=forms.sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length)[formIndex]||document;
- const controls=[...root.querySelectorAll('input,textarea,select')].filter(el=>
+ const fieldsFor=form=>[...form.elements].filter(el=>el.matches('input,textarea,select'));
+ const forms=[...document.forms].filter(f=>visible(f)&&fieldsFor(f).length);const root=forms.sort((a,b)=>fieldsFor(b).length-fieldsFor(a).length)[formIndex]||document;
+ const controls=(root===document?[...document.querySelectorAll('input,textarea,select')]:fieldsFor(root)).filter(el=>
   includeInactive||visible(el)||el.type==='file'&&[...el.labels||[]].some(visible)
  ),fields=[],seen=new Set(),warnings=[],capturedAnswers={};if(forms.length>1)warnings.push('Multiple forms found. Review the selected form before saving.');
+ const labelledBy=el=>(el.getAttribute('aria-labelledby')||'').split(/\s+/).filter(Boolean)
+  .map(id=>document.getElementById(id)?.textContent?.trim()).filter(Boolean).join(' ');
  const consent=/\b(?:consent|waiver|terms|privacy|agree|authorize|certify|acknowledge|accept)\b/i;
  const checkboxScopes=new Map();
  for(const el of controls){
@@ -80,10 +83,10 @@ export function captureSignupForm(formIndex=0,includeInactive=false,captureAnswe
   }
   if(['password','checkbox'].includes(type)){warnings.push('Complete '+(el.labels?.[0]?.innerText||type)+' manually; passwords and consent are never restored.');continue;}
   if(!['text','email','tel','url','textarea','select','radio','file','number','date'].includes(type)){warnings.push('Unfamiliar control: '+type);continue;}
-  const name=el.name||'',id=el.id||'',key=type==='radio'&&name?'radio:'+name:id?'id:'+id:name?'name:'+name:'label:'+(el.labels?.[0]?.innerText||el.getAttribute('aria-label')||el.placeholder||'')+':'+type;
+  const name=el.name||'',id=el.id||'',key=type==='radio'&&name?'radio:'+name:id?'id:'+id:name?'name:'+name:'label:'+(el.labels?.[0]?.innerText||el.getAttribute('aria-label')||labelledBy(el)||el.placeholder||'')+':'+type;
   if(seen.has(key)){if(type!=='radio')warnings.push('Ambiguous control '+key+' requires manual choice on site.');continue;}seen.add(key);
   const group=type==='radio'?controls.filter(c=>c.type==='radio'&&c.name===name):[el];
-  const label=(type==='radio'?el.closest('fieldset')?.querySelector('legend')?.innerText:null)||[...el.labels||[]].map(l=>l.innerText).join(' ')||el.getAttribute('aria-label')||el.placeholder||name||id||'Unlabelled field';
+  const label=(type==='radio'?el.closest('fieldset')?.querySelector('legend')?.innerText:null)||[...el.labels||[]].map(l=>l.innerText).join(' ')||el.getAttribute('aria-label')||labelledBy(el)||el.placeholder||name||id||'Unlabelled field';
   const help=[...(el.getAttribute('aria-describedby')||'').split(/\s+/).filter(Boolean)].map(id=>document.getElementById(id)?.innerText||'').join(' ');
   const size=el.getAttribute('data-max-bytes')||help.match(/(?:max(?:imum)?(?: file)? size:?|up to)\s*(\d+(?:\.\d+)?)\s*(KB|MB|bytes)/i)?.slice(1);
   fields.push({key,id,name,label:label.trim().slice(0,300),help:help.slice(0,1500),type,required:group.some(c=>c.required),visible:visible(el)||type==='file'&&[...el.labels||[]].some(visible),options:type==='select'?[...el.options].map(o=>({value:o.value,label:o.label})):type==='radio'?group.map(c=>({value:c.value,label:c.labels?.[0]?.innerText||c.value})):[],accept:el.accept||'',multiple:!!el.multiple,maxLength:el.maxLength>0?el.maxLength:null,pattern:el.pattern||'',min:el.min||'',max:el.max||'',maxBytes:Array.isArray(size)?Number(size[0])*({KB:1024,MB:1048576,BYTES:1}[size[1].toUpperCase()]||1):Number(size)||null});
@@ -101,11 +104,12 @@ export function captureSignupForm(formIndex=0,includeInactive=false,captureAnswe
  const heading=[...root.querySelectorAll('legend,h2,h3,[role=heading]')].find(visible);
  const stepToken=active?.id||active?.getAttribute('data-step')||active?.getAttribute('data-section')||
   selected?.id||selected?.textContent?.trim()||heading?.textContent?.trim().slice(0,200)||'';
- return {formIndex,stepToken,formChoices:forms.map((f,i)=>({index:i,label:(f.getAttribute('aria-label')||f.id||'Form '+(i+1))+' · '+f.querySelectorAll('input,textarea,select').length+' controls'})),url:location.href,title:document.title,fields:fields.slice(0,100),terms,warnings,capturedAt:new Date().toISOString(),...(captureAnswers?{capturedAnswers}: {})};
+ return {formIndex,stepToken,formChoices:forms.map((f,i)=>({index:i,label:(f.getAttribute('aria-label')||f.id||'Form '+(i+1))+' · '+fieldsFor(f).length+' controls'})),url:location.href,title:document.title,fields:fields.slice(0,100),terms,warnings,capturedAt:new Date().toISOString(),...(captureAnswers?{capturedAnswers}: {})};
 }
 export function restoreSignupAnswers({step,answers}){
- const forms=[...document.forms].filter(f=>!!f.getClientRects().length&&f.querySelector('input,textarea,select')).sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length),root=forms[step.formIndex||0]||document;
- const controls=[...root.querySelectorAll('input,textarea,select')].filter(el=>!!el.getClientRects().length),report=[];
+ const fieldsFor=form=>[...form.elements].filter(el=>el.matches('input,textarea,select'));
+ const forms=[...document.forms].filter(f=>!!f.getClientRects().length&&fieldsFor(f).length).sort((a,b)=>fieldsFor(b).length-fieldsFor(a).length),root=forms[step.formIndex||0]||document;
+ const controls=(root===document?[...document.querySelectorAll('input,textarea,select')]:fieldsFor(root)).filter(el=>!!el.getClientRects().length),report=[];
  for(const field of step.fields){
   if(field.type==='file'){report.push(field.label+': checking saved attachment; files not saved as PDFs need manual attachment.');continue;}
   if(field.type==='checkbox'){
@@ -124,7 +128,13 @@ export function restoreSignupAnswers({step,answers}){
    report.push(field.label+(matches.every(el=>el.checked===selected.includes(el.value))?': restored.':': ambiguous or missing; fill manually.'));
    continue;
   }
-  let matches=controls.filter(el=>field.id?el.id===field.id:field.name?el.name===field.name:(el.labels?.[0]?.innerText||el.getAttribute('aria-label')||el.placeholder||'').trim()===field.label);
+  let matches=controls.filter(el=>{
+   if(field.id)return el.id===field.id;
+   if(field.name)return el.name===field.name;
+   const referenced=(el.getAttribute('aria-labelledby')||'').split(/\s+/).filter(Boolean)
+    .map(id=>document.getElementById(id)?.textContent?.trim()).filter(Boolean).join(' ');
+   return (el.labels?.[0]?.innerText||el.getAttribute('aria-label')||referenced||el.placeholder||'').trim()===field.label;
+  });
   matches=matches.filter(el=>(el.tagName==='TEXTAREA'?'textarea':el.tagName==='SELECT'?'select':el.type)===field.type&&!el.disabled&&!el.readOnly);
   if(field.type==='radio')matches=matches.filter(el=>el.value===String(answers[field.key]||''));
   if(matches.length!==1){report.push(field.label+': ambiguous or missing; fill manually.');continue;}

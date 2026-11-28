@@ -56,9 +56,10 @@ test('the installed extension finds registration from an event page and scans wi
    return response.end(`<!doctype html><title>Custom application</title><form id="application" method="post">
     <h2>About you</h2><label><span>Applicant name</span><input name="answer" value="Test applicant"></label>
    </form><footer>
-    <button type="button" onclick="move('About your project','Project title','Test project',this,'forward')">Next: About your project</button>
+    <button type="button" onclick="move('About your project','Project title','Test project',this,'forward')">Continue Project Setup</button>
     <button id="forward" type="button" data-action="next-step" hidden onclick="move('Availability','Preferred time','Afternoon',this,'final')">→</button>
     <button id="final" type="submit" form="application" hidden>Submit application</button>
+    <div id="extra" hidden><span id="portfolio-label">Portfolio URL</span><input type="url" form="application" aria-labelledby="portfolio-label" value="https://example.org/portfolio"></div>
    </footer><script>
     function move(heading,label,value,button,next){
       document.querySelector('h2').textContent=heading;
@@ -66,6 +67,7 @@ test('the installed extension finds registration from an event page and scans wi
       document.querySelector('input').value=value;
       button.hidden=true;
       document.getElementById(next).hidden=false;
+      document.getElementById('extra').hidden=next!=='final';
     }
    </script>`);
   }
@@ -118,7 +120,10 @@ test('the installed extension finds registration from an event page and scans wi
   await scanner.getByRole('button',{name:'Review answers'}).click();
   assert.equal(await scanner.getByLabel(/Applicant name/).inputValue(),'Test applicant');
   if(multiple)assert.equal(await scanner.getByLabel(/Project title/).inputValue(),'Test project');
-  if(variant==='custom')assert.equal(await scanner.getByLabel(/Preferred time/).inputValue(),'Afternoon');
+  if(variant==='custom'){
+   assert.equal(await scanner.getByLabel(/Preferred time/).inputValue(),'Afternoon');
+   assert.equal(await scanner.getByLabel(/Portfolio URL/).inputValue(),'https://example.org/portfolio');
+  }
  }
  assert.equal(submissions,0);
 });

@@ -1,7 +1,8 @@
 import {isLegacyGoogleCapture,sameSignupForm} from './google-forms.js';
 
 export function scanStepKey(step){
- return JSON.stringify([step.url,step.formIndex||0,step.stepToken||'',step.fields.map(field=>field.key).sort()]);
+ return JSON.stringify([step.url,step.formIndex||0,step.stepToken||'',
+  step.fields.map(field=>JSON.stringify([field.key,field.label,field.type])).sort()]);
 }
 
 export function collectSignupPage(collection,step){
