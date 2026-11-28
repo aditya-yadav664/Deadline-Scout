@@ -462,7 +462,7 @@ function mountBackup(){
       section.className='backup-shell embedded-backup';
       section.append(...editor.childNodes);
       const stylesheet=document.createElement('link');
-      stylesheet.rel='stylesheet';stylesheet.href='/backup.css?v=registration-scan-3';
+      stylesheet.rel='stylesheet';stylesheet.href='/backup.css?v=studio-4';
       document.head.append(stylesheet);
       target.replaceChildren(section);
       return await import('./backup.js?v=registration-scan-3');

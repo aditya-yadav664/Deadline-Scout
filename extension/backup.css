@@ -171,3 +171,23 @@
   .signup-progress button span { flex-basis: auto; width: 22px; }
 }
 @media (prefers-reduced-motion: reduce) { .signup-row { transition: none; } }
+
+
+/* Draft preparation keeps its coral identity within the graphite workspace. */
+.backup-shell .backup-hero {
+  background:repeating-radial-gradient(circle at 93% 130%,transparent 0 39px,#de9b8c19 40px 41px),linear-gradient(112deg,#201e1c,#342520);
+  border-color:#584239;border-radius:9px;
+}
+.backup-shell .backup-hero h1 {font-family:Georgia,serif;font-weight:500;letter-spacing:-.055em}
+.backup-shell .backup-hero-guide,.backup-shell :is(.backup-editor,.signup-event-group,.backup-option,.draft-management) {
+  background:#1c201b;border-color:#42493b;border-radius:8px
+}
+.backup-shell .backup-hero-guide {background:#211d1b;border-color:#58443c}
+.backup-shell .signup-progress button {background:#22271f;border-color:#434b3c;color:#e0e6da}
+.backup-shell .signup-progress button.current {background:#3c2928;border-color:#aa6861;color:#ffe0d9}
+.backup-shell .field-review {border-color:#42493b}
+@media(prefers-reduced-motion:no-preference){
+  .backup-shell :is(.signup-row,.answer-option,.signup-progress button) {transition:border-color .17s,background-color .17s}
+  .backup-shell .backup-editor:not([hidden]){animation:draft-enter .2s ease-out}
+  @keyframes draft-enter{from{opacity:.75;translate:0 3px}}
+}
