@@ -51,13 +51,15 @@ test('the installed extension finds registration from an event page and scans wi
   }
   const step=url.searchParams.get('page');
   const multi=url.pathname==='/apply-multi';
-  const contents=step==='review'?'<p>Review your application</p>':
+  const contents=step==='review'?'<p>Review your application</p>':step==='intro'?'<p>Project section instructions</p>':
    step==='2'?'<label>Project title<input name="project" value="Test project" required></label>':
    '<label>Applicant name<input name="name" '+(multi?'':'value="Test applicant"')+' required></label>';
   const next=multi&&step!=='review';
-  const navigation=next?'<button type="button" onclick="location.search=\'page='+(step==='2'?'review':'2')+'\'">Next</button>':
+  const navigation=next?(step==='2'?'<button type="button" onclick="location.search=\'page=review\'">Review application</button>':
+   step==='intro'?'<a href="?page=2">Continue to project details</a>':
+   '<a href="?page=intro">Continue to the next section →</a>'):
    '<button type="submit">Submit application</button>';
-  response.setHeader('Content-Type','text/html');
+  response.setHeader('Content-Type','text/html; charset=utf-8');
   response.end('<!doctype html><title>Test application</title><form method="post">'+contents+navigation+'</form>');
  });
  const site=context.pages()[0];
@@ -76,7 +78,9 @@ test('the installed extension finds registration from an event page and scans wi
   }
   if(['button','external'].includes(variant))await scanner.getByRole('button',{name:'Open registration'}).click();
   if(variant==='multi'){
-   await scanner.getByText(/1 page captured\. The form needs answers/).waitFor();
+   await scanner.getByText(/1 page captured\. The form needs answers/).waitFor().catch(async error=>{
+    throw Error(await scanner.locator('#scan-status').textContent(),{cause:error});
+   });
    const form=context.pages().find(page=>page.url()===host+'/apply-multi');
    await form.getByLabel('Applicant name').fill('Test applicant');
    await scanner.getByRole('button',{name:'Continue scan'}).click();

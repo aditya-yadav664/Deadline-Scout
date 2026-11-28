@@ -97,7 +97,7 @@ async function readStep(previousKey){
     if(scanStepKey(step)!==previousKey){
       if(step.fields.length)return {step,googleForms};
       const nav=await inForm(formScanNavigation,[{url:step.url,formIndex:step.formIndex,googleForms}]);
-      if(['review','sign-in','captcha'].includes(nav))return {step,googleForms};
+      if(['review','sign-in','captcha'].includes(nav)||collection&&nav==='next')return {step,googleForms};
       if(discovering&&!googleForms&&(await inForm(findSignupEntry,[{url:step.url}])).some(candidate=>!followedEntries.has(step.url+'\n'+candidate.key)))return {step,googleForms};
       if(attempt===15)return {step,googleForms};
     }
@@ -135,14 +135,14 @@ async function scan(){
       finished=true;
       return show(collection?'Ready to review your draft.':'No answer fields found. Open the form tab and check the link.');
     }
-    if(!step.fields.length)return show(step.warnings?.[0]||'No registration form found yet. Open registration in the event tab and continue the scan.');
-    if(collection.steps.length>=12)return show('You can review up to 12 pages in one draft.');
+    if(!step.fields.length&&(!collection||action!=='next'))return show(step.warnings?.[0]||'No registration form found yet. Open registration in the event tab and continue the scan.');
+    if(collection?.steps.length>=12)return show('You can review up to 12 pages in one draft.');
     if(action==='blocked'||googleForms&&step.fields.some(field=>field.required&&
       (field.type==='file'||validateAnswer(field,step.capturedAnswers?.[field.key])))){
-      return show('The form needs answers or an attachment. Complete the page, then return here to scan it again or capture the next page.');
+      return show('The form needs answers or an attachment. Complete the required fields, then click Continue scan here. The scanner will try the next step from the same tab.');
     }
     if(action!=='next'||step.warnings?.some(warning=>/captcha|consent|password|unfamiliar control|embedded form/i.test(warning))){
-      return show('If there are more questions, use Next in the form tab, then come back and continue the scan.');
+      return show('The scanner couldn’t identify a safe next step. If the form has another page, open it in the same tab and click Continue scan here.');
     }
     previousKey=scanStepKey(step);
     show('Looking for the next page…');

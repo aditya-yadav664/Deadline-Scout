@@ -49,24 +49,31 @@ export function formScanNavigation({url,formIndex=0,googleForms=false,advance=fa
   const root=googleForms?[...document.forms].find(form=>visible(form)&&/\/formResponse$/.test(new URL(form.action).pathname)):
     forms.sort((a,b)=>b.querySelectorAll('input,textarea,select').length-a.querySelectorAll('input,textarea,select').length)[formIndex]||
       (visibleForms.length===1?visibleForms[0]:null);
-  if(!root)return 'manual';
   const text=el=>(el.innerText||el.value||el.getAttribute('aria-label')||'').trim().replace(/\s+/g,' ');
-  const inputs=[...root.querySelectorAll('input,textarea,select')].filter(visible);
+  const scope=root||document;
+  const inputs=[...scope.querySelectorAll('input,textarea,select')].filter(visible);
   if(inputs.some(el=>el.type==='password'||el.autocomplete==='one-time-code'))return 'sign-in';
   if([...document.querySelectorAll('iframe[src*="captcha"],[data-sitekey]')].some(visible))return 'captcha';
-  const controls=[...root.querySelectorAll('button,input[type=submit],input[type=button],[role=button]')].filter(visible);
+  const selector='button,input[type=submit],input[type=button],[role=button],a[href]';
+  const controls=[...new Set([...scope.querySelectorAll(selector),...Array.from(root?.elements||[]).filter(el=>el.matches(selector))])].filter(visible);
   const next=controls.filter(el=>{
     const roleButton=googleForms&&el.matches('[role=button]:not(button):not(input)');
-    const intermediate=el.matches('button[type=button],input[type=button]')||roleButton;
-    const label=text(el).replace(/\s*[→›]\s*$/,'');
-    return intermediate&&/^next(?: (?:page|step|section))?$/i.test(label)&&!el.disabled&&el.getAttribute('aria-disabled')!=='true';
+    const link=el.matches('a[href]')?new URL(el.href):null;
+    const sameSiteLink=link&&link.origin===location.origin&&!link.username&&!link.password&&
+      !el.hasAttribute('download')&&(!el.target||el.target==='_self')&&
+      !/%|\b(?:pay|checkout|submit|confirm|complete|delete|cancel|logout)\b/i.test(link.pathname+link.search);
+    const intermediate=el.matches('button[type=button],input[type=button]')||roleButton||sameSiteLink;
+    const label=text(el).replace(/\s*[→›»]\s*$/,'');
+    return intermediate&&(/^(?:next|continue)(?: (?:to )?(?:(?:the )?(?:next )?(?:page|step|section)|(?:step|page|section) \d+|(?:personal|participant|project|contact|team|event) details))?$/i.test(label)||
+      /^review (?:answers|details|application|registration)$/i.test(label))&&
+      !el.disabled&&el.getAttribute('aria-disabled')!=='true';
   });
-  const final=controls.some(el=>/^(?:submit(?:\s.*)?|register(?: now)?|sign up|send application)$/i.test(text(el)));
+  const final=controls.some(el=>/^(?:submit(?:\s.*)?|register(?: now)?|sign up|send application|finish registration)$/i.test(text(el)));
   if(final)return 'review';
   if(next.length!==1)return 'manual';
   if(inputs.some(el=>el.type==='checkbox'&&/\b(?:consent|waiver|agree|terms)\b/i.test([...el.labels||[]].map(text).join(' '))))return 'manual';
   if(inputs.some(el=>el.willValidate&&!el.validity.valid)||
-    [...root.querySelectorAll('[aria-invalid="true"]')].some(visible))return 'blocked';
+    [...scope.querySelectorAll('[aria-invalid="true"]')].some(visible))return 'blocked';
   if(advance)next[0].click();
   return 'next';
 }
