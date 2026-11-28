@@ -55,7 +55,9 @@ export function formScanNavigation({url,formIndex=0,googleForms=false,advance=fa
   if(inputs.some(el=>el.type==='password'||el.autocomplete==='one-time-code'))return 'sign-in';
   if([...document.querySelectorAll('iframe[src*="captcha"],[data-sitekey]')].some(visible))return 'captcha';
   const selector='button,input[type=submit],input[type=button],[role=button],a[href]';
-  const controls=[...new Set([...scope.querySelectorAll(selector),...Array.from(root?.elements||[]).filter(el=>el.matches(selector))])].filter(visible);
+  const controls=[...new Set([...scope.querySelectorAll(selector),...Array.from(root?.elements||[]).filter(el=>el.matches(selector))])].filter(el=>visible(el)&&!el.closest('[aria-disabled="true"],:disabled'));
+  const label=el=>text(el).replace(/\s*[→›»]\s*$/,'');
+  const final=controls.some(el=>/^(?:submit(?:\s.*)?|register(?: now)?|sign up|send application|finish registration)$/i.test(label(el)));
   const next=controls.filter(el=>{
     const roleButton=root&&el.matches('[role=button]:not(button):not(input):not(a)');
     const link=el.matches('a[href]')?new URL(el.href):null;
@@ -63,14 +65,10 @@ export function formScanNavigation({url,formIndex=0,googleForms=false,advance=fa
       !el.hasAttribute('download')&&(!el.target||el.target==='_self')&&
       !/%|\b(?:pay|checkout|submit|confirm|complete|delete|cancel|logout)\b/i.test(link.pathname+link.search);
     const intermediate=el.matches('button[type=button],input[type=button]')||roleButton||sameSiteLink;
-    const label=text(el).replace(/\s*[→›»]\s*$/,'');
-    return intermediate&&(/^(?:next|continue)(?: (?:to )?(?:(?:the )?(?:next )?(?:page|step|section)|(?:step|page|section) \d+|(?:personal|participant|project|contact|team|event) details))?$/i.test(label)||
-      /^review (?:answers|details|application|registration)$/i.test(label))&&
-      !el.disabled&&el.getAttribute('aria-disabled')!=='true';
+    return intermediate&&(/^(?:next|continue)(?: (?:to )?(?:(?:the )?(?:next )?(?:page|step|section)|(?:step|page|section) \d+|(?:personal|participant|project|contact|team|event) details))?$/i.test(label(el))||
+      /^review (?:answers|details|application|registration)$/i.test(label(el)));
   });
-  const final=controls.some(el=>/^(?:submit(?:\s.*)?|register(?: now)?|sign up|send application|finish registration)$/i.test(text(el)));
-  if(final)return 'review';
-  if(next.length!==1)return 'manual';
+  if(next.length!==1)return next.length===0&&final?'review':'manual';
   if(inputs.some(el=>el.type==='checkbox'&&/\b(?:consent|waiver|agree|terms)\b/i.test([...el.labels||[]].map(text).join(' '))))return 'manual';
   if(inputs.some(el=>el.willValidate&&!el.validity.valid)||
     [...scope.querySelectorAll('[aria-invalid="true"]')].some(visible))return 'blocked';

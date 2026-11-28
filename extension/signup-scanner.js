@@ -9,6 +9,7 @@ const start=$('scan-start'), open=$('scan-open'), review=$('scan-review');
 const choice=$('scan-choice'), select=$('scan-form'), status=$('scan-status');
 const registrationChoice=$('scan-registration-choice'), registration=$('scan-registration');
 let entry, tabId, collection, pendingEntry, busy=false, finished=false, discovering=true;
+let pausedStep, watchTimer;
 const followedEntries=new Set();
 
 try{
@@ -24,6 +25,12 @@ function show(message){
   status.textContent=(count ? count+' '+(count===1?'page':'pages')+' captured. ' : '')+message;
   review.hidden=!count;
   review.textContent=finished?'Review captured pages':'Review partial draft';
+  $('scan-pages').replaceChildren(...(collection?.steps||[]).map(step=>{
+    const item=document.createElement('li');
+    item.textContent=step.fields.slice(0,3).map(field=>field.label).join(' · ')+
+      (step.fields.length>3?' (+'+(step.fields.length-3)+' more)':'');
+    return item;
+  }));
 }
 
 async function inForm(func,args){
@@ -80,8 +87,8 @@ async function openRegistration(candidate){
   start.textContent='Continue scan';
 }
 
-async function readStep(previousKey){
-  for(let attempt=0;attempt<16;attempt++){
+async function readStep(previousKey,attempts=16){
+  for(let attempt=0;attempt<attempts;attempt++){
     if(attempt)await new Promise(resolve=>setTimeout(resolve,400));
     const tab=await chrome.tabs.get(tabId);
     if(tab.status==='loading')continue;
@@ -99,20 +106,20 @@ async function readStep(previousKey){
       const liveUrl=tab.url;
       if(step.fields.length)return {step,googleForms,liveUrl};
       const nav=await inForm(formScanNavigation,[{url:liveUrl,formIndex:step.formIndex,googleForms}]);
-      if(['review','sign-in','captcha'].includes(nav)||collection&&nav==='next')return {step,googleForms,liveUrl};
+      if(['review','sign-in','captcha'].includes(nav)||collection&&nav==='next')return {step,googleForms,liveUrl,action:nav};
       if(discovering&&!googleForms&&(await inForm(findSignupEntry,[{url:liveUrl}])).some(candidate=>!followedEntries.has(liveUrl+'\n'+candidate.key)))return {step,googleForms,liveUrl};
-      if(attempt===15)return {step,googleForms,liveUrl};
+      if(attempt===attempts-1&&!previousKey)return {step,googleForms,liveUrl};
     }
   }
   return null;
 }
 
-async function scan(){
-  let previousKey;
+async function scan(previousKey){
   for(let page=0;page<12;page++){
     const result=await readStep(previousKey);
     if(!result)return show('The form stayed on this page. Check it for required answers, uploads, or validation messages, then continue the scan.');
     const {step,googleForms,liveUrl}=result;
+    pausedStep=scanStepKey(step);
     const navigation={url:liveUrl,formIndex:step.formIndex,googleForms};
     const action=await inForm(formScanNavigation,[navigation]);
     if(action==='changed')return show('The page changed while scanning. Check the form tab and continue.');
@@ -143,7 +150,7 @@ async function scan(){
       validateAnswer(field,step.capturedAnswers?.[field.key]))){
       return show('The form needs answers or an attachment. Complete the required fields, then click Continue scan here. The scanner will try the next step from the same tab.');
     }
-    if(action!=='next'||step.warnings?.some(warning=>/captcha|consent|password|unfamiliar control|embedded form/i.test(warning))){
+    if(action!=='next'){
       return show('The scanner couldn’t identify a safe next step. If the form has another page, open it in the same tab and click Continue scan here.');
     }
     previousKey=scanStepKey(step);
@@ -154,9 +161,41 @@ async function scan(){
   }
 }
 
+function unlock(){
+  busy=false;
+  start.disabled=finished;
+  open.disabled=review.disabled=false;
+  if(!finished&&!pendingEntry&&collection&&pausedStep){
+    clearTimeout(watchTimer);
+    watchTimer=setTimeout(watchForm,1600);
+  }
+}
+
+async function watchForm(){
+  if(busy||finished)return;
+  try{
+    const next=await readStep(null,1);
+    if(busy||finished)return;
+    const key=next&&scanStepKey(next.step);
+    if(next&&key===pausedStep&&collection.steps.some(step=>scanStepKey(step)===key)){
+      collection=collectSignupPage(collection,next.step);
+    }else if(next&&(next.step.fields.length||['review','next'].includes(next.action))){
+      busy=true;
+      start.disabled=review.disabled=true;
+      try{await scan(pausedStep);}catch(error){show(error.message);}
+      finally{unlock();}
+      return;
+    }
+  }catch{
+    // Wait for the same tab to return from a sign-in or site transition.
+  }
+  if(!busy&&!finished)watchTimer=setTimeout(watchForm,1600);
+}
+
 start.addEventListener('click',async()=>{
   if(busy||!entry)return;
   busy=true;
+  clearTimeout(watchTimer);
   start.disabled=open.disabled=review.disabled=true;
   try{
     if(tabId===undefined){
@@ -174,7 +213,7 @@ start.addEventListener('click',async()=>{
     show('Reading the form…');
     await scan();
   }catch(error){show(error.message);}
-  finally{busy=false;start.disabled=finished;open.disabled=review.disabled=false;}
+  finally{unlock();}
 });
 
 open.addEventListener('click',async()=>{
@@ -185,10 +224,11 @@ open.addEventListener('click',async()=>{
 review.addEventListener('click',async()=>{
   if(busy||!collection)return;
   busy=true;
+  clearTimeout(watchTimer);
   start.disabled=review.disabled=true;
   try{
     const capture=await api('/api/signup-captures','POST',{steps:collection.steps,extensionId:chrome.runtime.id});
     await chrome.tabs.update({url:capture.url});
   }catch(error){show(error.message);}
-  finally{busy=false;start.disabled=finished;review.disabled=false;}
+  finally{unlock();}
 });

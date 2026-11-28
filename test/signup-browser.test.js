@@ -54,9 +54,10 @@ test('the installed extension finds registration from an event page and scans wi
   const multi=url.pathname==='/apply-multi';
   const contents=step==='review'?'<p>Review your application</p>':step==='intro'?'<p>Project section instructions</p>':
    step==='2'?'<label>Project title<input name="project" value="Test project" required></label>':
-   '<label>Applicant name<input name="name" '+(multi?'':'value="Test applicant"')+' required></label>';
+   '<label>Applicant name<input name="name" value="Test applicant" required></label>'+
+   (multi?'<label>Institution<input name="institution" required></label>':'');
   const next=multi&&step!=='review';
-  const navigation=next?(step==='2'?'<div role="button" onclick="location.search=\'page=review\'">Review application</div>':
+  const navigation=next?(step==='2'?'<div role="button" onclick="location.search=\'page=review\'">Review application</div><button type="submit" onclick="return false">Submit application</button>':
    step==='intro'?'<a href="?page=2">Continue to project details</a>':
    '<a href="?page=intro">Continue to the next section →</a>'):
    '<button type="submit">Submit application</button>';
@@ -83,9 +84,10 @@ test('the installed extension finds registration from an event page and scans wi
     throw Error(await scanner.locator('#scan-status').textContent(),{cause:error});
    });
    const form=context.pages().find(page=>page.url()===host+'/apply-multi');
-   await form.getByLabel('Applicant name').fill('Test applicant');
-   await scanner.getByRole('button',{name:'Continue scan'}).click();
+   await form.getByLabel('Institution').fill('Example school');
+   await form.getByRole('link',{name:/Continue to the next section/}).click();
    await scanner.getByText('2 pages captured. Ready to review your draft.').waitFor();
+   await scanner.getByRole('list',{name:'Captured form sections'}).getByText('Project title').waitFor();
   }else{
    await scanner.getByText('1 page captured. Ready to review your draft.').waitFor().catch(async error=>{
     throw Error(await scanner.locator('#scan-status').textContent(),{cause:error});

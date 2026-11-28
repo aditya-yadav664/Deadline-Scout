@@ -462,10 +462,10 @@ function mountBackup(){
       section.className='backup-shell embedded-backup';
       section.append(...editor.childNodes);
       const stylesheet=document.createElement('link');
-      stylesheet.rel='stylesheet';stylesheet.href='/backup.css?v=registration-scan-2';
+      stylesheet.rel='stylesheet';stylesheet.href='/backup.css?v=registration-scan-3';
       document.head.append(stylesheet);
       target.replaceChildren(section);
-      return await import('./backup.js?v=registration-scan-2');
+      return await import('./backup.js?v=registration-scan-3');
     })().catch(error=>{target.textContent=error.message;backupMount=null;});
   }
   return backupMount;
